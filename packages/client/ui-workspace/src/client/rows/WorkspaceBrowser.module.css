@@ -135,7 +135,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  /* Collapse ceiling for the search animation (headerActionsHidden → 0), wide
+     enough for the two shipped buttons plus headerAction seat entries. */
+  max-width: 160px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -517,6 +519,12 @@
 
 .listTopDropActive > .workspaceDropBefore:first-child::before {
   display: none;
+}
+
+/* A Session row from another group hovers this one: dropping hands it to the session-drop handler. */
+.workspaceDropInto {
+  border-radius: var(--dsw-radius-md);
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-state-business-primary);
 }
 
 .workspaceDropBefore::before {

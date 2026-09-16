@@ -21,7 +21,8 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { RowToast } from './contract/slots.ts'
+import type { RowToast, SessionDropHandler } from './contract/slots.ts'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
@@ -143,6 +144,16 @@ export interface UiWorkspace {
    * @returns idempotent disposer owned by the caller's Cordis fiber.
    */
   whenAccess(workspaceId: WorkspaceId, action: RemoteEndpoint, callback: () => AccessEffect): () => void
+  /**
+   * Receive the Session rows the user drops on another Workspace group in the
+   * sidebar. Without a handler such a drop does nothing and the group does
+   * not light up; with several, the one registered last receives it.
+   * @param handler - called with the dropped Session, its displayed title, and the destination Workspace.
+   * @returns idempotent disposer owned by the caller's Cordis fiber.
+   */
+  handleSessionDrop(handler: SessionDropHandler): () => void
+  /** The handler that currently receives Session drops, as the sidebar reads it. */
+  readonly sessionDrop: ObservableSnapshot<SessionDropHandler | undefined>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -170,6 +181,9 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     readonly attempt: Promise<SessionId>
   }>()
   private readonly lifetime = new AbortController()
+  private readonly sessionDropHandlers: SessionDropHandler[] = []
+  /** The handler that currently receives Session drops: the one registered last. */
+  readonly sessionDrop = createSnapshotStore<SessionDropHandler | undefined>(undefined, { flush: 'sync' })
   private readonly selection = createSnapshotStore<MainSelection>(
     {}, { persist: { name: 'dsh.sessions.current' } },
   )
@@ -426,6 +440,20 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     /* v8 ignore next -- this plugin injects remoteAccess, so the service is active while uiWorkspace is reachable. */
     if (access === undefined) throw new Error('ui-workspace: whenAccess requires the remoteAccess service')
     return access.whenResourceAccess('workspace', workspaceId, action, callback)
+  }
+
+  handleSessionDrop(handler: SessionDropHandler): () => void {
+    const dispose = this.ctx.effect(() => {
+      // A wrapper per registration, so the same function registered twice is two entries.
+      const entry: SessionDropHandler = (drop) => { handler(drop) }
+      this.sessionDropHandlers.push(entry)
+      this.sessionDrop.set(entry)
+      return () => {
+        this.sessionDropHandlers.splice(this.sessionDropHandlers.indexOf(entry), 1)
+        this.sessionDrop.set(this.sessionDropHandlers.at(-1))
+      }
+    }, 'ui-workspace: session-drop handler')
+    return () => { void dispose() }
   }
 
   private watchNavigation(): () => void {

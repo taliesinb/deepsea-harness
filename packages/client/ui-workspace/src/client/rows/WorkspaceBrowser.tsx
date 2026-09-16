@@ -31,7 +31,7 @@ import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { SessionDropHandler, WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
@@ -212,6 +212,8 @@ interface DragState {
   pinned: boolean
   /** Row the marker sits on and which half (insert above/below it). */
   over: { id: SessionNode['id']; half: 'before' | 'after' } | null
+  /** Another Workspace group the dragged row hovers, when a session-drop handler accepts drops there. */
+  into?: string | null
 }
 
 /** Apply a visible drop to the complete account without removing hidden members. */
@@ -292,6 +294,8 @@ type SessionTreeProps = Pick<
   revealSessionId?: SessionId | undefined
   /** Acknowledge that the chosen Session row has been revealed. */
   onSessionRevealed: (sessionId: SessionId) => void
+  /** The registered session-drop handler: a row dropped on another Workspace group goes to it. */
+  onSessionDrop: SessionDropHandler | undefined
 }
 
 /** The list-empty placeholder — a glyph over the text; the archived-only view names its filter and offers the way back. */
@@ -320,7 +324,7 @@ function SessionTree({
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
   setSessionOrder, home, t,
-  revealSessionId, onSessionRevealed, shortcuts,
+  revealSessionId, onSessionRevealed, shortcuts, onSessionDrop,
 }: SessionTreeProps) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
@@ -511,6 +515,13 @@ function SessionTree({
       : (half: 'before' | 'after') => {
         commitWorkspaceDrag(workspaceDrag, { id: workspaceId, half })
       }
+    // A Session row dragged from another account onto this whole group goes
+    // to the registered session-drop handler, not to a reorder. The innermost
+    // hovered group wins (handlers stop here, so enclosing sections stay dark).
+    const foreignSession = onSessionDrop !== undefined && drag !== null && drag.accountKey !== group.key && workspaceId !== undefined
+      ? { drag, workspaceId, handler: onSessionDrop }
+      : undefined
+    const foreignHover = foreignSession !== undefined && drag?.into === group.key
     return (
     // Group section: header, descendant Workspaces, and own Session rows. The
     // inter-group breathing room is the section's own margin
@@ -522,8 +533,22 @@ function SessionTree({
           css.groupSection,
           workspaceMarker === 'before' && css.workspaceDropBefore,
           workspaceMarker === 'after' && css.workspaceDropAfter,
+          foreignHover && css.workspaceDropInto,
         )}
-        onDragOver={workspaceDrag === null
+        onDragLeave={foreignSession === undefined
+          ? undefined
+          : (e) => {
+            if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return
+            setDrag(d => (d === null || d.into !== group.key ? d : { ...d, into: null }))
+          }}
+        onDragOver={foreignSession !== undefined
+          ? (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            e.dataTransfer.dropEffect = 'move'
+            setDrag(d => (d === null || d.into === group.key ? d : { ...d, over: null, into: group.key }))
+          }
+          : workspaceDrag === null
           ? undefined
           : (e) => {
             e.preventDefault()
@@ -537,7 +562,20 @@ function SessionTree({
               hoverWorkspace(workspaceGroupHalf(e))
             }
           }}
-        onDrop={workspaceDrag === null
+        onDrop={foreignSession !== undefined
+          ? (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            sessionDropCommitted.current = true
+            setDrag(null)
+            const { sessionId } = foreignSession.drag
+            foreignSession.handler({
+              sessionId,
+              displayTitle: list.byId[sessionId]?.displayTitle ?? '',
+              workspaceId: foreignSession.workspaceId,
+            })
+          }
+          : workspaceDrag === null
           ? undefined
           : (e) => {
             e.preventDefault()
@@ -923,6 +961,7 @@ export function WorkspaceBrowser({
   useHostInfo,
   useShortcuts,
   useWorkspaceShortcuts,
+  useSessionDrop,
   requestSearch,
   requestAddWorkspace,
   closeAddWorkspace,
@@ -935,6 +974,7 @@ export function WorkspaceBrowser({
   const searchShortcut = shortcuts.find(row => row.id === 'session.search')
   const addShortcut = shortcuts.find(row => row.id === 'workspace.add')
   const shortcutState = useWorkspaceShortcuts(state => state)
+  const sessionDrop = useSessionDrop(handler => handler)
   // Ordering remains live while the rail or search replaces the list body.
   const list = useSessions(state => state)
   const storedWorkspaces = useWorkspaces(state => state.items)
@@ -1311,6 +1351,8 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
+          {/* Additive seat: other kinds of workspace a plugin can add. */}
+          {renderSlot('sidebar.workspaces.headerAction', { wide })}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
         <WorkspacePickFlow
@@ -1423,10 +1465,13 @@ export function WorkspaceBrowser({
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 revealSessionId={revealSessionId}
                 onSessionRevealed={acknowledgeSessionReveal}
+                onSessionDrop={sessionDrop}
                 home={home}
                 t={t}
               />
             ))}
+        {/* Additive seat: extra groups below the local tree (not while searching). */}
+        {wide && normalizedQuery === '' && renderSlot('sidebar.workspaces.extra', { wide })}
       </div>
 
       {workspaceActionRequest !== null && <WorkspaceDialogs key={`${workspaceActionRequest.action}/${workspaceActionRequest.workspaceId}`}
