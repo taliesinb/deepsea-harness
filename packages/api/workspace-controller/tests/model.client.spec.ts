@@ -5,6 +5,7 @@ import {
 import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
+  WorkspaceBaseline,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
@@ -146,6 +147,10 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   unpinSession(request: WorkspaceUnpinSessionRequest): Promise<RemoteResult<WorkspacePinValue>> {
     this.record('unpinSession', request)
     return this.onUnpinSession(request)
+  }
+
+  list(): Promise<RemoteResult<WorkspaceBaseline>> {
+    return Promise.resolve(remoteOk({ items: [], archivedSessionIds: [], pinnedSessionIds: [] }))
   }
 
   follow(_signal?: AbortSignal): RemoteStreamHandle<WorkspaceFollowFrame, never> {

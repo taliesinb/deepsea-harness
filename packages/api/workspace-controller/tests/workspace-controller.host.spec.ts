@@ -327,6 +327,18 @@ describe('WorkspaceController follow', () => {
     }).toThrow('references missing Workspace "missing"')
   })
 
+  it('reads the follow baseline once through the unary list', async () => {
+    const { controller, ctx, root } = await harness()
+    const existing = await ctx.workspaceRegistry.create(stageDir(root, 'listed'))
+    const session = ctx.sessions.create(SessionId('listed-pinned'), { meta: { cwd: root } })
+    await controller.pinSession({ sessionId: session.id })
+    expect(controller.list()).toEqual({
+      items: [expect.objectContaining({ workspaceId: existing.id })],
+      archivedSessionIds: [],
+      pinnedSessionIds: [session.id],
+    })
+  })
+
   it('starts a fresh feed with existing pins and follows their removal', async () => {
     const { controller, ctx, root } = await harness()
     const session = ctx.sessions.create(SessionId('already-pinned'), { meta: { cwd: root } })

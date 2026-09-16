@@ -1300,6 +1300,8 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
+          {/* Additive seat: other kinds of workspace a plugin can add. */}
+          {renderSlot('sidebar.workspaces.headerAction', { wide })}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
         <WorkspacePickFlow
@@ -1417,6 +1419,8 @@ export function WorkspaceBrowser({
                 }}
               />
             ))}
+        {/* Additive seat: extra groups below the local tree (not while searching). */}
+        {wide && normalizedQuery === '' && renderSlot('sidebar.workspaces.extra', { wide })}
       </div>
 
       <Modal

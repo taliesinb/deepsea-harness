@@ -151,6 +151,27 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('renders the header seat in the rail and the extra seat below the tree only while wide and not searching', () => {
+    const seats: Array<{ name: string; wide: boolean }> = []
+    const renderSlot: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) => {
+      if (name !== 'sidebar.workspaces.headerAction' && name !== 'sidebar.workspaces.extra') return null
+      seats.push({ name, wide: (owner as { wide: boolean }).wide })
+      return <div data-testid={name} />
+    }
+    const b = mount({ renderSlot, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
+    expect(screen.getByTestId('sidebar.workspaces.headerAction')).toBeTruthy()
+    const extra = screen.getByTestId('sidebar.workspaces.extra')
+    // After the local tree, in the same list area.
+    expect(extra.previousElementSibling).not.toBeNull()
+    expect(seats).toContainEqual({ name: 'sidebar.workspaces.extra', wide: true })
+    rerender(b, { wide: false })
+    expect(screen.queryByTestId('sidebar.workspaces.extra')).toBeNull()
+    expect(screen.getByTestId('sidebar.workspaces.headerAction')).toBeTruthy()
+    rerender(b, { wide: true })
+    fireEvent.change(screen.getByPlaceholderText(zh['search.placeholder']), { target: { value: 'alp' } })
+    expect(screen.queryByTestId('sidebar.workspaces.extra')).toBeNull()
+  })
+
   it.each([{ messages: en, common: commonEn }, { messages: zh, common: commonZh }])('shows localized fork failures and dismisses them', ({ messages, common }) => {
     const b = mount({ t: makeTranslate(messages, common) })
     act(() => { b.controls.forkFailed('unavailable') })
