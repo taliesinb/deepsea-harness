@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore, defineStore, shallowEqual } from '../src/index.ts'
+import {
+  createSnapshotStore, defineStore, embedPresentation, persistenceKey, setEmbedPresentation, shallowEqual,
+} from '../src/index.ts'
 
 interface State {
   a: { n: number }
@@ -9,9 +11,41 @@ interface State {
 const init = (): State => ({ a: { n: 1 }, b: { list: ['x'] } })
 
 afterEach(() => {
+  setEmbedPresentation(undefined)
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
+})
+
+describe('page mode', () => {
+  it('keeps persisted names verbatim in the ordinary shell', () => {
+    expect(embedPresentation()).toBeUndefined()
+    expect(persistenceKey('dsh.sessions.current')).toBe('dsh.sessions.current')
+  })
+
+  it('namespaces persisted stores per embedded Session so a framed shell cannot clobber its framer', () => {
+    const backing = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => { backing.set(k, v) },
+      removeItem: (k: string) => { backing.delete(k) },
+    })
+    const host = createSnapshotStore<string>('', { persist: { name: 'spec-selection' } })
+    host.set('host-session')
+
+    setEmbedPresentation({ sessionId: 'remote-1' })
+    expect(embedPresentation()).toEqual({ sessionId: 'remote-1' })
+    expect(persistenceKey('spec-selection')).toBe('embed:remote-1:spec-selection')
+    const embedded = createSnapshotStore<string>('', { persist: { name: 'spec-selection' } })
+    expect(embedded.getSnapshot()).toBe('')
+    embedded.set('remote-session')
+    expect(backing.get('spec-selection')).toBe(JSON.stringify('host-session'))
+    expect(backing.get('embed:remote-1:spec-selection')).toBe(JSON.stringify('remote-session'))
+
+    setEmbedPresentation(undefined)
+    const revivedHost = createSnapshotStore<string>('', { persist: { name: 'spec-selection' } })
+    expect(revivedHost.getSnapshot()).toBe('host-session')
+  })
 })
 
 describe('createSnapshotStore', () => {

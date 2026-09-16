@@ -14,6 +14,12 @@ import { freeze, produce } from 'immer'
 import type {
   ActionsDecl, BakedActions, ObservableSnapshot, StoreHandle, StoreInstance, StoreSpec,
 } from './contract.ts'
+import { persistenceKey } from './page-mode.ts'
+
+// Page presentation mode: set by the web boot kernel, read by shell plugins,
+// and the namespace every persisted store name passes through below.
+export { embedPresentation, persistenceKey, setEmbedPresentation } from './page-mode.ts'
+export type { EmbedPresentation } from './page-mode.ts'
 
 // Store contract types are ui-slots authority; re-exported beside the engine
 // so store consumers get one import path.
@@ -148,8 +154,11 @@ function attachPersistence<T>(api: StoreApi<T>, name: string): void {
   // persistence silently disables — same contract as a storage failure, minus
   // the per-store console noise a ReferenceError would produce.
   if (typeof localStorage === 'undefined') return
+  // The declared name is the store's identity; the page mode decides the
+  // storage key (an embedded shell must not share entries with its framer).
+  const key = persistenceKey(name)
   try {
-    const raw = localStorage.getItem(name)
+    const raw = localStorage.getItem(key)
     if (raw !== null) {
       api.setState(devFreeze(JSON.parse(raw) as T), true)
     }
@@ -158,7 +167,7 @@ function attachPersistence<T>(api: StoreApi<T>, name: string): void {
   }
   api.subscribe((state) => {
     try {
-      localStorage.setItem(name, JSON.stringify(state))
+      localStorage.setItem(key, JSON.stringify(state))
     } catch (error) {
       console.error(`snapshot store '${name}' persistence failed:`, error)
     }
