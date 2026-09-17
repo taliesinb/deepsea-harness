@@ -7,6 +7,7 @@
   },
   "files": [
     "src/archive.ts",
+    "src/import.ts",
     "src/index.ts",
     "src/routes.ts"
   ],
@@ -18,6 +19,7 @@
     { "path": "../../core/session" },
     { "path": "../../interaction/commands" },
     { "path": "../../session/session-format" },
+    { "path": "../../api/session-controller/tsconfig.host.json" },
     { "path": "../../session/session-persistence" },
     { "path": "../session-query" }
   ]

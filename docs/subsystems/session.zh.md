@@ -908,6 +908,27 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('moveMany') moveMany(request: SessionMoveManyRequest): Promise<SessionMoveManyValue>
 
 /**
+ * Store parsed Session logs, one root and its subagent descendants, as
+ * Sessions of this Host under a Workspace, and attach the root to it.
+ * Exported ids are kept when free; taken ones are replaced and the family
+ * re-identified. Attachments the logs reference must already be stored.
+ * @param logs - the root log and every descendant log, in any order.
+ * @param target - destination Workspace, origin label, and id and notice policy.
+ * @returns the stored root id and every stored Session.
+ */
+storeSessionLogs(logs: SessionLogFamily, target: SessionImportTarget): Promise<SessionImportResult>
+
+/**
+ * Import the entries of one `session.export` archive into a Workspace:
+ * decode and validate every log (migrating historical generations), save
+ * its attachments, and store the logs as {@link storeSessionLogs} does.
+ * @param entries - archive path to entry bytes.
+ * @param target - destination Workspace, origin label, and id and notice policy.
+ * @returns the stored root id and every stored Session.
+ */
+importSessionArchive( entries: Readonly<Record<string, Uint8Array>>, target: SessionImportTarget, ): Promise<SessionImportResult>
+
+/**
  * Admit one prompt after explicitly resuming its Session.
  * @param request - Session identity, prompt content, source metadata, and delivery mode.
  * @param signal - caller cancellation before prompt admission begins.

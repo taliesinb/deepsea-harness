@@ -20,6 +20,9 @@ import {
 } from './agent.ts'
 import { SessionCommandController } from './commands.ts'
 import { SessionMoveController } from './move.ts'
+import {
+  importSessionArchive, storeSessionLogs, type SessionImportResult, type SessionImportTarget, type SessionLogFamily,
+} from './import.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
@@ -69,6 +72,10 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+export type {
+  ImportedSession, ParsedSessionLog, SessionImportResult, SessionImportTarget, SessionLogFamily,
+} from './import.ts'
+export { FOREIGN_DELIVERY_EVENT_TYPE, SESSION_IMPORT_NOTICE_SOURCE } from './import.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
@@ -453,6 +460,34 @@ export class SessionController extends TypertRemoteService {
   @Remote('moveMany')
   moveMany(request: SessionMoveManyRequest): Promise<SessionMoveManyValue> {
     return this.moves.moveMany(request)
+  }
+
+  /**
+   * Store parsed Session logs, one root and its subagent descendants, as
+   * Sessions of this Host under a Workspace, and attach the root to it.
+   * Exported ids are kept when free; taken ones are replaced and the family
+   * re-identified. Attachments the logs reference must already be stored.
+   * @param logs - the root log and every descendant log, in any order.
+   * @param target - destination Workspace, origin label, and id and notice policy.
+   * @returns the stored root id and every stored Session.
+   */
+  storeSessionLogs(logs: SessionLogFamily, target: SessionImportTarget): Promise<SessionImportResult> {
+    return storeSessionLogs(this.ctx, logs, target)
+  }
+
+  /**
+   * Import the entries of one `session.export` archive into a Workspace:
+   * decode and validate every log (migrating historical generations), save
+   * its attachments, and store the logs as {@link storeSessionLogs} does.
+   * @param entries - archive path to entry bytes.
+   * @param target - destination Workspace, origin label, and id and notice policy.
+   * @returns the stored root id and every stored Session.
+   */
+  importSessionArchive(
+    entries: Readonly<Record<string, Uint8Array>>,
+    target: SessionImportTarget,
+  ): Promise<SessionImportResult> {
+    return importSessionArchive(this.ctx, entries, target)
   }
 
   /**

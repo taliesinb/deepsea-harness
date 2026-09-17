@@ -14,8 +14,9 @@
  * Subagent descendants stored in the same cwd move with their root.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { boundContextSummary, createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
-import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-agent'
+import { boundContextSummary, createUserMessage, type ContextFormed, type UserMessage } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionPersistence, SessionRelocateAppend } from '@deepseek-ai/dsh-session-persistence'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
@@ -30,8 +31,11 @@ import type {
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
-    /** Next-step notice a Session move leaves for the moved Session's Agent. */
-    'session-move': { readonly kind: 'session-move' } & ContextFormed
+    /**
+     * Next-step notice a Session move leaves for the moved Session's Agent;
+     * `from` names the Workspace the Agent last ran in.
+     */
+    'session-move': { readonly kind: 'session-move'; readonly from: SessionMoveLabel } & ContextFormed
   }
 }
 
@@ -43,6 +47,9 @@ export interface SessionMoveLabel {
   readonly title: string
   readonly path: string
 }
+
+/** The source kind a V3 log's plugin-attributed move notice carries after migration. */
+const MIGRATED_MOVE_NOTICE_SOURCE = `plugin:${SESSION_MOVE_NOTICE_SOURCE}`
 
 const PERMISSION_LABELS: Readonly<Record<string, string>> = {
   'workspace-write': 'Workspace Write',
@@ -229,7 +236,7 @@ export class SessionMoveController {
     const from = this.accountOf(sessionId)
     const append: SessionRelocateAppend[] = policy.notify === false
       ? []
-      : [this.notice(fromLabel, toLabel, await this.lastSandboxMode(sessionId))]
+      : [this.notice(fromLabel, toLabel, await this.readCold(sessionId))]
     let relocated
     try {
       relocated = await persistence.relocate({ id: sessionId, cwd: destination.path, append })
@@ -268,18 +275,27 @@ export class SessionMoveController {
     return undefined
   }
 
-  private notice(from: SessionMoveLabel, to: SessionMoveLabel, sandboxMode: string | undefined): SessionRelocateAppend {
+  /**
+   * The next-step notice for one move. Successive moves before the Agent runs
+   * again replace the pending notices instead of stacking one per hop: the
+   * Agent needs where it last ran and where it is now, so the replaced
+   * notice's origin carries forward as `from`.
+   */
+  private notice(from: SessionMoveLabel, to: SessionMoveLabel, cold: ColdMoveFacts): SessionRelocateAppend {
+    const origin = cold.pending?.from ?? from
     return {
       type: 'agent/inbox/spliced',
       data: {
         target: 'next-step',
-        start: 0,
+        start: cold.pending?.index ?? 0,
+        ...(cold.pending === undefined ? {} : { removedCount: cold.pending.count }),
         inserted: [createUserMessage({
-          content: [{ type: 'text', text: sessionMoveNoticeText(from, to, sandboxMode) }],
+          content: [{ type: 'text', text: sessionMoveNoticeText(origin, to, cold.sandboxMode) }],
           source: {
             kind: SESSION_MOVE_NOTICE_SOURCE,
+            from: origin,
             form: 'notice',
-            summary: boundContextSummary(`Moved from ${from.title} to ${to.title}`),
+            summary: boundContextSummary(`Moved from ${origin.title} to ${to.title}`),
           },
         })],
       },
@@ -323,25 +339,65 @@ export class SessionMoveController {
     return found
   }
 
-  /** The Session's last recorded `sandbox/mode`, read cold; absent when the log has none or cannot be read. */
-  private async lastSandboxMode(sessionId: SessionId): Promise<string | undefined> {
+  /**
+   * Cold facts a move notice needs from the stored log: the last recorded
+   * `sandbox/mode` and the run of move notices still pending in the
+   * next-step inbox. A log that cannot be read yields neither; the relocation
+   * reports the read failure itself.
+   */
+  private async readCold(sessionId: SessionId): Promise<ColdMoveFacts> {
+    let events: readonly SessionEvent[]
     try {
       const handle = await this.persistence().open(sessionId, 'read')
       try {
-        const { events } = await handle.read()
-        // `sandbox/mode` is declared by the sandbox policy package, which this one does not depend on.
-        const last: { readonly data: unknown } | undefined = events.findLast(
-          (event: { readonly type: string }) => event.type === 'sandbox/mode',
-        )
-        const mode = typeof last?.data === 'object' && last.data !== null ? (last.data as { readonly mode?: unknown }).mode : undefined
-        return typeof mode === 'string' ? mode : undefined
+        events = (await handle.read()).events
       } finally {
         await handle.close()
       }
     } catch (error: unknown) {
-      // The notice omits the permission clause; the relocation reports the read failure itself.
-      this.ctx.logger.debug(`session move: sandbox mode of "${sessionId}" unavailable: ${String(error)}`)
-      return undefined
+      this.ctx.logger.debug(`session move: cold facts of "${sessionId}" unavailable: ${String(error)}`)
+      return {}
+    }
+    let sandboxMode: string | undefined
+    let pending: readonly UserMessage[] = []
+    for (const event of events) {
+      // `sandbox/mode` is declared by the sandbox policy package, which this one does not depend on.
+      const wide: { readonly type: string; readonly data: unknown } = event
+      if (wide.type === 'sandbox/mode' && typeof wide.data === 'object' && wide.data !== null) {
+        const mode = (wide.data as { readonly mode?: unknown }).mode
+        if (typeof mode === 'string') sandboxMode = mode
+      }
+      if (event.type !== 'agent/inbox/spliced' || event.data.target !== 'next-step') continue
+      pending = pending.toSpliced(event.data.start, event.data.removedCount ?? 0, ...event.data.inserted)
+    }
+    const index = pending.findIndex(isMoveNotice)
+    if (index === -1) return sandboxMode === undefined ? {} : { sandboxMode }
+    let count = 0
+    while (index + count < pending.length && isMoveNotice(pending[index + count] as UserMessage)) count += 1
+    const source = (pending[index] as UserMessage).source
+    const from = 'from' in source && isMoveLabel(source.from) ? source.from : undefined
+    return {
+      ...(sandboxMode === undefined ? {} : { sandboxMode }),
+      pending: { index, count, ...(from === undefined ? {} : { from }) },
     }
   }
+}
+
+/** What a move notice needs from the stored log. */
+interface ColdMoveFacts {
+  /** The last recorded `sandbox/mode`. */
+  readonly sandboxMode?: string
+  /** The run of move notices pending in the next-step inbox, and the origin the first one names. */
+  readonly pending?: { readonly index: number; readonly count: number; readonly from?: SessionMoveLabel }
+}
+
+function isMoveNotice(message: UserMessage): boolean {
+  const kind: string = message.source.kind
+  return kind === SESSION_MOVE_NOTICE_SOURCE || kind === MIGRATED_MOVE_NOTICE_SOURCE
+}
+
+function isMoveLabel(value: unknown): value is SessionMoveLabel {
+  return typeof value === 'object' && value !== null
+    && typeof (value as { readonly title?: unknown }).title === 'string'
+    && typeof (value as { readonly path?: unknown }).path === 'string'
 }

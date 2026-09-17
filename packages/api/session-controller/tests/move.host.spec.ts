@@ -134,6 +134,18 @@ describe('SessionMoveController', () => {
     expect(emitted.map(meta => [meta.id, meta.cwd])).toEqual([['s1', paths.b]])
   })
 
+  it('replaces the pending notice on a second move before the Agent runs, keeping the original origin', async () => {
+    const { ctx, paths, a, b, c, controller } = await harness()
+    await store(ctx, header('s3', paths.a), a)
+    await controller.move({ sessionId: SessionId('s3'), destination: { workspaceId: b.id } })
+    await controller.move({ sessionId: SessionId('s3'), destination: { workspaceId: c.id } })
+    const pending = await pendingNextStep(ctx, 's3')
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.text).toContain(`from \`Alpha\` (${paths.a}) to \`Gamma\` (${paths.c})`)
+    expect(c.sessionIds).toEqual(['s3'])
+    expect(b.sessionIds).toEqual([])
+  })
+
   it('omits the notice on request, refuses the same workspace, and reports unknown destinations and sessions', async () => {
     const { ctx, paths, a, b, controller } = await harness()
     await store(ctx, header('quiet', paths.a), a)

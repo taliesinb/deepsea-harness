@@ -2025,6 +2025,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'moved ids and skipped Sessions with reasons.',
       },
       {
+        signature: 'storeSessionLogs(logs: SessionLogFamily, target: SessionImportTarget): Promise<SessionImportResult>',
+        description: 'Store parsed Session logs, one root and its subagent descendants, as Sessions of this Host under a Workspace, and attach the root to it. Exported ids are kept when free; taken ones are replaced and the family re-identified. Attachments the logs reference must already be stored.',
+        parameters: [{ name: 'logs', description: 'the root log and every descendant log, in any order.' }, { name: 'target', description: 'destination Workspace, origin label, and id and notice policy.' }],
+        returns: 'the stored root id and every stored Session.',
+      },
+      {
+        signature: 'importSessionArchive( entries: Readonly<Record<string, Uint8Array>>, target: SessionImportTarget, ): Promise<SessionImportResult>',
+        description: 'Import the entries of one `session.export` archive into a Workspace: decode and validate every log (migrating historical generations), save its attachments, and store the logs as storeSessionLogs does.',
+        parameters: [{ name: 'entries', description: 'archive path to entry bytes.' }, { name: 'target', description: 'destination Workspace, origin label, and id and notice policy.' }],
+        returns: 'the stored root id and every stored Session.',
+      },
+      {
         signature: '@Remote(\'prompt\') prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>',
         description: 'Admit one prompt after explicitly resuming its Session.',
         parameters: [{ name: 'request', description: 'Session identity, prompt content, source metadata, and delivery mode.' }, { name: 'signal', description: 'caller cancellation before prompt admission begins.' }],
@@ -5459,6 +5471,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ImageVariantId = Branded<\'ImageVariantId\'>;',
   },
   {
+    name: 'ImportedSession',
+    declaration: 'export interface ImportedSession {\n    readonly sessionId: SessionId;\n    readonly exportedId: SessionId;\n    readonly parentSessionId?: SessionId;\n}',
+  },
+  {
     name: 'IncompatiblePlugin',
     declaration: 'export interface IncompatiblePlugin {\n    name: string;\n    version: string;\n    runtimeVersion: string;\n    peers: Record<string, string>;\n}',
   },
@@ -6041,6 +6057,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PaneOpenResult',
     declaration: 'export interface PaneOpenResult {\n    id: string;\n    isPlaced: boolean;\n    reason?: string;\n}',
+  },
+  {
+    name: 'ParsedSessionLog',
+    declaration: 'export interface ParsedSessionLog {\n    readonly header: SessionHeader;\n    readonly events: readonly SessionEvent[];\n    readonly inheritedEventCount: SessionLogOffset;\n}',
   },
   {
     name: 'PeerAdmission',
@@ -6819,6 +6839,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SessionId = Branded<\'SessionId\'>;',
   },
   {
+    name: 'SessionImportResult',
+    declaration: 'export interface SessionImportResult {\n    readonly sessionId: SessionId;\n    readonly imported: readonly ImportedSession[];\n    readonly attachments: number;\n}',
+  },
+  {
+    name: 'SessionImportTarget',
+    declaration: 'export interface SessionImportTarget {\n    readonly workspace: Workspace;\n    readonly origin: string;\n    readonly keepIds?: boolean;\n    readonly notify?: boolean;\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
     name: 'SessionInspection',
     declaration: 'export interface SessionInspection extends SessionStorageMetadata {\n    readonly events: readonly SessionEvent[];\n}',
   },
@@ -6837,6 +6865,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionListValue',
     declaration: 'export interface SessionListValue {\n    readonly items: readonly SessionSummary[];\n}',
+  },
+  {
+    name: 'SessionLogFamily',
+    declaration: 'export interface SessionLogFamily {\n    readonly root: ParsedSessionLog;\n    readonly children: readonly ParsedSessionLog[];\n}',
   },
   {
     name: 'SessionLogOffset',
