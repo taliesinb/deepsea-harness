@@ -23,7 +23,6 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import { basename } from 'node:path'
 import type { ApiSessionAgentController } from './agent.ts'
-import type { ApiSessionList } from './list.ts'
 import type {
   SessionMoveDestination, SessionMoveManyRequest, SessionMoveManyValue, SessionMoveRequest, SessionMoveSkip,
   SessionMoveValue,
@@ -110,12 +109,10 @@ export class SessionMoveController {
   /**
    * @param ctx - Host context carrying persistence, the Workspace registry, Agents, and Sessions.
    * @param agents - Agent controller that retires a resident Agent before a move.
-   * @param list - Session list that summarizes a moved cold Session.
    */
   constructor(
     private readonly ctx: Context,
     private readonly agents: ApiSessionAgentController,
-    private readonly list: ApiSessionList,
   ) {}
 
   /**
@@ -270,8 +267,8 @@ export class SessionMoveController {
     } catch (error: unknown) {
       this.ctx.logger.warn(`session move: projection cache rebind for "${sessionId}" failed: ${String(error)}`)
     }
-    // Clients merge summaries by id: the new cwd lands as an upsert.
-    this.ctx.emit('api-session/added', this.list.summarizeCold(relocated.header))
+    // List owners refresh the row: clients merge summaries by id, so the new cwd lands as an upsert.
+    this.ctx.emit('session-persistence/stored', relocated.header)
     return undefined
   }
 

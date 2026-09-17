@@ -430,4 +430,28 @@ relocate?(request: SessionRelocateRequest): Promise<SessionRelocateResult>
 Types: [SessionId](core.md)
 
 Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="session-persistence-events"></a>
+
+### `session-persistence/*` events
+
+<a id="session-persistencestored--emit"></a>
+
+#### `session-persistence/stored` — emit
+
+A stored session appeared or changed identity outside the live store — created cold by an import, or relocated to another cwd — so list owners refresh their row for it. The writer emits it after the change is durable. Carries the header now stored.
+
+```ts cordis-catalog
+/**
+ * A stored session appeared or changed identity outside the live store —
+ * created cold by an import, or relocated to another cwd — so list owners
+ * refresh their row for it. The writer emits it after the change is
+ * durable. Carries the header now stored.
+ * @param header - the stored header after the change.
+ * @mode emit
+ */
+'session-persistence/stored'(header: SessionHeader): void
+```
+
+Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

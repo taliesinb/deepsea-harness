@@ -24,7 +24,6 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import type { ApiSessionAgentController } from '../src/agent.ts'
-import type { ApiSessionList } from '../src/list.ts'
 import { SESSION_MOVE_NOTICE_SOURCE, SessionMoveController, sessionMoveNoticeText } from '../src/move.ts'
 
 const dirs: string[] = []
@@ -64,15 +63,11 @@ async function harness() {
   const b = await ctx.workspaceRegistry.create(paths.b, 'Beta')
   const c = await ctx.workspaceRegistry.create(paths.c, 'Gamma')
   const emitted: SessionHeader[] = []
-  const summarizeCold = vi.fn((header: SessionHeader) => {
-    emitted.push(header)
-    return { sessionId: header.id, updatedAt: header.createdAt, agentAvailable: false, running: false, blank: false }
-  })
+  ctx.on('session-persistence/stored', (stored) => { emitted.push(stored) })
   const retire = vi.fn(async (id: SessionId) => live.delete(id))
   const controller = new SessionMoveController(
     ctx,
     { retire } as Pick<ApiSessionAgentController, 'retire'> as ApiSessionAgentController,
-    { summarizeCold } as Pick<ApiSessionList, 'summarizeCold'> as ApiSessionList,
   )
   return { ctx, home, paths, a, b, c, live, retire, controller, emitted }
 }

@@ -2205,6 +2205,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'meta', description: 'the stored session header (identity witness).' }, { name: 'inheritedEventCount', description: 'exact inherited prefix length for projection initialization and identity.' }, { name: 'events', description: 'the session\'s complete log, in seq order.' }],
         returns: 'the projection cut at the log end.',
       },
+      {
+        signature: 'settled(id: SessionId): Promise<void>',
+        description: 'Resolve once every record write started for one session so far has settled, successfully or not; afterwards `cachedSnapshot` observes the outcome. A listing that follows a fire-and-forget `coldSnapshot` (an imported session) awaits this before reading the record back.',
+        parameters: [{ name: 'id', description: 'the session whose pending writes to await.' }],
+        returns: 'completion; never rejects.',
+      },
     ],
   },
   {
@@ -4233,6 +4239,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Durable task set changed; clients refetch global task and Session-active catalogs.',
     description: 'Durable task set changed; clients refetch global task and Session-active catalogs.',
     parameters: [],
+  },
+  {
+    name: 'session-persistence/stored',
+    mode: 'emit',
+    signature: '\'session-persistence/stored\'(header: SessionHeader): void',
+    summary: 'A stored session appeared or changed identity outside the live store — created cold by an import, or relocated to another cwd — so list owners refresh their row for it.',
+    description: 'A stored session appeared or changed identity outside the live store — created cold by an import, or relocated to another cwd — so list owners refresh their row for it. The writer emits it after the change is durable. Carries the header now stored.',
+    parameters: [{ name: 'header', description: 'the stored header after the change.' }],
   },
   {
     name: 'session-telemetry/record',

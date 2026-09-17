@@ -210,9 +210,19 @@ async write(session: Session): Promise<void>
  * @returns the projection cut at the log end.
  */
 coldSnapshot( meta: SessionHeader, inheritedEventCount: SessionLogOffset, events: readonly SessionEvent[], ): ProjectionSnapshot
+
+/**
+ * Resolve once every record write started for one session so far has
+ * settled, successfully or not; afterwards `cachedSnapshot` observes the
+ * outcome. A listing that follows a fire-and-forget `coldSnapshot` (an
+ * imported session) awaits this before reading the record back.
+ * @param id - the session whose pending writes to await.
+ * @returns completion; never rejects.
+ */
+settled(id: SessionId): Promise<void>
 ```
 
-Types: [Session](session.md) · [SessionEvent](session.md) · [SessionHeader](persistence.md) · [SessionLogOffset](session.md)
+Types: [Session](session.md) · [SessionEvent](session.md) · [SessionHeader](persistence.md) · [SessionId](core.md) · [SessionLogOffset](session.md)
 
 Source: [`packages/session/session-projection-cache/src/index.ts`](../../packages/session/session-projection-cache/src/index.ts)
 

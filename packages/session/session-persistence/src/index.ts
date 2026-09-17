@@ -144,6 +144,18 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
   }
+
+  interface Events {
+    /**
+     * A stored session appeared or changed identity outside the live store —
+     * created cold by an import, or relocated to another cwd — so list owners
+     * refresh their row for it. The writer emits it after the change is
+     * durable. Carries the header now stored.
+     * @param header - the stored header after the change.
+     * @mode emit
+     */
+    'session-persistence/stored'(header: SessionHeader): void
+  }
 }
 
 /**

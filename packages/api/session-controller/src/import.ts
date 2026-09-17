@@ -18,7 +18,9 @@
  * {@link FOREIGN_DELIVERY_EVENT_TYPE} record, because the delivery endpoint
  * accepted that range for the old id only. The root receives one
  * `agent/inbox/spliced` next-step notice naming the origin, so its Agent
- * knows earlier file references may not resolve here.
+ * knows earlier file references may not resolve here. Every stored log is
+ * folded into the projection cache and announced with
+ * `session-persistence/stored`, so list owners show it with its title.
  * @module @deepseek-ai/dsh-api-session-controller/import
  */
 import { randomUUID } from 'node:crypto'
@@ -33,6 +35,7 @@ import {
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { historicalChildCatalogSource } from '@deepseek-ai/dsh-session-format-v3-to-v4'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -328,12 +331,22 @@ export async function storeSessionLogs(
     } finally {
       await handle.close()
     }
+    // Fold every projection over the stored log so the row lists with its
+    // title and statistics before the Session is first opened here.
+    try {
+      ctx.get('sessionProjectionCache')?.coldSnapshot(header, log.inheritedEventCount, events)
+    } catch (error: unknown) {
+      ctx.logger.warn(`session import: projection cache seed for "${sessionId}" failed: ${String(error)}`)
+    }
+    stored.push(header)
     return { sessionId, exportedId, ...(parent === undefined ? {} : { parentSessionId: parent }) }
   }
 
+  const stored: SessionHeader[] = []
   const imported: ImportedSession[] = [await store(logs.root, true)]
   for (const child of logs.children) imported.push(await store(child, false))
   await target.workspace.attachSession(rootId)
+  for (const header of stored) ctx.emit('session-persistence/stored', header)
   return { sessionId: rootId, imported, attachments: attachmentCount }
 }
 

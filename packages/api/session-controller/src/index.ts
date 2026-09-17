@@ -170,7 +170,7 @@ export class SessionController extends TypertRemoteService {
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(ctx, resolved.listWorkSliceMs)
-    this.moves = new SessionMoveController(ctx, this.agents, this.listState)
+    this.moves = new SessionMoveController(ctx, this.agents)
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
@@ -190,6 +190,17 @@ export class SessionController extends TypertRemoteService {
     })
     ctx.on('session/disposed', (session) => {
       ctx.emit('api-session/removed', session.id)
+    })
+    // Cold storage changes (import, relocation): clients merge summaries by id.
+    // A writer that just folded the log into the projection cache has a record
+    // write in flight; the summary waits for it so the row lists with its title.
+    ctx.on('session-persistence/stored', (header) => {
+      if (ctx.sessions.get(header.id) !== undefined) return
+      const cache = ctx.get('sessionProjectionCache')
+      void (cache?.settled(header.id) ?? Promise.resolve()).then(() => {
+        if (ctx.sessions.get(header.id) !== undefined) return
+        ctx.emit('api-session/added', this.listState.summarizeCold(header))
+      })
     })
     const publishAgentAvailability = ({ agent }: { agent: Agent }): undefined => {
       if (ctx.sessions.get(agent.id) === agent.session) {

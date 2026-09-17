@@ -469,6 +469,16 @@ describe('SessionProjectionCache listing read', () => {
     expect(cache.cachedPredecessorTitle(headerOf(id))).toBeUndefined()
   })
 
+  it('settles a fire-and-forget cold write before a listing reads it back', async () => {
+    const { cache } = await harness()
+    const id = SessionId('cold-settled')
+    const log: SessionEvent[] = [{ type: 'cache-test/mark', seq: SessionSeq(0), time: 0, data: { marks: ['cold'] } }]
+    await cache.settled(id)
+    cache.coldSnapshot(headerOf(id), SessionLogOffset(0), log)
+    await cache.settled(id)
+    expect(cache.cachedSnapshot(headerOf(id))).toEqual({ asOfSeq: 0, values: { 'cache-test/marks': { marks: ['cold'] } } })
+  })
+
   it('re-binds a relocated session\'s record to its new cwd and leaves unrelated records alone', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
     roots.push(root)

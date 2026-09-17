@@ -59,6 +59,7 @@ interface Harness {
   saved: { images: number; files: string[] }
   workspace: Workspace
   attached: SessionId[]
+  stored: SessionHeader[]
 }
 
 async function mount(): Promise<Harness> {
@@ -80,12 +81,14 @@ async function mount(): Promise<Harness> {
     }),
   } as never)
   const attached: SessionId[] = []
+  const stored: SessionHeader[] = []
+  ctx.on('session-persistence/stored', (meta) => { stored.push(meta) })
   const partial: Partial<Workspace> = {
     id: WorkspaceId('ws-1'), path: '/local/dest', title: 'dest',
     attachSession: vi.fn(async (id: SessionId) => { attached.push(id) }),
   }
   const workspace = partial as Workspace
-  return { ctx, root, saved, workspace, attached }
+  return { ctx, root, saved, workspace, attached, stored }
 }
 
 function bundle(entries: Record<string, string | Uint8Array>): Record<string, Uint8Array> {
@@ -108,7 +111,7 @@ async function read(root: string, id: SessionId): Promise<{ header: SessionHeade
 
 describe('importSessionArchive', () => {
   it('stores root and subagent logs under the destination cwd, saves attachments, notifies, attaches the root', async () => {
-    const { ctx, root, saved, workspace, attached } = await mount()
+    const { ctx, root, saved, workspace, attached, stored: announced } = await mount()
     const rootId = SessionId('session-root')
     const childId = SessionId('session-child')
     const zip = bundle({
@@ -131,6 +134,7 @@ describe('importSessionArchive', () => {
     })
     expect(saved).toEqual({ images: 1, files: ['notes.txt'] })
     expect(attached).toEqual([rootId])
+    expect(announced.map(meta => [meta.id, meta.cwd])).toEqual([[rootId, '/local/dest'], [childId, '/local/dest']])
 
     const stored = await read(root, rootId)
     expect(stored.header.cwd).toBe('/local/dest')
