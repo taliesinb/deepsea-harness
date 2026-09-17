@@ -2013,6 +2013,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the new Session identity.',
       },
       {
+        signature: '@Remote(\'move\') move(request: SessionMoveRequest): Promise<SessionMoveValue>',
+        description: 'Move one Session, with its same-cwd subagent descendants, to another Workspace: relocate the stored log under the new cwd, re-account it in the Workspace registry, and leave its Agent a notice for the next step. A resident Agent is retired first; one running a turn is refused unless `stopLive` interrupts it.',
+        parameters: [{ name: 'request', description: 'Session, destination Workspace or directory, and live policy.' }],
+        returns: 'the destination Workspace and every Session that moved.',
+      },
+      {
+        signature: '@Remote(\'moveMany\') moveMany(request: SessionMoveManyRequest): Promise<SessionMoveManyValue>',
+        description: 'Move several Sessions to one Workspace, reporting skips per Session instead of failing the batch.',
+        parameters: [{ name: 'request', description: 'Sessions, destination, and live policy.' }],
+        returns: 'moved ids and skipped Sessions with reasons.',
+      },
+      {
         signature: '@Remote(\'prompt\') prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>',
         description: 'Admit one prompt after explicitly resuming its Session.',
         parameters: [{ name: 'request', description: 'Session identity, prompt content, source metadata, and delivery mode.' }, { name: 'signal', description: 'caller cancellation before prompt admission begins.' }],
@@ -2131,6 +2143,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'options', description: 'optional cancellation.' }],
         returns: 'one snapshot per stored session.',
       },
+      {
+        signature: 'relocate?(request: SessionRelocateRequest): Promise<SessionRelocateResult>',
+        description: 'Optional: move one cold stored session to another working directory. The header\'s `cwd` is the session\'s Workspace membership, so this is the storage half of moving a session between Workspaces. A backend that implements it rewrites the header, appends the requested events, and publishes the result where the new cwd places it as one durable operation, then retires the old artifact. The session id, creation time, lineage, and inherited cut are unchanged. A session open for writing, in this or another process, is refused; the caller decides whether to stop its writer first. Backends that cannot relocate leave this undefined.',
+        parameters: [{ name: 'request', description: 'the session, its destination cwd, and events to append.' }],
+        returns: 'the stored header afterwards and whether anything moved.',
+        throws: ['{SessionPersistenceNotFoundError} when the session does not exist.', '{SessionAlreadyOwnedError} when a writer holds the session.'],
+      },
     ],
   },
   {
@@ -2149,6 +2168,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read only a predecessor checkpoint\'s title as a zero-I/O listing hint.\n\nThe authoritative Session header supplies the lifecycle identity. A cache checkpoint can lag that log but cannot lead it because writes flush the log first, so a matching predecessor title is a genuine (possibly stale) fact from this Session. The registry still requires the current title projection\'s row version and schema. No other predecessor projection is exposed: format normalization can change their current meaning, and the cachedSnapshot / hydration paths continue to reject them.',
         parameters: [{ name: 'meta', description: 'authoritative listed Session header.' }],
         returns: 'a title-only block at the stored title row\'s watermark, or `undefined` when the record is current, newer, unrelated, missing, or incompatible with the title unit.',
+      },
+      {
+        signature: 'async rebind(previous: SessionHeader, current: SessionHeader, inheritedEventCount: SessionLogOffset): Promise<boolean>',
+        description: 'Re-bind one stored record to a relocated session\'s header. A relocation (`sessionPersistence.relocate`) replaces only the header\'s `cwd` and appends events after the stored tail, and no projection unit folds the cwd, so a record folded from the previous log stays a valid fold of a prefix of the relocated one once its identity names the new cwd. Without this the moved session lists without cached values until its next fold. A current or predecessor record bound to `previous` is re-bound; any other record is left alone.',
+        parameters: [{ name: 'previous', description: 'the header the record was written under.' }, { name: 'current', description: 'the header stored now: the same session in another cwd.' }, { name: 'inheritedEventCount', description: 'exact inherited cut of the lifecycle.' }],
+        returns: 'true when a record was re-bound.',
       },
       {
         signature: 'hydratePrepared( session: Session, events: readonly SessionEvent[], ): ProjectionSnapshot',
@@ -3769,6 +3794,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Resolve by canonical directory path without creating or mutating a workspace. A missing path rejects during `realpath`; an existing unowned directory returns `undefined`.',
         parameters: [{ name: 'path', description: 'Existing directory path in a fully qualified spelling.' }],
         returns: 'the workspace owning the canonical path, when one exists.',
+      },
+      {
+        signature: 'forgetSessionHeader(id: SessionId): void',
+        description: 'Forget the indexed header and canonical path of one session so the next membership check reads its stored header again. Stored headers change only through a relocation (`sessionPersistence.relocate`); its caller invokes this before detaching the session from its old Workspace and attaching it to the new one. Until then the session counts as a member of no Workspace.',
+        parameters: [{ name: 'id', description: 'the relocated session.' }],
       },
     ],
   },
@@ -6841,6 +6871,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionMessageProjectionContext {\n    nodes: readonly SessionSeq[];\n    events: readonly SessionEvent[];\n    baseSeq: SessionLogOffset;\n    messages: ReadonlyMap<SessionSeq, Message>;\n}',
   },
   {
+    name: 'SessionMoveDestination',
+    declaration: 'export type SessionMoveDestination = {\n    readonly workspaceId: WorkspaceId;\n} | {\n    readonly path: string;\n    readonly title?: string;\n};',
+  },
+  {
+    name: 'SessionMoveManyRequest',
+    declaration: 'export interface SessionMoveManyRequest {\n    readonly sessionIds: readonly SessionId[];\n    readonly destination: SessionMoveDestination;\n    readonly stopLive?: boolean;\n    readonly notify?: boolean;\n}',
+  },
+  {
+    name: 'SessionMoveManyValue',
+    declaration: 'export interface SessionMoveManyValue {\n    readonly workspaceId: WorkspaceId;\n    readonly moved: readonly SessionId[];\n    readonly skipped: readonly SessionMoveSkip[];\n}',
+  },
+  {
+    name: 'SessionMoveRequest',
+    declaration: 'export interface SessionMoveRequest {\n    readonly sessionId: SessionId;\n    readonly destination: SessionMoveDestination;\n    readonly stopLive?: boolean;\n    readonly notify?: boolean;\n}',
+  },
+  {
+    name: 'SessionMoveSkip',
+    declaration: 'export interface SessionMoveSkip {\n    readonly sessionId: SessionId;\n    readonly reason: \'live\' | \'missing\' | \'same-workspace\' | \'error\';\n    readonly message: string;\n}',
+  },
+  {
+    name: 'SessionMoveValue',
+    declaration: 'export interface SessionMoveValue {\n    readonly sessionId: SessionId;\n    readonly workspaceId: WorkspaceId;\n    readonly moved: readonly SessionId[];\n}',
+  },
+  {
     name: 'SessionObservation',
     declaration: 'export interface SessionObservation extends Disposable {\n    readonly source: \'live\' | \'prepared\';\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffsetType;\n    readonly events: readonly SessionEvent[];\n    readonly cursor: SessionSeqCursor;\n    readonly revision?: SessionPersistenceRevision;\n    readonly projections?: ProjectionSnapshot;\n    retain(): SessionObservation;\n}',
   },
@@ -6947,6 +7001,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceMentionCandidate',
     declaration: 'export interface SessionReferenceMentionCandidate extends SessionReferenceCandidate {\n    mention: string;\n}',
+  },
+  {
+    name: 'SessionRelocateAppend',
+    declaration: 'export interface SessionRelocateAppend {\n    readonly type: SessionEvent[\'type\'];\n    readonly data: SessionEvent[\'data\'];\n    readonly ignorable?: true;\n}',
+  },
+  {
+    name: 'SessionRelocateRequest',
+    declaration: 'export interface SessionRelocateRequest {\n    readonly id: SessionId;\n    readonly cwd: string;\n    readonly append?: readonly SessionRelocateAppend[];\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionRelocateResult',
+    declaration: 'export interface SessionRelocateResult {\n    readonly header: SessionHeader;\n    readonly inheritedEventCount: SessionLogOffset;\n    readonly moved: boolean;\n    readonly backupPath?: string;\n}',
   },
   {
     name: 'SessionRenameRequest',

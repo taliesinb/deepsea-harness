@@ -14,7 +14,7 @@ import {
   sessionFormatCatalog,
 } from '@deepseek-ai/dsh-session-format-catalog'
 import { readdirSync, type Dirent } from 'node:fs'
-import { open, mkdir, readdir, realpath, link, rm, stat, truncate } from 'node:fs/promises'
+import { open, mkdir, readdir, realpath, link, rename, rm, stat, truncate } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { scheduler } from 'node:timers/promises'
@@ -23,17 +23,18 @@ import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
   SessionPersistenceCorruptionError,
   SessionAlreadyExistsError, SessionPersistenceNotFoundError,
-  assertStoredId, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
+  assertStoredId, materializeAppendBatch, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
   type SessionHandleReadResult,
   type SessionLocation, type SessionPersistenceCreateOptions,
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
+  type SessionRelocateRequest, type SessionRelocateResult,
 } from '@deepseek-ai/dsh-session-persistence'
 import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
-import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId, SessionHeader, SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
   assertNoRetiredHeaderFields, encodeSegment, eventLines, generationLogFilename, generationLogPath, logPath, logSuffix,
@@ -66,6 +67,9 @@ export type { JsonlCompression } from './format.ts'
 const COLD_LOG_MEMO_MAX_ENTRIES = 2
 
 const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
+
+/** Directory beside the configured root that receives the artifacts `relocate` retires. */
+export const RELOCATION_BACKUP_DIRNAME = 'session-move-backups'
 /**
  * Internal scheduling constant, not deployment configuration: balance
  * frame-boundary event-loop yields against `setImmediate` overhead. One frame
@@ -506,6 +510,113 @@ class JsonlSessionPersistence extends SessionPersistence {
     }
     signal?.throwIfAborted()
     return snapshots
+  }
+
+  /**
+   * Move one cold stored session to another working directory; see the seam
+   * contract. Under the in-process write claim and the session directory's
+   * kernel lock, the current generation is read exactly as a write open reads
+   * it (a prepared historical generation is published first), the header's
+   * `cwd` is replaced, the requested events are stamped after the stored tail,
+   * and the complete artifact is re-validated by the strict current-generation
+   * scanner plus the stored-event validator a cold read applies. The old
+   * session directory, with every generation and its lock file, is then renamed
+   * into `<root>/../session-move-backups/<id>-<time>`, and the validated log is
+   * published under the new project directory with the materialization
+   * mechanics of a fresh session. A failed publication removes the partial new
+   * directory and renames the old one back. A crash between the two renames
+   * leaves the session only in the backup directory, never in two project
+   * directories at once.
+   * @param request - session, destination cwd, and events to append.
+   * @returns the stored header afterwards.
+   */
+  override async relocate(request: SessionRelocateRequest): Promise<SessionRelocateResult> {
+    const { id, signal } = request
+    const cwd = resolve(request.cwd)
+    signal?.throwIfAborted()
+    await this.ensureRootEncoding()
+    signal?.throwIfAborted()
+    // An in-process writer (a live Agent's handle, or a created session) is
+    // refused by the claim; another process's writer by the kernel lock.
+    this.tracker.claimWrite(id)
+    let lease: SessionWriteLease | undefined
+    try {
+      const selected = await this.findLog(id, signal)
+      if (selected === undefined) throw new SessionPersistenceNotFoundError(id)
+      const oldDir = dirname(selected.currentPath)
+      lease = await this.acquireLease(id, undefined, oldDir)
+      const prepared = await this.requireStoredLog(id, signal)
+      signal?.throwIfAborted()
+      const stored = prepared.status === 'prepared' ? await this.publishStoredMigration(id, prepared) : prepared
+      const cut = stored.inheritedEventCount
+      if (stored.meta.cwd !== undefined && resolve(stored.meta.cwd) === cwd) {
+        return { header: stored.meta, inheritedEventCount: cut, moved: false }
+      }
+      const header: SessionHeader = { ...stored.meta, cwd }
+      const now = Date.now()
+      const firstSeq = (stored.events.at(-1)?.seq ?? -1) + 1
+      const appended = materializeAppendBatch((request.append ?? []).map((entry, index) => ({
+        type: entry.type,
+        seq: SessionSeq(firstSeq + index),
+        time: now,
+        data: entry.data,
+        ...(entry.ignorable === true ? { ignorable: true as const } : {}),
+      }) as SessionEvent))
+      const events = this.validateRelocatedLog(header, cut, [...stored.events, ...appended])
+      const newDir = sessionDir(this.root, cwd, id)
+      if (newDir !== oldDir && await this.resolveGenerationInDirectory(newDir, signal) !== undefined) {
+        throw new Error(`cannot relocate session "${id}": a log already exists at ${newDir}`)
+      }
+      await this.rejectOppositeArtifact(cwd, id)
+      signal?.throwIfAborted()
+      const backupRoot = join(dirname(this.root), RELOCATION_BACKUP_DIRNAME)
+      const backupPath = join(backupRoot, `${encodeSegment(id)}-${String(now)}`)
+      await mkdir(backupRoot, { recursive: true, mode: 0o700 })
+      this.coldLogMemo.delete(id)
+      await rename(oldDir, backupPath)
+      try {
+        await this.materialize(header, cut, events)
+      } catch (error: unknown) {
+        try {
+          await rm(newDir, { recursive: true, force: true })
+          await rename(backupPath, oldDir)
+        } catch (rollbackError: unknown) {
+          throw new AggregateError(
+            [error, rollbackError],
+            `session "${id}": relocation failed and the previous artifact remains at ${backupPath}`,
+          )
+        }
+        throw error
+      }
+      return { header, inheritedEventCount: cut, moved: true, backupPath }
+    } finally {
+      this.coldLogMemo.delete(id)
+      try {
+        await lease?.release()
+      } finally {
+        this.tracker.releaseClaim(id)
+      }
+    }
+  }
+
+  /**
+   * Validate a relocated artifact with the acceptance a cold read applies: the
+   * encoded header and event rows pass the strict current-generation scanner,
+   * then the stored-event validator adopts the decoded events.
+   */
+  private validateRelocatedLog(
+    header: SessionHeader,
+    inheritedEventCount: SessionLogOffsetType,
+    events: readonly SessionEvent[],
+  ): SessionEvent[] {
+    const headerRecord = Buffer.from(`${JSON.stringify(toHeaderLine(header, header.isSeeded ? inheritedEventCount : undefined))}\n`)
+    const scanner = new SessionLogScanner(headerRecord, 'strict')
+    if (events.length > 0) scanner.write(Buffer.from(`${eventLines(events)}\n`))
+    const scanned = scanner.finish()
+    if (scanned.inheritedEventCount !== inheritedEventCount) {
+      throw new Error(`session "${header.id}": relocated log changed its inherited cut`)
+    }
+    return validateStoredEvents(header, scanned.events, this.locate(header))
   }
 
   // --- handle-facing storage internals (package-private via the handle class below) ---

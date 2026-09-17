@@ -224,6 +224,18 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
+    /** Move refused: retiring the Session's Agent would interrupt a running turn; retry with `stopLive`. */
+    'session/move-live': { readonly sessionId: SessionId }
+    /** Move refused: no stored Session with this id. */
+    'session/move-missing': { readonly sessionId: SessionId }
+    /** Move refused: the Session already belongs to the destination Workspace. */
+    'session/move-same-workspace': { readonly sessionId: SessionId }
+    /** Move failed after validation; the message carries the storage or registry failure. */
+    'session/move-error': { readonly sessionId: SessionId }
+    /** The mounted Session storage cannot relocate Sessions. */
+    'session/move-unsupported': Record<string, never>
+    /** The destination directory could not be registered as a Workspace. */
+    'workspace/create-failed': { readonly path: string }
     'subagent/not-found': {
       readonly parentSessionId: SessionId
       readonly childSessionId: SessionId
@@ -315,6 +327,58 @@ export interface SessionRenameRequest {
 export interface SessionRenameValue {
   readonly title: string
   readonly seq: number
+}
+
+/** Where a moved Session goes: an existing Workspace, or a directory registered as one on the way. */
+export type SessionMoveDestination =
+  | { readonly workspaceId: WorkspaceId }
+  | { readonly path: string; readonly title?: string }
+
+/** Move one Session, with its same-cwd subagent descendants, to another Workspace. */
+export interface SessionMoveRequest {
+  readonly sessionId: SessionId
+  readonly destination: SessionMoveDestination
+  /**
+   * Also move a Session whose Agent is running a turn, interrupting it. A
+   * resident Agent with nothing in flight is always retired silently; it
+   * resumes cold in the new Workspace on the next open. Without this flag a
+   * running one is refused with `session/move-live`.
+   */
+  readonly stopLive?: boolean
+  /** Append the relocation notice the Agent reads on its next step; default true. */
+  readonly notify?: boolean
+}
+
+/** Result of one move. */
+export interface SessionMoveValue {
+  readonly sessionId: SessionId
+  readonly workspaceId: WorkspaceId
+  /** Every Session that changed Workspace, subagent descendants included. */
+  readonly moved: readonly SessionId[]
+}
+
+/** Why one Session of a batch did not move. */
+export interface SessionMoveSkip {
+  readonly sessionId: SessionId
+  readonly reason: 'live' | 'missing' | 'same-workspace' | 'error'
+  readonly message: string
+}
+
+/** Move several Sessions to one Workspace. */
+export interface SessionMoveManyRequest {
+  readonly sessionIds: readonly SessionId[]
+  readonly destination: SessionMoveDestination
+  /** Same policy as {@link SessionMoveRequest.stopLive}, applied to every Session. */
+  readonly stopLive?: boolean
+  /** Same policy as {@link SessionMoveRequest.notify}, applied to every Session. */
+  readonly notify?: boolean
+}
+
+/** Result of a batch move: skips are reported, not thrown. */
+export interface SessionMoveManyValue {
+  readonly workspaceId: WorkspaceId
+  readonly moved: readonly SessionId[]
+  readonly skipped: readonly SessionMoveSkip[]
 }
 
 /** Session fork request. */
