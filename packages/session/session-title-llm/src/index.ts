@@ -83,6 +83,9 @@ export interface SessionTitleLlmConfig {
 /** Validated immutable model-provider policy. */
 export interface ResolvedSessionTitleLlmConfig extends SessionTitleLlmConfig {}
 
+/** Pause before the single retry of a failed title request. */
+const TITLE_RETRY_DELAY_MS = 1500
+
 /** Shared Loader field schemas with no library defaults. */
 export const SessionTitleLlmConfigFields = {
   targetWords: z.number().step(1).min(1).required(),
@@ -141,7 +144,8 @@ export function resolveSessionTitleLlmConfig(
   if (value.timeoutMs > MAX_TIMER_DELAY_MS) {
     throw new Error(`session-title-llm: timeoutMs must not exceed ${MAX_TIMER_DELAY_MS}`)
   }
-  if (value.style !== undefined && value.style !== 'natural' && value.style !== 'slug') {
+  const style: unknown = value.style
+  if (style !== undefined && style !== 'natural' && style !== 'slug') {
     throw new Error('session-title-llm: style must be "natural" or "slug"')
   }
   const hasProvider = value.provider !== undefined
@@ -183,7 +187,20 @@ export function registerSessionTitleLlmProvider(
     id: titleProvider,
     automatic,
     async generate(request) {
-      return generateSessionTitleWithLlm(ctx, resolved, request, selectMessages(request.messages), titleProvider)
+      // The title request runs alongside the session's own model request. A
+      // provider that cannot serve two requests at once (a single on-device
+      // model) fails one of them; the main turn retries on its own, so give
+      // the title one retry too instead of silently leaving the fallback.
+      try {
+        return await generateSessionTitleWithLlm(ctx, resolved, request, selectMessages(request.messages), titleProvider)
+      } catch (error) {
+        if (request.signal.aborted) throw error
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, TITLE_RETRY_DELAY_MS)
+          request.signal.addEventListener('abort', () => { clearTimeout(timer); reject(request.signal.reason as Error) }, { once: true })
+        })
+        return await generateSessionTitleWithLlm(ctx, resolved, request, selectMessages(request.messages), titleProvider)
+      }
     },
   })
 }
