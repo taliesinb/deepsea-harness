@@ -134,6 +134,24 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     unarchiveSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
+    moveSession: vi.fn<WorkspaceBrowserProps['moveSession']>(async opts => ({
+      ok: true,
+      value: {
+        sessionId: opts.sessionId,
+        workspaceId: 'workspaceId' in opts.destination ? opts.destination.workspaceId : wid('created'),
+        moved: [opts.sessionId],
+      },
+    })),
+    moveSessions: vi.fn<WorkspaceBrowserProps['moveSessions']>(async opts => ({
+      ok: true,
+      value: {
+        workspaceId: 'workspaceId' in opts.destination ? opts.destination.workspaceId : wid('created'),
+        moved: [...opts.sessionIds],
+        skipped: [],
+      },
+    })),
+    requestSessionRelocation: controls.relocate,
+    settleSessionRelocation: controls.closeRelocate,
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     renderSlot: renderDirectoryFlowOnly,
@@ -151,6 +169,101 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('moves a Session dropped on another Workspace group; a refused drop opens Move to… with that destination', async () => {
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('alpha', true)
+    preferences.actions.setGroupExpanded('beta', true)
+    const moveSession = vi.fn<WorkspaceBrowserProps['moveSession']>(async opts => ({
+      ok: true, value: { sessionId: opts.sessionId, workspaceId: wid('beta'), moved: [opts.sessionId] },
+    }))
+    const b = mount({
+      moveSession,
+      useSessions: hook(sessionState([summary('a', 2), summary('b', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a']), workspace('beta', ['b'])])),
+    })
+    const source = screen.getByText('a').closest('[role="treeitem"]') as HTMLElement
+    const betaSection = screen.getByText('b').closest('[class*="groupSection"]') as HTMLElement
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(betaSection, 'dragOver', 10)
+    expect(betaSection.className).toMatch(/workspaceDropInto/)
+    fireDrag(betaSection, 'drop', 10)
+    expect(moveSession).toHaveBeenCalledWith({ sessionId: sid('a'), destination: { workspaceId: wid('beta') }, notify: true })
+    await waitFor(() => { expect(b.store.getSnapshot().groupExpansion.beta).toBe(true) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    moveSession.mockResolvedValueOnce({
+      ok: false,
+      error: Object.assign(new Error('busy'), {
+        code: 'session/move-live' as const, details: { sessionId: sid('a'), blockers: [{ kind: 'turn' as const }] },
+      }) as never,
+    })
+    fireEvent.dragStart(source, { dataTransfer: dragData() })
+    fireDrag(betaSection, 'drop', 10)
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('beta')).toBeTruthy()
+  })
+
+  it('Move to… lists the work a refused move names and moves past it once interruption is allowed', async () => {
+    const moveSession = vi.fn<WorkspaceBrowserProps['moveSession']>()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: Object.assign(new Error('busy'), {
+          code: 'session/move-live' as const,
+          details: { sessionId: sid('a'), blockers: [{ kind: 'job' as const, items: [{ id: 'bash-1', label: 'sleep 600' }] }] },
+        }) as never,
+      })
+      .mockResolvedValueOnce({ ok: true, value: { sessionId: sid('a'), workspaceId: wid('beta'), moved: [sid('a')] } })
+    const b = mount({
+      moveSession,
+      useSessions: hook(sessionState([summary('a', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a']), workspace('beta', [])])),
+    })
+    act(() => { b.controls.relocate({ action: 'move', sessionId: sid('a'), displayTitle: 'a', destinationId: wid('alpha') }) })
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('status').textContent).toBe(zh['move.destination.same'])
+    expect(within(dialog).getByRole('button', { name: zh['move.confirm'] }).hasAttribute('disabled')).toBe(true)
+    act(() => { b.controls.relocate({ action: 'move', sessionId: sid('a'), displayTitle: 'a', destinationId: wid('beta') }) })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: zh['move.confirm'] }))
+    await screen.findByText('1 个后台任务：sleep 600')
+    const confirm = within(screen.getByRole('dialog')).getByRole('button', { name: zh['move.confirm'] })
+    expect(confirm.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: zh['move.stopLive'] }))
+    fireEvent.click(confirm)
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(moveSession).toHaveBeenLastCalledWith({
+      sessionId: sid('a'), destination: { workspaceId: wid('beta') }, stopLive: true, notify: true,
+    })
+    expect(b.controls.state.getSnapshot().relocation).toBeNull()
+  })
+
+  it('Rehome… moves every member, reports the skips, and deletes the emptied source on request', async () => {
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('alpha', true)
+    const moveSessions = vi.fn<WorkspaceBrowserProps['moveSessions']>(async () => ({
+      ok: true, value: { workspaceId: wid('beta'), moved: [sid('a'), sid('b')], skipped: [] },
+    }))
+    const deleteWorkspace = vi.fn(async () => {})
+    mount({
+      moveSessions,
+      deleteWorkspace,
+      useSessions: hook(sessionState([summary('a', 2), summary('b', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a', 'b']), workspace('beta', [])])),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '工作区“alpha”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: zh['menu.rehomeWorkspace'] }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['move.destination.pick'] }))
+    const beta = screen.getAllByRole('menuitem').find(row => row.textContent === 'beta/projects/beta')
+    fireEvent.click(beta as HTMLElement)
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: zh['rehome.deleteSource'] }))
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['rehome.confirm'] }))
+    await within(dialog).findByText('已移动 2 个会话，跳过 0 个。')
+    expect(moveSessions).toHaveBeenCalledWith({
+      sessionIds: [sid('a'), sid('b')], destination: { workspaceId: wid('beta') }, stopLive: false, notify: true,
+    })
+    expect(deleteWorkspace).toHaveBeenCalledWith(wid('alpha'))
+  })
+
   it('renders the header seat in the rail and the extra seat below the tree only while wide and not searching', () => {
     const seats: Array<{ name: string; wide: boolean }> = []
     const renderSlot: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) => {

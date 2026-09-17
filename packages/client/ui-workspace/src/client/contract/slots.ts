@@ -51,7 +51,7 @@ import type {
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SessionSearchResultItem } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionSearchResultItem } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -161,7 +161,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * The rows of one Session's "..." menu, in ascending `order`. ui-workspace
      * registers the shipped rows here — `pin` (100), `rename` (200), `fork`
-     * (300), `archive` (400) — so a plugin row is placed by its own `order`
+     * (300), `move` (350), `archive` (400) — so a plugin row is placed by its own `order`
      * among them. Use a package-namespaced `id`; reusing a shipped id at
      * another `priority` shadows that row. Each entry renders one
      * `role="menuitem"` `<button>` (the shipped rows use ui-primitives'
@@ -295,6 +295,40 @@ export type WorkspaceBrowserInjected = {
   unarchiveSession: (sessionId: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /**
+   * Move one Session (and its same-cwd subagent descendants) to another
+   * Workspace. The Host result is returned, not thrown: `session/move-live`
+   * is an expected outcome the move dialog answers with the stop-and-move
+   * option.
+   */
+  moveSession: ISessions['move']
+  /** Move several Sessions to one Workspace (Rehome…); per-Session skips arrive in the value. */
+  moveSessions: ISessions['moveMany']
+  /** Open the Move to… dialog (a refused drop); the row action entry raises the same request. */
+  requestSessionRelocation: (request: SessionRelocationRequest) => void
+  /** Consume or cancel the pending relocation request. */
+  settleSessionRelocation: () => void
+}
+
+/**
+ * A relocation a row action (or a refused drop) asked for: the browser's
+ * Move to… dialog opens on it.
+ */
+export interface SessionRelocationRequest {
+  /** What the dialog does with the Session. */
+  action: 'move'
+  /** Session to relocate. */
+  sessionId: SessionId
+  /** The row's display title, named in the dialog. */
+  displayTitle: string
+  /** Preselected destination (a drop on a Workspace group). */
+  destinationId?: WorkspaceId | undefined
+}
+
+/** Relocation action share: the row only raises the request; the browser's dialog answers it. */
+export interface RelocateSessionInjected {
+  /** Ask for the relocation dialog. */
+  requestSessionRelocation: (request: SessionRelocationRequest) => void
 }
 
 /** The browser's declared viewing store handle, shared with the row actions that write view state. */

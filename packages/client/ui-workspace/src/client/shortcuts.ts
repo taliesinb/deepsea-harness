@@ -5,6 +5,7 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ShortcutCommand, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionRelocationRequest } from './contract/slots.ts'
 import type { UiWorkspace } from './navigation.ts'
 
 /** Transient requests consumed by the existing workspace browser. */
@@ -13,6 +14,8 @@ export interface WorkspaceShortcutState {
   readonly addRequested: boolean
   readonly directoryBusy: boolean
   readonly renameTarget: { readonly sessionId: SessionId; readonly currentTitle: string } | null
+  /** The Move to… dialog asked for by a row action or a refused drop. */
+  readonly relocation: SessionRelocationRequest | null
   readonly forkError: { readonly reason: 'unavailable' | 'failed'; readonly seq: number } | null
 }
 
@@ -24,6 +27,8 @@ interface WorkspaceShortcutControls {
   directoryBusy: (busy: boolean) => void
   rename: (sessionId: SessionId, currentTitle: string) => void
   closeRename: () => void
+  relocate: (request: SessionRelocationRequest) => void
+  closeRelocate: () => void
   forkFailed: (reason: 'unavailable' | 'failed') => void
   dismissForkError: () => void
 }
@@ -34,7 +39,7 @@ interface WorkspaceShortcutControls {
  */
 export function createWorkspaceShortcutControls(): WorkspaceShortcutControls {
   const state = createSnapshotStore<WorkspaceShortcutState>({
-    searchRequest: 0, addRequested: false, directoryBusy: false, renameTarget: null, forkError: null,
+    searchRequest: 0, addRequested: false, directoryBusy: false, renameTarget: null, relocation: null, forkError: null,
   })
   let forkErrorSeq = 0
   return {
@@ -47,6 +52,8 @@ export function createWorkspaceShortcutControls(): WorkspaceShortcutControls {
       state.set({ ...state.getSnapshot(), renameTarget: { sessionId, currentTitle } })
     },
     closeRename: () => { state.set({ ...state.getSnapshot(), renameTarget: null }) },
+    relocate: (request) => { state.set({ ...state.getSnapshot(), relocation: request }) },
+    closeRelocate: () => { state.set({ ...state.getSnapshot(), relocation: null }) },
     forkFailed: (reason) => {
       forkErrorSeq += 1
       state.set({ ...state.getSnapshot(), forkError: { reason, seq: forkErrorSeq } })

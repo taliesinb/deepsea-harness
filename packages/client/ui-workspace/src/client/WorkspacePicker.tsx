@@ -51,6 +51,15 @@ export interface WorkspacePickFlowProps {
   side?: 'bottom' | 'top' | 'right'
   /** Currently active workspace (trailing check in the picker list). */
   selectedId?: WorkspaceId | undefined
+  /**
+   * Show each workspace's directory as a trailing detail (destination
+   * pickers), through `formatPath` when given (home abbreviation).
+   */
+  showPaths?: boolean
+  /** Display form of a listed directory; identity by default. */
+  formatPath?: ((path: string) => string) | undefined
+  /** The portal card takes the anchor's width (a select-like list under a field). */
+  matchAnchorWidth?: boolean
 }
 
 /**
@@ -72,6 +81,9 @@ export function WorkspacePickFlow({
   onBusyChange,
   side = 'bottom',
   selectedId,
+  showPaths = false,
+  formatPath,
+  matchAnchorWidth = false,
 }: WorkspacePickFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
@@ -114,6 +126,7 @@ export function WorkspacePickFlow({
       id: workspace.workspaceId,
       label: workspaceDisplayTitle(workspace.title, t('workspace.defaultName')),
       icon: <IconFolderCloseRegular size={16} />,
+      ...(showPaths ? { detail: formatPath === undefined ? workspace.path : formatPath(workspace.path) } : {}),
       disabled: flowBusy,
     }))
     : addEntries
@@ -197,6 +210,7 @@ export function WorkspacePickFlow({
         onClose={onClose}
         side={side}
         portal
+        matchAnchorWidth={matchAnchorWidth}
         getAnchorRect={getAnchorRect}
       />
       {open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}

@@ -427,8 +427,9 @@ describe('workspace browser rows', () => {
     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
   })
 
-  it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
+  it('workspace row menu opens on the ellipsis, renames, rehomes, and shows the danger delete row', () => {
     const onRename = vi.fn()
+    const onRehome = vi.fn()
     const onDelete = vi.fn()
     const onToggle = vi.fn()
     const group: GroupNode = {
@@ -437,7 +438,7 @@ describe('workspace browser rows', () => {
     }
     render(<ProjectRowItem
       group={group} onToggle={onToggle} onCreate={vi.fn()}
-      actions={{ rename: onRename, delete: onDelete }} t={t}
+      actions={{ rename: onRename, rehome: onRehome, delete: onDelete }} t={t}
     />)
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     // Opening the menu neither toggles the group nor renames yet.
@@ -451,6 +452,9 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     expect(onRename).toHaveBeenCalledOnce()
     expect(onDelete).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '迁移工作区…' }))
+    expect(onRehome).toHaveBeenCalledOnce()
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     fireEvent.keyDown(document, { key: 'Escape' })

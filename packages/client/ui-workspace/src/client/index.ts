@@ -38,7 +38,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import {
   type ArchiveSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
   type SessionArchiveConfirmInjected, type SessionArchiveConfirmRequest,
-  type RenameSessionInjected, type RowToast, type RowToastInjected, type RowToastState, type SessionRenameDialogInjected,
+  type RelocateSessionInjected, type RenameSessionInjected, type RowToast, type RowToastInjected, type RowToastState,
+  type SessionRenameDialogInjected,
   type WorkspaceBrowserInjected, type WorkspacePickerInjected,
 } from './contract/slots.ts'
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
@@ -50,6 +51,7 @@ import { derive } from './session-actions/derived.ts'
 import { ForkSessionMenuItem } from './session-actions/ForkSession.tsx'
 import { PinSessionMenuItem, PinSessionRowButton } from './session-actions/PinSession.tsx'
 import { RenameSessionMenuItem, SessionRenameDialog } from './session-actions/RenameSession.tsx'
+import { MoveSessionMenuItem } from './session-actions/RelocateSession.tsx'
 import { RowActionToast } from './session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
@@ -57,8 +59,8 @@ import { en, zh, type WorkspaceKey } from './locales.ts'
 export type { StartSessionOptions, UiWorkspace } from './navigation.ts'
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
-  MenuOpenState, RowToast, SessionRenameTarget, SessionRowOwnerProps, UseMenuOpenState, WorkspaceBrowserInjected,
-  WorkspaceBrowserSeatOwnerProps,
+  MenuOpenState, RelocateSessionInjected, RowToast, SessionRelocationRequest, SessionRenameTarget, SessionRowOwnerProps,
+  UseMenuOpenState, WorkspaceBrowserInjected, WorkspaceBrowserSeatOwnerProps,
   SessionRowScheduleOwnerProps,
   WorkspaceBrowserProps,
   WorkspacePickerInjected, WorkspacePickerProps,
@@ -218,6 +220,7 @@ export function apply(ctx: Context): void {
     },
   })
   const renameInjected = (): RenameSessionInjected => ({ requestSessionRename })
+  const relocateInjected = (): RelocateSessionInjected => ({ requestSessionRelocation: shortcutControls.relocate })
   const renameDialogInjected = (): SessionRenameDialogInjected => ({
     hooks: { renameRequest },
     settleSessionRename: shortcutControls.closeRename,
@@ -245,6 +248,10 @@ export function apply(ctx: Context): void {
     },
     unarchiveSession: async (sessionId) => { await uiWorkspace.unarchiveSession(sessionId) },
     createWorkspace: input => workspaces.create(input),
+    moveSession: opts => sessions.move(opts),
+    moveSessions: opts => sessions.moveMany(opts),
+    requestSessionRelocation: shortcutControls.relocate,
+    settleSessionRelocation: shortcutControls.closeRelocate,
     requestSearch: shortcutControls.search,
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
@@ -289,6 +296,7 @@ export function apply(ctx: Context): void {
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'pin', order: 100, locale: NS, inject: pinInjected }, PinSessionMenuItem)
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'rename', order: 200, locale: NS, inject: renameInjected }, RenameSessionMenuItem)
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'fork', order: 300, locale: NS, inject: forkInjected }, ForkSessionMenuItem)
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'move', order: 350, locale: NS, inject: relocateInjected }, MoveSessionMenuItem)
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'archive', order: 400, locale: NS, inject: archiveInjected }, ArchiveSessionMenuItem)
   })
   ctx.slots.inject('sidebar.workspaces.session.row.action', function* () {
