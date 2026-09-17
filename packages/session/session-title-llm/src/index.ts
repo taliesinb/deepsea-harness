@@ -68,6 +68,12 @@ export interface SessionTitleLlmConfig {
   readonly maxOutputTokens: number
   /** End-to-end auxiliary request deadline in milliseconds. */
   readonly timeoutMs: number
+  /**
+   * Title shape: `natural` (default) is a short phrase in the messages'
+   * language; `slug` asks for and enforces lowercase `foo-bar-baz`, the form
+   * the sidebar's `slug: prompt` convention produces by hand.
+   */
+  readonly style?: 'natural' | 'slug'
   /** Optional explicit provider route; must be paired with `model`. */
   readonly provider?: string
   /** Optional explicit model id; must be paired with `provider`. */
@@ -84,6 +90,7 @@ export const SessionTitleLlmConfigFields = {
   maxInputBytes: z.number().step(1).min(1).required(),
   maxOutputTokens: z.number().step(1).min(1).required(),
   timeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).required(),
+  style: z.union(['natural', 'slug']),
   provider: z.string(),
   model: z.string(),
 }
@@ -98,6 +105,7 @@ const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'maxInputBytes',
   'maxOutputTokens',
   'timeoutMs',
+  'style',
   'provider',
   'model',
 ])
@@ -132,6 +140,9 @@ export function resolveSessionTitleLlmConfig(
   assertPositiveInteger('timeoutMs', value.timeoutMs)
   if (value.timeoutMs > MAX_TIMER_DELAY_MS) {
     throw new Error(`session-title-llm: timeoutMs must not exceed ${MAX_TIMER_DELAY_MS}`)
+  }
+  if (value.style !== undefined && value.style !== 'natural' && value.style !== 'slug') {
+    throw new Error('session-title-llm: style must be "natural" or "slug"')
   }
   const hasProvider = value.provider !== undefined
   const hasModel = value.model !== undefined
@@ -193,12 +204,39 @@ function resolveRoute(
 
 /** Stable language-aware system instruction shared by both provider plugins. */
 function systemPrompt(config: ResolvedSessionTitleLlmConfig): string {
+  if (config.style === 'slug') {
+    return [
+      'Create a short identifier for an AI coding-assistant session from the supplied human messages.',
+      `Return only the identifier on one line: ${String(Math.max(2, Math.min(config.targetWords, 6)))} or fewer lowercase ASCII words joined by single hyphens, like fix-login-redirect or explain-water.`,
+      'No spaces, quotes, prefix, explanation, Markdown, XML, or other punctuation. Transliterate non-ASCII words.',
+    ].join('\n')
+  }
   return [
     'Create a concise title for an AI coding-assistant session from the supplied human messages.',
     'Return only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.',
     'Use the language of the messages.',
     `Aim for about ${config.targetWords} words in non-CJK languages or ${config.targetCjkCharacters} CJK characters.`,
   ].join('\n')
+}
+
+/**
+ * Coerce model output into `foo-bar-baz`: a small model often answers with a
+ * sentence, quotes, or Title Case anyway. Lowercases, maps runs of anything
+ * but `[a-z0-9]` to one hyphen, trims hyphens, caps the word count.
+ * @param text - raw model text.
+ * @param maxWords - upper bound on hyphen-separated words.
+ * @returns the slug, possibly empty.
+ */
+export function slugifyTitle(text: string, maxWords: number): string {
+  const words = text
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, ' ')
+    .trim()
+    .split(/\s+/u)
+    .filter(word => word !== '')
+  return words.slice(0, Math.max(1, maxWords)).join('-')
 }
 
 /** Frame exact messages as JSON so user text cannot break structural delimiters. */
@@ -293,7 +331,10 @@ export async function generateSessionTitleWithLlm(
     .filter((block): block is Extract<(typeof blocks)[number], { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
     .join(' ')
-  const title = normalizeSessionTitle(text, Number.MAX_SAFE_INTEGER)
+  const title = normalizeSessionTitle(
+    config.style === 'slug' ? slugifyTitle(text, Math.max(2, Math.min(config.targetWords, 6))) : text,
+    Number.MAX_SAFE_INTEGER,
+  )
   if (title.length === 0) throw new Error('session-title-llm: title model produced no text')
   return {
     title,

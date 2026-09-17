@@ -52,6 +52,10 @@ Every field is required except the paired route override; there are no library d
 
 -----
 
+### Slug titles
+
+Setting `style: slug` on either provider row asks the model for a lowercase hyphenated identifier (`fix-login-redirect`) instead of a phrase, and `slugifyTitle` coerces whatever comes back (quotes, Title Case, sentences, accents) into that shape, capped at `min(targetWords, 6)` words. Meant for sidebars that also use a hand-typed `slug: prompt` naming convention, and for small on-device title models whose free-form summaries are unreliable.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
