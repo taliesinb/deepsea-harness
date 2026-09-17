@@ -195,6 +195,18 @@
   white-space: nowrap;
 }
 
+/* Trailing secondary text (a path): muted; it yields to the label but may take up to 60% of the row. */
+.itemDetail {
+  flex: 0 1 auto;
+  max-width: 60%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .shortcut {
   flex: none;
   margin-inline-start: auto;
