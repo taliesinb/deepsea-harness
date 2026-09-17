@@ -6,6 +6,7 @@ import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepse
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionTitleService, { type SessionTitleProvider } from '@deepseek-ai/dsh-session-title'
+import { slugTitleInstruction } from '@deepseek-ai/dsh-session-title-llm'
 import * as providerPlugin from '@deepseek-ai/dsh-session-title-first-prompt-llm'
 
 class RecordingAdapter extends LlmAdapter {
@@ -70,6 +71,7 @@ interface Harness {
 async function harness(
   script: readonly StreamChunk[] = FIRST_TITLE_SCRIPT,
   reasoningEfforts?: readonly string[],
+  config: providerPlugin.Config = LLM_CONFIG,
 ): Promise<Harness> {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
@@ -80,7 +82,7 @@ async function harness(
   await ctx.plugin(SessionTitleService, TITLE_CONFIG)
   const adapter = new RecordingAdapter(script, reasoningEfforts)
   ctx.llm.registerAdapter(['title-route'], adapter)
-  await ctx.plugin(providerPlugin, LLM_CONFIG)
+  await ctx.plugin(providerPlugin, config)
   return { ctx, adapter }
 }
 
@@ -230,6 +232,27 @@ describe('first-prompt LLM title provider', () => {
     const reasoningSession = reasoning.ctx.sessions.create(SessionId('first-reasoning'))
     appendHumanPrompt(reasoningSession, 'first input')
     await expect(reasoning.ctx.sessionTitle.refresh(reasoningSession)).rejects.toThrow(/produced no text/)
+  })
+
+  it('asks for a slug and coerces the reply into one with style: slug', async () => {
+    const { ctx, adapter } = await harness([
+      { type: 'text-delta', index: 0, text: '**"Fix the Login Redirect, please"**' },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ], undefined, { ...LLM_CONFIG, targetWords: 4, style: 'slug' })
+    const session = ctx.sessions.create(SessionId('first-slug'))
+    appendHumanPrompt(session, 'the login redirect loops')
+
+    await ctx.sessionTitle.refresh(session)
+
+    expect(adapter.requests[0]?.system).toBe(slugTitleInstruction(4).join('\n'))
+    expect(ctx.sessionTitle.get(session)?.title).toBe('fix-the-login-redirect')
+  })
+
+  it('rejects an unknown style', () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    expect(() => { providerPlugin.apply(ctx, { ...LLM_CONFIG, style: 'loud' as never }) })
+      .toThrow('session-title-first-prompt-llm: style must be "natural" or "slug"')
   })
 
   it('requires positive target settings and rejects unknown configuration keys', () => {

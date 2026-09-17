@@ -2,7 +2,9 @@
  * Shared execution policy for model-backed session-title providers: route
  * preparation, input/token/time bounds, cancellation, exact auxiliary request
  * logging, and stream assembly. Title wording, length targets, reasoning
- * selection, and output interpretation belong to each provider.
+ * selection, and output interpretation belong to each provider; the one
+ * shared exception is the opt-in `slug` title style, whose instruction and
+ * output coercion both providers apply the same way.
  * @module @deepseek-ai/dsh-session-title-llm
  */
 
@@ -145,6 +147,73 @@ export function resolveSessionTitleLlmConfig(
     throw new Error('session-title-llm: provider and model overrides must be non-empty strings')
   }
   return deepFreeze({ ...value })
+}
+
+/**
+ * Title shape a provider asks for: `natural` (the default) is a short phrase
+ * in the messages' language; `slug` asks for and enforces lowercase
+ * `foo-bar-baz`, the form a hand-typed `slug: prompt` naming convention
+ * produces.
+ */
+export type SessionTitleStyle = 'natural' | 'slug'
+
+/** Loader field schema for a provider's optional `style`. */
+export const SessionTitleStyleField = z.union(['natural', 'slug'])
+
+/**
+ * Validate an optional provider `style`.
+ * @param provider - provider name for the error message.
+ * @param style - untrusted configured value.
+ * @returns the style, or `undefined` when absent.
+ */
+export function resolveSessionTitleStyle(provider: string, style: unknown): SessionTitleStyle | undefined {
+  if (style !== undefined && style !== 'natural' && style !== 'slug') {
+    throw new Error(`${provider}: style must be "natural" or "slug"`)
+  }
+  return style
+}
+
+/**
+ * Word cap of a slug title: the provider's word target, kept between 2 and 6.
+ * @param targetWords - the provider's non-CJK word target.
+ * @returns the maximum number of hyphen-separated words.
+ */
+export function slugTitleWords(targetWords: number): number {
+  return Math.max(2, Math.min(targetWords, 6))
+}
+
+/**
+ * System instruction for a slug title.
+ * @param targetWords - the provider's non-CJK word target.
+ * @returns the instruction lines asking for one lowercase hyphenated identifier.
+ */
+export function slugTitleInstruction(targetWords: number): string[] {
+  return [
+    'Create a short identifier for an AI coding-assistant session from the supplied human messages.',
+    `Return only the identifier on one line: ${String(slugTitleWords(targetWords))} or fewer lowercase ASCII words joined by single hyphens, like fix-login-redirect or explain-water.`,
+    'No spaces, quotes, prefix, explanation, Markdown, XML, or other punctuation. Transliterate non-ASCII words.',
+  ]
+}
+
+/**
+ * Coerce model output into `foo-bar-baz`: a small model often answers with a
+ * sentence, quotes, or Title Case anyway. Strips marks after NFKD,
+ * lowercases, maps runs of anything but `[a-z0-9]` to one hyphen, trims
+ * hyphens, and caps the word count.
+ * @param text - raw model text.
+ * @param maxWords - upper bound on hyphen-separated words.
+ * @returns the slug, possibly empty.
+ */
+export function slugifyTitle(text: string, maxWords: number): string {
+  const words = text
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, ' ')
+    .trim()
+    .split(/\s+/u)
+    .filter(word => word !== '')
+  return words.slice(0, Math.max(1, maxWords)).join('-')
 }
 
 /**

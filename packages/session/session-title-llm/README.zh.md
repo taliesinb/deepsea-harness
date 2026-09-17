@@ -50,6 +50,12 @@ kind: "package-library"
 | `timeoutMs` | 必填 | 运行时定时器限制内的端到端时限 |
 | `provider`, `model` | 可选 | 显式路由；二者同时提供或同时省略 |
 
+### Slug 标题
+
+<a id="slug-titles"></a>
+
+在提供方行（`session-title-first-prompt-llm`，或实验性的 `session-title-all-prompts-llm`）上设置 `style: slug`，会要求模型返回小写、以连字符连接的标识符（如 `fix-login-redirect`）而非短语。提供方从 `slugTitleInstruction` 取得指令，并把回复交给 `slugifyTitle`，后者把引号、标题式大小写、句子与重音字符统一转换成这种形式，词数上限为 `targetWords`，并限定在 2 到 6 之间。适用于同时使用手写 `slug: prompt` 命名约定的侧栏，以及自由摘要不可靠的小型端侧标题模型。默认的 `natural` 风格保持不变。
+
 -----
 
 <a id="understand-the-implementation"></a>
