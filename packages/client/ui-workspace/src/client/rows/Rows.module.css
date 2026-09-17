@@ -8,6 +8,7 @@
   padding-inline-start: calc(8px + var(--dsh-workspace-indent, 0px));
   cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
   color: var(--dsw-alias-label-primary);
 }
 

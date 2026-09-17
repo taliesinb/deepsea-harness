@@ -600,7 +600,10 @@ export function SessionNodeItem({
       onPointerLeave={marquee.leave}
       draggable={draggable}
       onDragStart={!draggable
-        ? undefined
+        // A blank or archived row has nothing to drag: refuse a native drag
+        // outright (WebKit can still lift a non-draggable element that holds
+        // a selection).
+        ? (e) => { e.preventDefault() }
         : (e) => {
           e.dataTransfer.effectAllowed = 'move'
           e.dataTransfer.setData('text/plain', node.id)

@@ -324,6 +324,12 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Rows are pointer targets, not prose: a press that slides across rows (or
+     starts in the gap between them) starts a row drag or nothing, never a
+     text selection. Prefixed for Safari, which otherwise still selects
+     through row gaps and can lift the selection as a native drag. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Bottom fade: compact overlay pinned to the visible bottom,

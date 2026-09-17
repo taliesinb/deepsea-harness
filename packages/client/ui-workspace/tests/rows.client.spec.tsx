@@ -865,6 +865,24 @@ describe('workspace browser rows', () => {
     }
   })
 
+  it('a blank or archived row refuses a native drag outright', () => {
+    for (const flags of [{ blank: true, archived: false }, { blank: false, archived: true }]) {
+      const node: SessionNode = {
+        id: sid('s1'), title: 'Still', running: false,
+        runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, ...flags,
+      }
+      const drag = dragProps()
+      const { unmount } = render(
+        <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()} drag={drag} t={t} />,
+      )
+      const row = screen.getByRole('treeitem')
+      expect(row.getAttribute('draggable')).toBe('false')
+      expect(fireEvent.dragStart(row, { dataTransfer })).toBe(false)
+      expect(drag.start).not.toHaveBeenCalled()
+      unmount()
+    }
+  })
+
   it('draggable row wires start/end and gates hover/drop on an active same-group drag', () => {
     const node: SessionNode = {
       id: sid('s1'), title: 'Drag me', blank: false, running: false,
