@@ -50,6 +50,12 @@ Every execution field is required except the paired route override; there are no
 | `timeoutMs` | required | End-to-end deadline within the runtime timer limit |
 | `provider`, `model` | optional | Explicit route; both or neither |
 
+### Slug titles
+
+<a id="slug-titles"></a>
+
+Setting `style: slug` on a provider row (`session-title-first-prompt-llm`, or the experimental `session-title-all-prompts-llm`) asks the model for a lowercase hyphenated identifier (`fix-login-redirect`) instead of a phrase. The provider takes its instruction from `slugTitleInstruction` and passes the reply through `slugifyTitle`, which coerces quotes, Title Case, sentences and accents into that shape, capped at `targetWords` words held between 2 and 6. Meant for sidebars that also use a hand-typed `slug: prompt` naming convention, and for small on-device title models whose free-form summaries are unreliable. The default `natural` style is unchanged.
+
 -----
 
 <a id="understand-the-implementation"></a>

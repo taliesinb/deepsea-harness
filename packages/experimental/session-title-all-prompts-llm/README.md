@@ -35,7 +35,7 @@ Once a provider-generated title exists, each request includes it and asks the mo
 
 ### Configuration
 
-The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [execution controls](../../session/session-title-llm/README.md#configuration): `maxInputBytes`, `maxOutputTokens`, `timeoutMs`, and the optional paired `provider`/`model` route. Omit both to inherit the exact route from each current logged main request, or set both to route title generation independently. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-title-all-prompts-llm) is the exhaustive source for every accepted field.
+The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [execution controls](../../session/session-title-llm/README.md#configuration): `maxInputBytes`, `maxOutputTokens`, `timeoutMs`, and the optional paired `provider`/`model` route. Omit both to inherit the exact route from each current logged main request, or set both to route title generation independently. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-title-all-prompts-llm) is the exhaustive source for every accepted field. The optional `style` is `natural` (the default) or `slug`, a lowercase hyphenated identifier; see [slug titles](../../session/session-title-llm/README.md#slug-titles).
 
 ### Failures and recovery
 

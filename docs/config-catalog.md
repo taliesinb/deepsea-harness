@@ -3259,8 +3259,8 @@ export interface Config {
 ## `@deepseek-ai/dsh-session-title-all-prompts-llm`
 
 - `inject`: `sessionTitle` · `llm` · `sessions`
-- `refs`: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts)
-- `source`: [`packages/experimental/session-title-all-prompts-llm/src/index.ts:28`](../packages/experimental/session-title-all-prompts-llm/src/index.ts)
+- `refs`: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts) · [`SessionTitleStyle`](../packages/session/session-title-llm/src/index.ts)
+- `source`: [`packages/experimental/session-title-all-prompts-llm/src/index.ts:34`](../packages/experimental/session-title-all-prompts-llm/src/index.ts)
 
 ```ts config-catalog
 /** Required execution controls plus this provider's title-length targets; no defaults. */
@@ -3269,6 +3269,8 @@ export interface Config extends SessionTitleLlmConfig {
   readonly targetWords: number
   /** Target character count for Chinese, Japanese, or Korean titles. */
   readonly targetCjkCharacters: number
+  /** Title shape: `natural` (default) or `slug` (`foo-bar-baz`). */
+  readonly style?: SessionTitleStyle
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-title-all-prompts-llm -->
@@ -3279,8 +3281,8 @@ export interface Config extends SessionTitleLlmConfig {
 ## `@deepseek-ai/dsh-session-title-first-prompt-llm`
 
 - `inject`: `sessionTitle` · `llm` · `sessions`
-- `refs`: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts)
-- `source`: [`packages/session/session-title-first-prompt-llm/src/index.ts:28`](../packages/session/session-title-first-prompt-llm/src/index.ts)
+- `refs`: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/index.ts) · [`SessionTitleStyle`](../packages/session/session-title-llm/src/index.ts)
+- `source`: [`packages/session/session-title-first-prompt-llm/src/index.ts:34`](../packages/session/session-title-first-prompt-llm/src/index.ts)
 
 ```ts config-catalog
 /** Required execution controls plus this provider's title-length targets; no defaults. */
@@ -3289,6 +3291,8 @@ export interface Config extends SessionTitleLlmConfig {
   readonly targetWords: number
   /** Target character count for Chinese, Japanese, or Korean titles. */
   readonly targetCjkCharacters: number
+  /** Title shape: `natural` (default) or `slug` (`foo-bar-baz`). */
+  readonly style?: SessionTitleStyle
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-title-first-prompt-llm -->
