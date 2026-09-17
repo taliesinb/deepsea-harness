@@ -22,7 +22,7 @@ import {
 } from '@deepseek-ai/dsh-storage-domain'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
-import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import type { SessionActivity, Workspace } from '@deepseek-ai/dsh-workspace'
 import type { ApiSessionAgentController } from '../src/agent.ts'
 import { SESSION_MOVE_NOTICE_SOURCE, SessionMoveController, sessionMoveNoticeText } from '../src/move.ts'
 
@@ -56,7 +56,20 @@ async function harness() {
   )
   await ctx.plugin(JsonlSessionPersistence, { root: join(home, 'sessions'), compression: 'none' })
   const live = new Map<SessionId, FakeAgent>()
+  const jobs = new Map<SessionId, string[]>()
   ctx.provide('agents', { get: (id: SessionId) => live.get(id), list: () => [...live.values()] } as never)
+  // The activity providers the Agent and job registries install, reduced to these fakes.
+  ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
+    const rest = await next()
+    const own: SessionActivity[] = []
+    if (live.get(sessionId)?.status === 'running') own.push({ kind: 'turn' })
+    const labels = jobs.get(sessionId) ?? []
+    if (labels.length > 0) {
+      own.push({ kind: 'job', items: labels.map((label, index) => ({ id: `bash-${String(index + 1)}`, label })) })
+    }
+    own.push({ kind: 'schedule', items: [{ id: 'reminder' }] })
+    return [...own, ...rest]
+  })
   ctx.provide('sessions', { get: (id: SessionId) => live.get(id), list: () => [] } as never)
   await ctx.plugin(WorkspaceRegistry)
   const a = await ctx.workspaceRegistry.create(paths.a, 'Alpha')
@@ -69,7 +82,7 @@ async function harness() {
     ctx,
     { retire } as Pick<ApiSessionAgentController, 'retire'> as ApiSessionAgentController,
   )
-  return { ctx, home, paths, a, b, c, live, retire, controller, emitted }
+  return { ctx, home, paths, a, b, c, live, jobs, retire, controller, emitted }
 }
 
 function header(id: string, cwd: string, extra: Partial<SessionHeader> = {}): SessionHeader {
@@ -198,10 +211,26 @@ describe('SessionMoveController', () => {
     expect(batch.skipped).toEqual([expect.objectContaining({ sessionId: 'running', reason: 'live' })])
     expect(retire).toHaveBeenCalledWith('idle')
     await expect(controller.move({ sessionId: SessionId('running'), destination: { workspaceId: b.id } }))
-      .rejects.toMatchObject({ code: 'session/move-live', details: { sessionId: 'running' } })
+      .rejects.toMatchObject({ code: 'session/move-live', details: { sessionId: 'running', blockers: [{ kind: 'turn' }] } })
     expect(await controller.move({ sessionId: SessionId('running'), destination: { workspaceId: b.id }, stopLive: true }))
       .toMatchObject({ moved: ['running'] })
     expect(b.sessionIds.toSorted()).toEqual(['cold', 'idle', 'running'])
+  })
+
+  it('names the background jobs a move would kill, and moves past them with stopLive', async () => {
+    const { ctx, paths, a, b, live, jobs, retire, controller } = await harness()
+    await store(ctx, header('busy', paths.a), a)
+    live.set(SessionId('busy'), { id: SessionId('busy'), status: 'idle' })
+    jobs.set(SessionId('busy'), ['sleep 600'])
+    const refusal = controller.move({ sessionId: SessionId('busy'), destination: { workspaceId: b.id } })
+    await expect(refusal).rejects.toMatchObject({
+      code: 'session/move-live',
+      details: { blockers: [{ kind: 'job', items: [{ id: 'bash-1', label: 'sleep 600' }] }] },
+    })
+    await expect(refusal).rejects.toThrow('1 background job running (sleep 600)')
+    expect(retire).not.toHaveBeenCalled()
+    expect(await controller.move({ sessionId: SessionId('busy'), destination: { workspaceId: b.id }, stopLive: true }))
+      .toMatchObject({ moved: ['busy'] })
   })
 
   it('leaves a session whose resident Agent another owner holds', async () => {
@@ -210,7 +239,7 @@ describe('SessionMoveController', () => {
     live.set(SessionId('owned'), { id: SessionId('owned'), status: 'idle' })
     retire.mockResolvedValueOnce(false)
     await expect(controller.move({ sessionId: SessionId('owned'), destination: { workspaceId: b.id } }))
-      .rejects.toMatchObject({ code: 'session/move-live' })
+      .rejects.toMatchObject({ code: 'session/move-live', details: { blockers: [] } })
     expect(a.sessionIds).toEqual(['owned'])
   })
 })

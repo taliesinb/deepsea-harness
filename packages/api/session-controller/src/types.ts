@@ -10,7 +10,7 @@ import type { TextBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { SessionActivity, WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -224,8 +224,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
-    /** Move refused: retiring the Session's Agent would interrupt a running turn; retry with `stopLive`. */
-    'session/move-live': { readonly sessionId: SessionId }
+    /**
+     * Move refused: retiring the Session's Agent would interrupt the work in
+     * `blockers` (a turn, background jobs, subagents); retry with `stopLive`.
+     * Empty `blockers` mean another owner or process holds the Session.
+     */
+    'session/move-live': { readonly sessionId: SessionId; readonly blockers: readonly SessionActivity[] }
     /** Move refused: no stored Session with this id. */
     'session/move-missing': { readonly sessionId: SessionId }
     /** Move refused: the Session already belongs to the destination Workspace. */
@@ -339,10 +343,11 @@ export interface SessionMoveRequest {
   readonly sessionId: SessionId
   readonly destination: SessionMoveDestination
   /**
-   * Also move a Session whose Agent is running a turn, interrupting it. A
-   * resident Agent with nothing in flight is always retired silently; it
-   * resumes cold in the new Workspace on the next open. Without this flag a
-   * running one is refused with `session/move-live`.
+   * Also move a Session whose Agent has work in flight (a turn, running
+   * background jobs, running subagents), interrupting it. A resident Agent
+   * with nothing in flight is always retired silently; it resumes cold in the
+   * new Workspace on the next open. Without this flag a Session with such
+   * work is refused with `session/move-live`, whose details name it.
    */
   readonly stopLive?: boolean
   /** Append the relocation notice the Agent reads on its next step; default true. */
@@ -362,6 +367,8 @@ export interface SessionMoveSkip {
   readonly sessionId: SessionId
   readonly reason: 'live' | 'missing' | 'same-workspace' | 'error'
   readonly message: string
+  /** For `live`: the work a move would interrupt (empty when another owner or process holds the Session). */
+  readonly blockers?: readonly SessionActivity[]
 }
 
 /** Move several Sessions to one Workspace. */

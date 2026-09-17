@@ -6,8 +6,9 @@
  * (`sessionPersistence.relocate`) followed by registry detach/attach, a
  * projection-cache re-bind, and a list refresh. A resident Agent owns the
  * storage write handle, so it is retired first; it resumes cold in the new
- * Workspace on the next open. Retiring an idle Agent interrupts nothing, so
- * only a running turn makes the caller decide (`stopLive`).
+ * Workspace on the next open. Retiring an Agent with nothing in flight
+ * interrupts nothing; a running turn, running background jobs, or running
+ * subagents make the caller decide (`stopLive`), and the refusal names them.
  *
  * Every moved Session receives one `agent/inbox/spliced` next-step notice so
  * its Agent learns where it now lives and what its permissions cover.
@@ -20,7 +21,7 @@ import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-se
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type { SessionPersistence, SessionRelocateAppend } from '@deepseek-ai/dsh-session-persistence'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
-import type { Workspace } from '@deepseek-ai/dsh-workspace'
+import type { SessionActivity, Workspace } from '@deepseek-ai/dsh-workspace'
 import { basename } from 'node:path'
 import type { ApiSessionAgentController } from './agent.ts'
 import type {
@@ -69,6 +70,46 @@ export function sessionMoveNoticeText(from: SessionMoveLabel, to: SessionMoveLab
     : ` Your current permissions of \`${permission}\` now grant access to this new directory instead of the old one.`
   return `<system-reminder>NOTE: this session's workspace was changed from \`${from.title}\` (${from.path}) to `
     + `\`${to.title}\` (${to.path}).${clause} Earlier file references may need to be re-read from the new location.</system-reminder>`
+}
+
+/**
+ * Activity families a move interrupts by retiring the Session's Agent. A
+ * schedule is not among them: its reminders address the Session id, which a
+ * move keeps, and wake the Session in its new Workspace.
+ */
+const INTERRUPTED_BY_RETIRE: ReadonlySet<string> = new Set(['turn', 'job', 'subagent'])
+
+/**
+ * What retiring a Session's resident Agent would interrupt: the composed
+ * providers' answer to `workspace/session-activity` (the same question an
+ * archive asks), without the families a move leaves running.
+ * @param ctx - Host context whose providers answer the activity waterfall.
+ * @param sessionId - the Session about to move.
+ * @returns the interrupted work; empty when the Agent can be retired unnoticed.
+ */
+export async function sessionMoveBlockers(ctx: Context, sessionId: SessionId): Promise<SessionActivity[]> {
+  const activity = await ctx.waterfall('workspace/session-activity', { sessionId }, () => Promise.resolve([]))
+  return activity.filter(entry => INTERRUPTED_BY_RETIRE.has(entry.kind))
+}
+
+/**
+ * One line naming what a move would interrupt, for messages and logs.
+ * @param blockers - activity families from {@link sessionMoveBlockers}.
+ * @returns the description.
+ */
+export function describeBlockers(blockers: readonly SessionActivity[]): string {
+  return blockers.map((blocker) => {
+    const kind: string = blocker.kind
+    const items = blocker.items ?? []
+    const labels = items.map(item => item.label ?? item.id)
+    const named = labels.length === 0 ? '' : ` (${labels.slice(0, 3).join(', ')}${labels.length > 3 ? ', …' : ''})`
+    switch (kind) {
+      case 'turn': return 'a turn is running'
+      case 'job': return `${String(items.length)} background job${items.length === 1 ? '' : 's'} running${named}`
+      case 'subagent': return `${String(items.length)} subagent${items.length === 1 ? '' : 's'} running${named}`
+      default: return `${kind} activity${named}`
+    }
+  }).join('; ')
 }
 
 /**
@@ -124,8 +165,12 @@ export class SessionMoveController {
   async move(request: SessionMoveRequest): Promise<SessionMoveValue> {
     const destination = await resolveMoveDestination(this.ctx, request.destination)
     const outcome = await this.moveOne(request.sessionId, destination, request)
-    if (outcome.skipped !== undefined) {
-      throw new RemoteError(`session/move-${outcome.skipped.reason}`, outcome.skipped.message, { sessionId: request.sessionId })
+    const skipped = outcome.skipped
+    if (skipped?.reason === 'live') {
+      throw new RemoteError('session/move-live', skipped.message, { sessionId: request.sessionId, blockers: skipped.blockers ?? [] })
+    }
+    if (skipped !== undefined) {
+      throw new RemoteError(`session/move-${skipped.reason}`, skipped.message, { sessionId: request.sessionId })
     }
     return { sessionId: request.sessionId, workspaceId: destination.id, moved: outcome.moved }
   }
@@ -208,13 +253,20 @@ export class SessionMoveController {
    * @returns a skip when the Session must stay where it is.
    */
   private async retireResident(sessionId: SessionId, policy: MovePolicy): Promise<SessionMoveSkip | undefined> {
-    const agent = this.ctx.agents.get(sessionId)
-    if (agent === undefined && this.ctx.sessions.get(sessionId) === undefined) return undefined
-    if (agent?.status === 'running' && policy.stopLive !== true) {
-      return { sessionId, reason: 'live', message: `session "${sessionId}" is running a turn; stop it first or move with stopLive` }
+    if (this.ctx.agents.get(sessionId) === undefined && this.ctx.sessions.get(sessionId) === undefined) return undefined
+    if (policy.stopLive !== true) {
+      const blockers = await sessionMoveBlockers(this.ctx, sessionId)
+      if (blockers.length > 0) {
+        return {
+          sessionId,
+          reason: 'live',
+          message: `session "${sessionId}": ${describeBlockers(blockers)}; stop it first or move with stopLive`,
+          blockers,
+        }
+      }
     }
     if (await this.agents.retire(sessionId)) return undefined
-    return { sessionId, reason: 'live', message: `session "${sessionId}" is owned by another component and cannot be stopped here` }
+    return { sessionId, reason: 'live', message: `session "${sessionId}" is owned by another component and cannot be stopped here`, blockers: [] }
   }
 
   /**
@@ -240,7 +292,7 @@ export class SessionMoveController {
     } catch (error: unknown) {
       // Persistence is an optional peer: its refusals are recognized by name.
       if (error instanceof Error && error.name === 'SessionAlreadyOwnedError') {
-        return { sessionId, reason: 'live', message: `session "${sessionId}" is open in another process` }
+        return { sessionId, reason: 'live', message: `session "${sessionId}" is open in another process`, blockers: [] }
       }
       if (error instanceof Error && error.name === 'SessionPersistenceNotFoundError') {
         return { sessionId, reason: 'missing', message: `session "${sessionId}" has no stored log` }

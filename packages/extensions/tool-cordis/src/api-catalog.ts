@@ -6934,7 +6934,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionMoveSkip',
-    declaration: 'export interface SessionMoveSkip {\n    readonly sessionId: SessionId;\n    readonly reason: \'live\' | \'missing\' | \'same-workspace\' | \'error\';\n    readonly message: string;\n}',
+    declaration: 'export interface SessionMoveSkip {\n    readonly sessionId: SessionId;\n    readonly reason: \'live\' | \'missing\' | \'same-workspace\' | \'error\';\n    readonly message: string;\n    readonly blockers?: readonly SessionActivity[];\n}',
   },
   {
     name: 'SessionMoveValue',
