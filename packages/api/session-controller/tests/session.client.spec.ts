@@ -13,7 +13,7 @@ import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import { createClientTest, type TestClient, webApp } from '@deepseek-ai/dsh-client-test-runtime/src/assembly/index.ts'
-import { Session } from '../src/client/sessions/session.ts'
+import { OPEN_STALL_RESTART_MS, OPEN_STALL_WARN_MS, Session } from '../src/client/sessions/session.ts'
 import { SessionEventStream } from '../src/client/transport.ts'
 import type { SessionFollowRequest, SessionPage, SessionPageRequest } from '../src/types.ts'
 import { entries, ev, historyValue, plainTurn } from './event-script.client.ts'
@@ -118,6 +118,103 @@ describe('Session open', () => {
     await session.open()
     expect(session.getSnapshot().openState).toBe('error')
     expect(session.getSnapshot().openError).toMatchObject({ code: 'gateway/internal', message: 'socket died' })
+  })
+
+  it('lands a local fault while installing the opening window in openState=error with console.error, never a stuck loading', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    // The client-side fold of the opening page (e.g. a baseline it cannot
+    // expand) throws a plain error, not a Remote failure.
+    const open = vi.spyOn(SessionEventStream.prototype, 'open')
+    open.mockRejectedValueOnce(new TypeError('opening baseline rejected'))
+    try {
+      await expect(session.open()).resolves.toBeUndefined()
+      const snapshot = session.getSnapshot()
+      expect(snapshot.openState).toBe('error')
+      expect(snapshot.openError).toMatchObject({ code: 'gateway/internal', message: 'opening baseline rejected' })
+      expect(errorSpy).toHaveBeenCalledWith(
+        `[session-controller] open failed locally for session ${SID}:`,
+        expect.any(TypeError),
+      )
+      // The error state is recoverable: the next open runs a fresh follow
+      // (the faulted one never reached the wire, so this is the first request).
+      await session.open()
+      expect(session.getSnapshot().openState).toBe('open')
+      expect(mock.log.requests(FOLLOW)).toHaveLength(1)
+    } finally {
+      open.mockRestore()
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('lands a local fault in the live fold in openState=error instead of an unhandled rejection', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))
+    await session.open()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const append = vi.spyOn(session.eventSource, 'append').mockImplementationOnce(() => {
+      throw new TypeError('live entry rejected')
+    })
+    try {
+      await pushEvent(mock, ev.user(SessionSeq(6), '坏帧'))
+      await vi.waitFor(() => { expect(session.getSnapshot().openState).toBe('error') })
+      expect(session.getSnapshot().openError).toMatchObject({ code: 'gateway/internal', message: 'live entry rejected' })
+      expect(errorSpy).toHaveBeenCalledWith(
+        `[session-controller] follow failed locally for session ${SID}:`,
+        expect.any(TypeError),
+      )
+    } finally {
+      append.mockRestore()
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('warns about an opening without its snapshot and reissues the follow once', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // The first follow never answers (its opening frame is lost on the
+    // carrier); the reissued one answers normally.
+    let openings = 0
+    mock.stream(FOLLOW, followScript(() => {
+      openings += 1
+      return openings === 1
+        ? new Promise<never>(() => {})
+        : history(plainTurn(SessionSeq(0), 0, 'a', 'b'))
+    }))
+    vi.useFakeTimers()
+    try {
+      const opening = session.open()
+      await vi.advanceTimersByTimeAsync(OPEN_STALL_WARN_MS)
+      expect(session.getSnapshot().openState).toBe('loading')
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(mock.log.requests(FOLLOW)).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(OPEN_STALL_RESTART_MS - OPEN_STALL_WARN_MS)
+      expect(warnSpy).toHaveBeenCalledTimes(2)
+      await vi.waitFor(() => { expect(mock.log.requests(FOLLOW)).toHaveLength(2) })
+      await opening
+      expect(session.getSnapshot().openState).toBe('open')
+      expect(eventSeqs(session)).toEqual([0, 1, 2, 3, 4, 5])
+    } finally {
+      vi.useRealTimers()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('clears the opening watchdog once the snapshot lands', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mock.stream(FOLLOW, followScript(history(plainTurn(SessionSeq(0), 0, 'a', 'b'))))
+    vi.useFakeTimers()
+    try {
+      await session.open()
+      await vi.advanceTimersByTimeAsync(OPEN_STALL_RESTART_MS + 1)
+      expect(warnSpy).not.toHaveBeenCalled()
+      expect(mock.log.requests(FOLLOW)).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+      warnSpy.mockRestore()
+    }
   })
 
   it('stitches live frames landing right behind the opening snapshot, dropping the page overlap', async ({ mock, start }) => {
