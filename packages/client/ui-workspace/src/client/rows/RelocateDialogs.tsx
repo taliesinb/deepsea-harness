@@ -14,16 +14,26 @@
  * only until the operator decides what the copy does with the turn in
  * progress. Rehome moves every member of the source Workspace, reports skips,
  * and can delete the emptied source.
+ *
+ * The session dialogs also list destinations contributed through
+ * `ctx.uiWorkspace.contributeDestinations` (a remote host's Workspaces, for
+ * instance) as further headed groups after this machine's, and hand a pick of
+ * one of those to the contributor's `run`, which answers in the Host's own
+ * refusal vocabulary, so a refusal reads the same for every destination.
+ * Rehome stays local.
  */
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Button, Checkbox, IconChevronDownOutlineRegular, IconFolderCloseRegular, Modal,
+  Button, Checkbox, IconChevronDownOutlineRegular, IconFolderCloseRegular, IconGlobeOutlineRegular, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { workspaceDisplayTitle } from '@deepseek-ai/dsh-api-workspace-controller/default-workspace'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { abbreviateHomePath } from '@deepseek-ai/dsh-util-workspace-path'
 import type { SessionRelocationRequest, WorkspaceBrowserProps } from '../contract/slots.ts'
+import type {
+  DestinationContribution, DestinationEntry, DestinationGroup, DestinationRunRequest,
+} from '../navigation.ts'
 import { activityLine } from '../session-actions/ArchiveSession.tsx'
 import { WorkspacePickFlow, type WorkspacePickFlowProps } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
@@ -38,20 +48,85 @@ export type DestinationFlowProps = Pick<
   home?: string | undefined
 }
 
-/** The destination field: a select-like button over the pick flow, showing the choice and its directory. */
-function DestinationPicker({ t, value, current, flow, onPick, disabled }: {
+/** One contributed group with the contribution it came from. */
+interface ContributedGroup {
+  readonly contributionId: string
+  readonly group: DestinationGroup
+}
+
+/** The live, non-empty groups of every destination contribution, in contribution order. */
+function useContributedGroups(contributions: readonly DestinationContribution[]): readonly ContributedGroup[] {
+  const read = useCallback((): readonly ContributedGroup[] => contributions.flatMap(contribution =>
+    contribution.groups.getSnapshot()
+      .filter(group => group.entries.length > 0)
+      .map(group => ({ contributionId: contribution.id, group }))), [contributions])
+  const [groups, setGroups] = useState<readonly ContributedGroup[]>(read)
+  useEffect(() => {
+    setGroups(read())
+    const unsubscribes = contributions.map(contribution => contribution.groups.subscribe(() => { setGroups(read()) }))
+    return () => { for (const unsubscribe of unsubscribes) unsubscribe() }
+  }, [contributions, read])
+  return groups
+}
+
+/** A chosen destination: a Workspace of this machine, or one entry of a contributed group. */
+type DestinationChoice =
+  | { readonly kind: 'local'; readonly workspaceId: WorkspaceId }
+  | { readonly kind: 'external'; readonly groupId: string; readonly key: string }
+
+/** A choice resolved against the current lists; undefined once it is no longer offered. */
+type ResolvedDestination =
+  | { readonly kind: 'local'; readonly workspace: WorkspaceView }
+  | {
+    readonly kind: 'external'
+    readonly contributionId: string
+    readonly group: DestinationGroup
+    readonly entry: DestinationEntry
+  }
+
+function resolveDestination(
+  choice: DestinationChoice | undefined,
+  workspaces: readonly WorkspaceView[],
+  groups: readonly ContributedGroup[],
+): ResolvedDestination | undefined {
+  if (choice === undefined) return undefined
+  if (choice.kind === 'local') {
+    const workspace = workspaces.find(candidate => candidate.workspaceId === choice.workspaceId)
+    return workspace === undefined ? undefined : { kind: 'local', workspace }
+  }
+  const contributed = groups.find(candidate => candidate.group.id === choice.groupId)
+  const entry = contributed?.group.entries.find(candidate => candidate.key === choice.key)
+  return contributed === undefined || entry === undefined
+    ? undefined
+    : { kind: 'external', contributionId: contributed.contributionId, group: contributed.group, entry }
+}
+
+/**
+ * The destination field: a select-like button over the pick flow, showing the
+ * choice and its directory. With contributed groups the list is a tree: this
+ * machine's Workspaces under their heading, then each group under its own.
+ */
+function DestinationPicker({ t, value, current, flow, groups, onPick, disabled }: {
   t: Translate
-  /** The chosen Workspace. */
-  value: WorkspaceView | undefined
+  /** The chosen destination. */
+  value: ResolvedDestination | undefined
   /** Workspace the item belongs to: checked while nothing is chosen, still pickable. */
   current: WorkspaceId | undefined
   flow: DestinationFlowProps
-  onPick: (workspaceId: WorkspaceId) => void
+  /** Contributed groups listed after this machine's Workspaces. */
+  groups: readonly ContributedGroup[]
+  onPick: (choice: DestinationChoice) => void
   disabled: boolean
 }) {
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement | null>(null)
   const formatPath = (path: string): string => abbreviateHomePath(path, flow.home)
+  const label = value === undefined
+    ? t('move.destination.pick')
+    : value.kind === 'local'
+      ? workspaceDisplayTitle(value.workspace.title, t('workspace.defaultName'))
+      : `${value.entry.title} · ${value.group.label}`
+  const path = value === undefined ? undefined : value.kind === 'local' ? formatPath(value.workspace.path) : value.entry.path
   return (
     <div className={css.relocateField}>
       <span className={css.relocateLabel}>{t('move.destination')}</span>
@@ -64,11 +139,9 @@ function DestinationPicker({ t, value, current, flow, onPick, disabled }: {
         aria-expanded={open}
         onClick={() => { setOpen(state => !state) }}
       >
-        <IconFolderCloseRegular size={16} />
-        <span className={css.relocateDestinationText}>
-          {value === undefined ? t('move.destination.pick') : workspaceDisplayTitle(value.title, t('workspace.defaultName'))}
-        </span>
-        {value !== undefined && <span className={css.relocateDestinationPath} title={value.path}>{formatPath(value.path)}</span>}
+        {value?.kind === 'external' ? <IconGlobeOutlineRegular size={16} /> : <IconFolderCloseRegular size={16} />}
+        <span className={css.relocateDestinationText}>{label}</span>
+        {path !== undefined && <span className={css.relocateDestinationPath} title={path}>{path}</span>}
         <IconChevronDownOutlineRegular size={14} />
       </button>
       <WorkspacePickFlow
@@ -79,13 +152,20 @@ function DestinationPicker({ t, value, current, flow, onPick, disabled }: {
         createWorkspace={flow.createWorkspace}
         useDirectoryFlow={flow.useDirectoryFlow}
         renderDirectoryFlow={flow.renderDirectoryFlow}
-        selectedId={value?.workspaceId ?? current}
+        selectedId={value?.kind === 'local' ? value.workspace.workspaceId : value === undefined ? current : undefined}
         showPaths
         formatPath={formatPath}
         matchAnchorWidth
+        externalGroups={groups.map(({ group }) => group)}
+        localLabel={t('move.destination.local')}
+        selectedExternal={value?.kind === 'external' ? { groupId: value.group.id, key: value.entry.key } : undefined}
         onPick={(workspaceId) => {
           setOpen(false)
-          onPick(workspaceId)
+          onPick({ kind: 'local', workspaceId })
+        }}
+        onPickExternal={(pick) => {
+          setOpen(false)
+          onPick({ kind: 'external', ...pick })
         }}
         onClose={() => { setOpen(false) }}
       />
@@ -115,33 +195,75 @@ export interface RelocationOutcome {
   workspaceId: WorkspaceId
 }
 
+/** One answer from the Host or from a contributor, in the shape the dialog reacts to. */
+type RelocationAnswer =
+  | { readonly ok: true; readonly outcome?: RelocationOutcome; readonly summary?: string }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly blockers?: readonly SessionActivity[] }
+
+/** The activity a contributor's refusal names; a refusal without any reads as a running turn. */
+function blockersFrom(details: unknown): readonly SessionActivity[] {
+  if (typeof details !== 'object' || details === null || !('blockers' in details) || !Array.isArray(details.blockers)) {
+    return [{ kind: 'turn' }]
+  }
+  return details.blockers.filter((entry: unknown): entry is SessionActivity =>
+    typeof entry === 'object' && entry !== null && 'kind' in entry && typeof entry.kind === 'string')
+}
+
+/** Hand a contributed destination to its contributor; a throw or a withdrawn contribution becomes a refusal. */
+async function runContributed(
+  contributions: readonly DestinationContribution[],
+  destination: Extract<ResolvedDestination, { kind: 'external' }>,
+  request: Omit<DestinationRunRequest, 'groupId' | 'destinationKey'>,
+): Promise<RelocationAnswer> {
+  const contribution = contributions.find(candidate => candidate.id === destination.contributionId)
+  if (contribution === undefined) {
+    return { ok: false, code: 'ui-workspace/destination-gone', message: 'that destination is no longer offered' }
+  }
+  try {
+    const result = await contribution.run({ ...request, groupId: destination.group.id, destinationKey: destination.entry.key })
+    if (result.ok) return result.summary === undefined ? { ok: true } : { ok: true, summary: result.summary }
+    const live = result.code === 'session/move-live' || result.code === 'session/copy-live'
+    return { ok: false, code: result.code, message: result.message, ...(live ? { blockers: blockersFrom(result.details) } : {}) }
+  } catch (failure: unknown) {
+    return { ok: false, code: 'ui-workspace/destination-failed', message: failure instanceof Error ? failure.message : String(failure) }
+  }
+}
+
 /**
  * Move to… or Copy to… for one Session: one dialog per request (keyed by the
  * caller), so a new request starts from a fresh state. A move may not target
  * the Session's own Workspace; a copy may (a duplicate) and starts there. A
  * running source refuses either until the operator decides: interrupt its
  * work and move, or copy only up to the last completed turn (ticked by
- * default) or as recorded so far.
- * @param props - the request, the Host hops, the destination flow, the Workspace list, and settlement.
+ * default) or as recorded so far. Contributed destinations follow this
+ * machine's Workspaces; their contributor carries the operation out and may
+ * answer with a summary the dialog shows before it is closed.
+ * @param props - the request, the Host hops, the contributions, the destination flow, the Workspace list, and settlement.
  * @returns the dialog.
  */
-export function SessionRelocateDialog({ request, workspaces, moveSession, copySession, flow, t, onClose, onDone }: {
+export function SessionRelocateDialog({
+  request, workspaces, contributions, moveSession, copySession, flow, t, onClose, onDone,
+}: {
   request: SessionRelocationRequest
   workspaces: readonly WorkspaceView[]
+  /** Destinations other plugins add after this machine's Workspaces. */
+  contributions: readonly DestinationContribution[]
   moveSession: WorkspaceBrowserProps['moveSession']
   copySession: WorkspaceBrowserProps['copySession']
   flow: DestinationFlowProps
   t: Translate
   onClose: () => void
-  /** The Session moved, or its copy was stored. */
-  onDone: (outcome: RelocationOutcome) => void
+  /** The Session moved or was copied here; nothing when a contributor carried it elsewhere. */
+  onDone: (outcome?: RelocationOutcome) => void
 }) {
   const copy = request.action === 'copy'
   const source = owningWorkspace(workspaces, request.sessionId)
-  const [destinationId, setDestinationId] = useState<WorkspaceId | undefined>(
-    request.destinationId ?? (copy ? source?.workspaceId : undefined),
+  const groups = useContributedGroups(contributions)
+  const preselected = request.destinationId ?? (copy ? source?.workspaceId : undefined)
+  const [choice, setChoice] = useState<DestinationChoice | undefined>(
+    preselected === undefined ? undefined : { kind: 'local', workspaceId: preselected },
   )
-  const destination = workspaces.find(workspace => workspace.workspaceId === destinationId)
+  const destination = resolveDestination(choice, workspaces, groups)
   const [title, setTitle] = useState(request.displayTitle === '' ? '' : `${request.displayTitle}${t('copy.title.suffix')}`)
   const [blockers, setBlockers] = useState<readonly SessionActivity[] | null>(null)
   const [stopLive, setStopLive] = useState(false)
@@ -149,41 +271,60 @@ export function SessionRelocateDialog({ request, workspaces, moveSession, copySe
   const [notify, setNotify] = useState(true)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const sameWorkspace = !copy && destination !== undefined && destination.workspaceId === source?.workspaceId
-  const blocked = pending || destination === undefined || sameWorkspace || (!copy && blockers !== null && !stopLive)
+  const [summary, setSummary] = useState<string | null>(null)
+  const sameWorkspace = !copy && destination?.kind === 'local' && destination.workspace.workspaceId === source?.workspaceId
+  const blocked = pending || destination === undefined || sameWorkspace || summary !== null
+    || (!copy && blockers !== null && !stopLive)
   const close = (): void => {
     if (!pending) onClose()
   }
-  const settle = (result: Awaited<ReturnType<WorkspaceBrowserProps['moveSession']>>
-    | Awaited<ReturnType<WorkspaceBrowserProps['copySession']>>): void => {
+  const settle = (answer: RelocationAnswer): void => {
     setPending(false)
-    if (result.ok) {
-      onDone({ sessionId: result.value.sessionId, workspaceId: result.value.workspaceId })
+    if (answer.ok) {
+      if (answer.summary !== undefined) setSummary(answer.summary)
+      else onDone(answer.outcome)
       return
     }
-    if (result.error.code === 'session/move-live' || result.error.code === 'session/copy-live') {
-      setBlockers(result.error.details.blockers)
+    if (answer.blockers !== undefined) {
+      setBlockers(answer.blockers)
       return
     }
-    setError(`${result.error.code}: ${result.error.message}`)
+    setError(`${answer.code}: ${answer.message}`)
+  }
+  const fromHost = (result: Awaited<ReturnType<WorkspaceBrowserProps['moveSession']>>
+    | Awaited<ReturnType<WorkspaceBrowserProps['copySession']>>): RelocationAnswer => {
+    if (result.ok) return { ok: true, outcome: { sessionId: result.value.sessionId, workspaceId: result.value.workspaceId } }
+    const { error: failure } = result
+    return failure.code === 'session/move-live' || failure.code === 'session/copy-live'
+      ? { ok: false, code: failure.code, message: failure.message, blockers: failure.details.blockers }
+      : { ok: false, code: failure.code, message: failure.message }
   }
   const confirm = (): void => {
     if (blocked) return
     setPending(true)
     setError(null)
-    const target = { sessionId: request.sessionId, destination: { workspaceId: destination.workspaceId }, notify }
-    if (!copy) {
-      void moveSession({ ...target, stopLive }).then(settle)
-      return
-    }
     const named = title.trim()
-    void copySession({
-      ...target,
-      // Undecided until the Host reports a running turn; then the checkbox decides.
+    const copyOptions = {
+      // Undecided until the source reports a running turn; then the checkbox decides.
       ...(blockers === null ? {} : { truncate }),
       ...(named === '' || named === request.displayTitle ? {} : { title: named }),
-    }).then(settle)
+    }
+    if (destination.kind === 'external') {
+      void runContributed(contributions, destination, {
+        action: request.action,
+        sessionId: request.sessionId,
+        sourceTitle: request.displayTitle,
+        ...(source === undefined ? {} : { sourceWorkspaceId: source.workspaceId }),
+        notify,
+        ...(copy ? copyOptions : { stopLive }),
+      }).then(settle)
+      return
+    }
+    const target = { sessionId: request.sessionId, destination: { workspaceId: destination.workspace.workspaceId }, notify }
+    const answer = copy ? copySession({ ...target, ...copyOptions }) : moveSession({ ...target, stopLive })
+    void answer.then(fromHost).then(settle)
   }
+  const done = summary !== null
   return (
     <Modal
       open
@@ -194,18 +335,20 @@ export function SessionRelocateDialog({ request, workspaces, moveSession, copySe
       className={css.relocateDialog as string}
       footer={(
         <>
-          <Button variant="outline" disabled={pending} onClick={close}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={blocked} onClick={confirm}>
-            {copy ? (pending ? t('copy.pending') : t('copy.confirm')) : (pending ? t('move.pending') : t('move.confirm'))}
-          </Button>
+          <Button variant="outline" disabled={pending} onClick={close}>{done ? t('close') : t('cancel')}</Button>
+          {!done && (
+            <Button variant="primary" disabled={blocked} onClick={confirm}>
+              {copy ? (pending ? t('copy.pending') : t('copy.confirm')) : (pending ? t('move.pending') : t('move.confirm'))}
+            </Button>
+          )}
         </>
       )}
     >
       <div className={css.relocateBody}>
         <DestinationPicker
-          t={t} value={destination} current={source?.workspaceId} flow={flow} disabled={pending}
-          onPick={(workspaceId) => {
-            setDestinationId(workspaceId)
+          t={t} value={destination} current={source?.workspaceId} flow={flow} groups={groups} disabled={pending || done}
+          onPick={(next) => {
+            setChoice(next)
             setError(null)
           }}
         />
@@ -216,7 +359,7 @@ export function SessionRelocateDialog({ request, workspaces, moveSession, copySe
             <input
               className={css.renameInput}
               value={title}
-              disabled={pending}
+              disabled={pending || done}
               onChange={(event) => { setTitle(event.currentTarget.value) }}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
@@ -226,7 +369,7 @@ export function SessionRelocateDialog({ request, workspaces, moveSession, copySe
             />
           </label>
         )}
-        {blockers !== null && (
+        {blockers !== null && !done && (
           <>
             <BlockerList blockers={blockers} t={t} label={t(copy ? 'copy.live.blockers' : 'move.live.blockers')} />
             {copy
@@ -234,7 +377,10 @@ export function SessionRelocateDialog({ request, workspaces, moveSession, copySe
               : <Checkbox checked={stopLive} onChange={setStopLive} disabled={pending} label={t('move.stopLive')} />}
           </>
         )}
-        <Checkbox checked={notify} onChange={setNotify} disabled={pending} label={t(copy ? 'copy.notify' : 'move.notify')} />
+        <Checkbox
+          checked={notify} onChange={setNotify} disabled={pending || done} label={t(copy ? 'copy.notify' : 'move.notify')}
+        />
+        {summary !== null && <div className={css.deleteStatus} role="status">{summary}</div>}
         {error !== null && <div className={css.renameError} role="alert">{error}</div>}
       </div>
     </Modal>
@@ -325,9 +471,11 @@ export function RehomeWorkspaceDialog({ target, workspaces, moveSessions, delete
     >
       <div className={css.relocateBody}>
         <DestinationPicker
-          t={t} value={destination} current={target.workspaceId} flow={flow} disabled={pending || summary !== null}
-          onPick={(workspaceId) => {
-            setDestinationId(workspaceId)
+          t={t} value={destination === undefined ? undefined : { kind: 'local', workspace: destination }}
+          current={target.workspaceId} flow={flow} groups={[]} disabled={pending || summary !== null}
+          onPick={(choice) => {
+            if (choice.kind !== 'local') return
+            setDestinationId(choice.workspaceId)
             setError(null)
           }}
         />

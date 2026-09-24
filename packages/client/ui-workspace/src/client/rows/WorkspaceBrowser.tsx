@@ -907,6 +907,7 @@ export function WorkspaceBrowser({
   useHostInfo,
   useShortcuts,
   useWorkspaceShortcuts,
+  useDestinations,
   requestSearch,
   requestAddWorkspace,
   closeAddWorkspace,
@@ -920,6 +921,7 @@ export function WorkspaceBrowser({
   const searchShortcut = shortcuts.find(row => row.id === 'session.search')
   const addShortcut = shortcuts.find(row => row.id === 'workspace.add')
   const shortcutState = useWorkspaceShortcuts(state => state)
+  const destinations = useDestinations(contributions => contributions)
   // Ordering remains live while the rail or search replaces the list body.
   const list = useSessions(state => state)
   const storedWorkspaces = useWorkspaces(state => state.items)
@@ -1566,17 +1568,20 @@ export function WorkspaceBrowser({
           key={`${shortcutState.relocation.sessionId}:${shortcutState.relocation.destinationId ?? ''}`}
           request={shortcutState.relocation}
           workspaces={workspaces}
+          contributions={destinations}
           moveSession={moveSession}
           copySession={copySession}
           flow={destinationFlow}
           t={t}
           onClose={settleSessionRelocation}
-          onDone={({ sessionId, workspaceId }) => {
+          onDone={(outcome) => {
             const copied = shortcutState.relocation?.action === 'copy'
             settleSessionRelocation()
-            actions.setGroupExpanded(workspaceId, true)
+            // A contributor carried the Session elsewhere: nothing here to show.
+            if (outcome === undefined) return
+            actions.setGroupExpanded(outcome.workspaceId, true)
             // Land on a copy: it is where the operator's attention goes next.
-            if (copied) open(sessionId)
+            if (copied) open(outcome.sessionId)
           }}
         />
       )}

@@ -11,7 +11,7 @@
 import type { ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Button, IconFolderCloseRegular, IconPlusOutlineRegular, Menu, Modal, type MenuEntry,
+  Button, IconFolderCloseRegular, IconGlobeOutlineRegular, IconPlusOutlineRegular, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -22,6 +22,43 @@ import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/s
 import css from './WorkspacePicker.module.css'
 
 const ADD_WORKSPACE = '::add-workspace'
+const EXTERNAL_PREFIX = '::external:'
+
+/** One contributed destination group listed after this machine's Workspaces. */
+export interface PickFlowExternalGroup {
+  readonly id: string
+  readonly label: string
+  readonly entries: readonly { readonly key: string; readonly title: string; readonly path?: string }[]
+}
+
+/** Identity of one contributed destination in the picker. */
+export interface PickFlowExternalPick {
+  readonly groupId: string
+  readonly key: string
+}
+
+function externalId(pick: PickFlowExternalPick): string {
+  return `${EXTERNAL_PREFIX}${JSON.stringify([pick.groupId, pick.key])}`
+}
+
+function parseExternalId(id: string): PickFlowExternalPick | undefined {
+  if (!id.startsWith(EXTERNAL_PREFIX)) return undefined
+  const parsed: unknown = JSON.parse(id.slice(EXTERNAL_PREFIX.length))
+  if (!Array.isArray(parsed)) return undefined
+  const groupId: unknown = parsed[0]
+  const key: unknown = parsed[1]
+  return typeof groupId === 'string' && typeof key === 'string' ? { groupId, key } : undefined
+}
+
+/** A row label indented under its group heading (tree mode). */
+function indented(icon: ReactNode, title: string): ReactNode {
+  return (
+    <span className={css.indentedLabel}>
+      {icon}
+      <span>{title}</span>
+    </span>
+  )
+}
 
 /** Core flow props: the owner supplies popover control and pick semantics. */
 export interface WorkspacePickFlowProps {
@@ -60,6 +97,18 @@ export interface WorkspacePickFlowProps {
   formatPath?: ((path: string) => string) | undefined
   /** The portal card takes the anchor's width (a select-like list under a field). */
   matchAnchorWidth?: boolean
+  /**
+   * Contributed destination groups listed after this machine's Workspaces,
+   * each under its own heading, rows indented (tree mode; the local list then
+   * gets `localLabel` as its heading). Empty or absent keeps the flat list.
+   */
+  externalGroups?: readonly PickFlowExternalGroup[] | undefined
+  /** Heading of this machine's Workspaces in tree mode. */
+  localLabel?: string | undefined
+  /** The chosen contributed destination (trailing check). */
+  selectedExternal?: PickFlowExternalPick | undefined
+  /** A contributed destination was picked. */
+  onPickExternal?: ((pick: PickFlowExternalPick) => void) | undefined
 }
 
 /**
@@ -84,6 +133,10 @@ export function WorkspacePickFlow({
   showPaths = false,
   formatPath,
   matchAnchorWidth = false,
+  externalGroups,
+  localLabel,
+  selectedExternal,
+  onPickExternal,
 }: WorkspacePickFlowProps) {
   const workspaceSnapshot = useWorkspaces(state => state)
   const workspaces = workspaceSnapshot.items
@@ -118,17 +171,40 @@ export function WorkspacePickFlow({
   const addEntries: MenuEntry[] = flowAvailable
     ? [{ id: ADD_WORKSPACE, label: t('menu.addWorkspace'), icon: <IconPlusOutlineRegular size={16} />, disabled: flowBusy }]
     : []
+  // Tree mode: contributed groups (other hosts) follow this machine's list,
+  // each under a heading with its rows indented — the sidebar's own order.
+  const groups = (externalGroups ?? []).filter(group => group.entries.length > 0)
+  const tree = groups.length > 0
+  const shownPath = (path: string): string => formatPath === undefined ? path : formatPath(path)
   // With workspaces listed, the add action pins below the scroll region
   // (divider + always visible); otherwise it IS the menu.
-  const pinAdd = !addOnly && workspaces.length > 0
-  const items: MenuEntry[] = pinAdd
-    ? workspaces.map(workspace => ({
+  const pinAdd = !addOnly && (workspaces.length > 0 || tree)
+  const localItems: MenuEntry[] = workspaces.map((workspace) => {
+    const title = workspaceDisplayTitle(workspace.title, t('workspace.defaultName'))
+    return {
       id: workspace.workspaceId,
-      label: workspaceDisplayTitle(workspace.title, t('workspace.defaultName')),
-      icon: <IconFolderCloseRegular size={16} />,
-      ...(showPaths ? { detail: formatPath === undefined ? workspace.path : formatPath(workspace.path) } : {}),
+      label: tree ? indented(<IconFolderCloseRegular size={16} />, title) : title,
+      ...(tree ? {} : { icon: <IconFolderCloseRegular size={16} /> }),
+      ...(showPaths ? { detail: shownPath(workspace.path) } : {}),
       disabled: flowBusy,
-    }))
+    }
+  })
+  const externalItems: MenuEntry[] = groups.flatMap(group => [
+    { type: 'separator' as const, id: `::group-separator:${group.id}` },
+    { type: 'label' as const, id: `::group-label:${group.id}`, text: group.label },
+    ...group.entries.map((entry): MenuEntry => ({
+      id: externalId({ groupId: group.id, key: entry.key }),
+      label: indented(<IconGlobeOutlineRegular size={16} />, entry.title),
+      ...(showPaths && entry.path !== undefined ? { detail: entry.path } : {}),
+      disabled: flowBusy,
+    })),
+  ])
+  const items: MenuEntry[] = pinAdd
+    ? [
+      ...(tree && localLabel !== undefined ? [{ type: 'label' as const, id: '::group-label:local', text: localLabel }] : []),
+      ...localItems,
+      ...externalItems,
+    ]
     : addEntries
   // Nothing listed and nothing to add with (a composition that mounts this
   // package without any directory-picker): an empty popover would claim a
@@ -195,6 +271,11 @@ export function WorkspacePickFlow({
       openDirectoryFlow()
       return
     }
+    const external = parseExternalId(id)
+    if (external !== undefined) {
+      onPickExternal?.(external)
+      return
+    }
     onPick(id as WorkspaceId)
   }
 
@@ -205,7 +286,7 @@ export function WorkspacePickFlow({
         anchor={null}
         items={items}
         {...pinAdd ? { footer: addEntries } : {}}
-        selectedId={selectedId}
+        selectedId={selectedExternal === undefined ? selectedId : externalId(selectedExternal)}
         onSelect={handleSelect}
         onClose={onClose}
         side={side}

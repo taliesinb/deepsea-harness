@@ -13,6 +13,7 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import type { DestinationContribution } from '../src/client/navigation.ts'
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
@@ -108,6 +109,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const store = createWorkspaceViewStore().create()
   const props: WorkspaceBrowserProps = {
     useShortcuts: select => select([]),
+    useDestinations: select => select([]),
     useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
     requestSearch: controls.search,
     requestAddWorkspace: controls.add,
@@ -281,6 +283,48 @@ describe('WorkspaceBrowser', () => {
     expect(copySession).toHaveBeenLastCalledWith({
       sessionId: sid('a'), destination: { workspaceId: wid('alpha') }, notify: true, truncate: true,
     })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('lists contributed destinations as a tree after this machine and hands a pick to its contributor', async () => {
+    const run = vi.fn<DestinationContribution['run']>()
+      .mockResolvedValueOnce({ ok: false, code: 'session/copy-live', message: 'running', details: { blockers: [{ kind: 'turn' }] } })
+      .mockResolvedValueOnce({ ok: true, summary: 'Copied to far on peer.' })
+    const contribution: DestinationContribution = {
+      id: 'remote',
+      groups: {
+        getSnapshot: () => [{ id: 'server:peer', label: 'peer', entries: [{ key: 'far', title: 'far', path: '/remote/far' }] }],
+        subscribe: () => () => {},
+      },
+      run,
+    }
+    const b = mount({
+      useDestinations: select => select([contribution]),
+      useSessions: hook(sessionState([summary('a', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a'])])),
+    })
+    act(() => { b.controls.relocate({ action: 'copy', sessionId: sid('a'), displayTitle: 'Notes' }) })
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /alpha/u }))
+    const menu = screen.getByRole('menu')
+    expect(within(menu).getByText(zh['move.destination.local'])).toBeTruthy()
+    expect(within(menu).getByText('peer')).toBeTruthy()
+    // The preselected own Workspace shows its check in place of its path.
+    expect(within(menu).getAllByRole('menuitem').map(row => row.textContent).slice(0, 2)).toEqual(['alpha', 'far/remote/far'])
+    fireEvent.click(screen.getAllByRole('menuitem').find(row => row.textContent === 'far/remote/far') as HTMLElement)
+    expect(within(dialog).getByText('far · peer')).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['copy.confirm'] }))
+    await within(dialog).findByText(zh['archive.confirm.turn'])
+    expect(run).toHaveBeenLastCalledWith({
+      action: 'copy', sessionId: sid('a'), sourceTitle: 'Notes', sourceWorkspaceId: wid('alpha'), notify: true,
+      title: 'Notes（副本）', groupId: 'server:peer', destinationKey: 'far',
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['copy.confirm'] }))
+    await within(dialog).findByText('Copied to far on peer.')
+    expect(run).toHaveBeenLastCalledWith(expect.objectContaining({ truncate: true }))
+    expect(within(dialog).queryByRole('button', { name: zh['copy.confirm'] })).toBeNull()
+    // The footer's Close (the header's close button carries the same label).
+    fireEvent.click(within(dialog).getAllByRole('button', { name: commonZh.close }).at(-1) as HTMLElement)
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
