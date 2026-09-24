@@ -161,7 +161,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * The rows of one Session's "..." menu, in ascending `order`. ui-workspace
      * registers the shipped rows here — `pin` (100), `rename` (200), `fork`
-     * (300), `move` (350), `archive` (400) — so a plugin row is placed by its own `order`
+     * (300), `move` (350), `copy` (360), `archive` (400) — so a plugin row is placed by its own `order`
      * among them. Use a package-namespaced `id`; reusing a shipped id at
      * another `priority` shadows that row. Each entry renders one
      * `role="menuitem"` `<button>` (the shipped rows use ui-primitives'
@@ -304,7 +304,14 @@ export type WorkspaceBrowserInjected = {
   moveSession: ISessions['move']
   /** Move several Sessions to one Workspace (Rehome…); per-Session skips arrive in the value. */
   moveSessions: ISessions['moveMany']
-  /** Open the Move to… dialog (a refused drop); the row action entry raises the same request. */
+  /**
+   * Copy one Session (and its subagent descendants) into a Workspace as a new
+   * Session; the source is untouched. The Host result is returned, not
+   * thrown: `session/copy-live` is an expected outcome the copy dialog answers
+   * with the truncate option.
+   */
+  copySession: ISessions['copy']
+  /** Open the Move to… dialog (a refused drop); the row action entries raise the same request. */
   requestSessionRelocation: (request: SessionRelocationRequest) => void
   /** Consume or cancel the pending relocation request. */
   settleSessionRelocation: () => void
@@ -312,11 +319,11 @@ export type WorkspaceBrowserInjected = {
 
 /**
  * A relocation a row action (or a refused drop) asked for: the browser's
- * Move to… dialog opens on it.
+ * Move to… or Copy to… dialog opens on it.
  */
 export interface SessionRelocationRequest {
-  /** What the dialog does with the Session. */
-  action: 'move'
+  /** What the dialog does with the Session: change its Workspace, or store a copy. */
+  action: 'move' | 'copy'
   /** Session to relocate. */
   sessionId: SessionId
   /** The row's display title, named in the dialog. */

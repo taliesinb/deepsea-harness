@@ -1,16 +1,19 @@
 /**
- * Browser-owned dialogs behind Move to… (a Session row action, or a drop on
- * another Workspace group the Host refused) and Rehome… (a Workspace row
- * action). Both pick their destination through the same WorkspacePickFlow
- * popover the sidebar's "Add workspace" uses, so an existing Workspace or a
- * freshly registered directory can be the target, and hand the decision to
- * the Host's `session.move` / `session.moveMany`.
+ * Browser-owned dialogs behind Move to… and Copy to… (Session row actions;
+ * a drop on another Workspace group the Host refused opens Move to…) and
+ * Rehome… (a Workspace row action). All pick their destination through the
+ * same WorkspacePickFlow popover the sidebar's "Add workspace" uses, so an
+ * existing Workspace or a freshly registered directory can be the target,
+ * and hand the decision to the Host's `session.move` / `session.copy` /
+ * `session.moveMany`.
  *
  * A Session whose Agent has work in flight refuses to move
  * (`session/move-live`); the dialog answers by listing that work and revealing
- * the stop-and-move option, so the operator chooses explicitly. Rehome moves
- * every member of the source Workspace, reports skips, and can delete the
- * emptied source.
+ * the stop-and-move option, so the operator chooses explicitly. A copy never
+ * disturbs its source, so a running one is refused (`session/copy-live`)
+ * only until the operator decides what the copy does with the turn in
+ * progress. Rehome moves every member of the source Workspace, reports skips,
+ * and can delete the emptied source.
  */
 import { useRef, useState } from 'react'
 import {
@@ -90,10 +93,10 @@ function DestinationPicker({ t, value, current, flow, onPick, disabled }: {
   )
 }
 
-/** The work a refused move named, one line per activity family. */
-function BlockerList({ blockers, t }: { blockers: readonly SessionActivity[]; t: Translate }) {
+/** The work a refused move or copy named, one line per activity family. */
+function BlockerList({ blockers, label, t }: { blockers: readonly SessionActivity[]; label: string; t: Translate }) {
   return (
-    <ul className={css.archiveActivity} aria-label={t('move.live.blockers')}>
+    <ul className={css.archiveActivity} aria-label={label}>
       {blockers.map((entry, index) => <li key={`${entry.kind}-${String(index)}`}>{activityLine(entry, t)}</li>)}
     </ul>
   )
@@ -104,66 +107,97 @@ function owningWorkspace(workspaces: readonly WorkspaceView[], sessionId: Sessio
   return workspaces.find(workspace => workspace.sessionIds.includes(sessionId))
 }
 
+/** What a relocation dialog reports on success. */
+export interface RelocationOutcome {
+  /** The moved Session, or the new copy. */
+  sessionId: SessionId
+  /** The Workspace it now belongs to. */
+  workspaceId: WorkspaceId
+}
+
 /**
- * Move to… for one Session: one dialog per request (keyed by the caller), so
- * a new request starts from a fresh state.
- * @param props - the request, the Host move hop, the destination flow, the Workspace list, and settlement.
+ * Move to… or Copy to… for one Session: one dialog per request (keyed by the
+ * caller), so a new request starts from a fresh state. A move may not target
+ * the Session's own Workspace; a copy may (a duplicate) and starts there. A
+ * running source refuses either until the operator decides: interrupt its
+ * work and move, or copy only up to the last completed turn (ticked by
+ * default) or as recorded so far.
+ * @param props - the request, the Host hops, the destination flow, the Workspace list, and settlement.
  * @returns the dialog.
  */
-export function SessionRelocateDialog({ request, workspaces, moveSession, flow, t, onClose, onMoved }: {
+export function SessionRelocateDialog({ request, workspaces, moveSession, copySession, flow, t, onClose, onDone }: {
   request: SessionRelocationRequest
   workspaces: readonly WorkspaceView[]
   moveSession: WorkspaceBrowserProps['moveSession']
+  copySession: WorkspaceBrowserProps['copySession']
   flow: DestinationFlowProps
   t: Translate
   onClose: () => void
-  /** The Session moved into this Workspace. */
-  onMoved: (workspaceId: WorkspaceId) => void
+  /** The Session moved, or its copy was stored. */
+  onDone: (outcome: RelocationOutcome) => void
 }) {
+  const copy = request.action === 'copy'
   const source = owningWorkspace(workspaces, request.sessionId)
-  const [destinationId, setDestinationId] = useState<WorkspaceId | undefined>(request.destinationId)
+  const [destinationId, setDestinationId] = useState<WorkspaceId | undefined>(
+    request.destinationId ?? (copy ? source?.workspaceId : undefined),
+  )
   const destination = workspaces.find(workspace => workspace.workspaceId === destinationId)
+  const [title, setTitle] = useState(request.displayTitle === '' ? '' : `${request.displayTitle}${t('copy.title.suffix')}`)
   const [blockers, setBlockers] = useState<readonly SessionActivity[] | null>(null)
   const [stopLive, setStopLive] = useState(false)
+  const [truncate, setTruncate] = useState(true)
   const [notify, setNotify] = useState(true)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const sameWorkspace = destination !== undefined && destination.workspaceId === source?.workspaceId
-  const blocked = pending || destination === undefined || sameWorkspace || (blockers !== null && !stopLive)
+  const sameWorkspace = !copy && destination !== undefined && destination.workspaceId === source?.workspaceId
+  const blocked = pending || destination === undefined || sameWorkspace || (!copy && blockers !== null && !stopLive)
   const close = (): void => {
     if (!pending) onClose()
+  }
+  const settle = (result: Awaited<ReturnType<WorkspaceBrowserProps['moveSession']>>
+    | Awaited<ReturnType<WorkspaceBrowserProps['copySession']>>): void => {
+    setPending(false)
+    if (result.ok) {
+      onDone({ sessionId: result.value.sessionId, workspaceId: result.value.workspaceId })
+      return
+    }
+    if (result.error.code === 'session/move-live' || result.error.code === 'session/copy-live') {
+      setBlockers(result.error.details.blockers)
+      return
+    }
+    setError(`${result.error.code}: ${result.error.message}`)
   }
   const confirm = (): void => {
     if (blocked) return
     setPending(true)
     setError(null)
-    void moveSession({
-      sessionId: request.sessionId, destination: { workspaceId: destination.workspaceId }, stopLive, notify,
-    }).then((result) => {
-      setPending(false)
-      if (result.ok) {
-        onMoved(result.value.workspaceId)
-        return
-      }
-      if (result.error.code === 'session/move-live') {
-        setBlockers(result.error.details.blockers)
-        return
-      }
-      setError(`${result.error.code}: ${result.error.message}`)
-    })
+    const target = { sessionId: request.sessionId, destination: { workspaceId: destination.workspaceId }, notify }
+    if (!copy) {
+      void moveSession({ ...target, stopLive }).then(settle)
+      return
+    }
+    const named = title.trim()
+    void copySession({
+      ...target,
+      // Undecided until the Host reports a running turn; then the checkbox decides.
+      ...(blockers === null ? {} : { truncate }),
+      ...(named === '' || named === request.displayTitle ? {} : { title: named }),
+    }).then(settle)
   }
   return (
     <Modal
       open
       onClose={close}
       closeLabel={t('close')}
-      title={t('move.session.title')}
+      title={t(copy ? 'copy.session.title' : 'move.session.title')}
       {...request.displayTitle === '' ? {} : { description: request.displayTitle }}
       className={css.relocateDialog as string}
       footer={(
         <>
           <Button variant="outline" disabled={pending} onClick={close}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={blocked} onClick={confirm}>{pending ? t('move.pending') : t('move.confirm')}</Button>
+          <Button variant="primary" disabled={blocked} onClick={confirm}>
+            {copy ? (pending ? t('copy.pending') : t('copy.confirm')) : (pending ? t('move.pending') : t('move.confirm'))}
+          </Button>
         </>
       )}
     >
@@ -176,13 +210,31 @@ export function SessionRelocateDialog({ request, workspaces, moveSession, flow, 
           }}
         />
         {sameWorkspace && <div className={css.deleteStatus} role="status">{t('move.destination.same')}</div>}
+        {copy && (
+          <label className={css.relocateField}>
+            <span className={css.relocateLabel}>{t('copy.title')}</span>
+            <input
+              className={css.renameInput}
+              value={title}
+              disabled={pending}
+              onChange={(event) => { setTitle(event.currentTarget.value) }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                confirm()
+              }}
+            />
+          </label>
+        )}
         {blockers !== null && (
           <>
-            <BlockerList blockers={blockers} t={t} />
-            <Checkbox checked={stopLive} onChange={setStopLive} disabled={pending} label={t('move.stopLive')} />
+            <BlockerList blockers={blockers} t={t} label={t(copy ? 'copy.live.blockers' : 'move.live.blockers')} />
+            {copy
+              ? <Checkbox checked={truncate} onChange={setTruncate} disabled={pending} label={t('copy.truncate')} />
+              : <Checkbox checked={stopLive} onChange={setStopLive} disabled={pending} label={t('move.stopLive')} />}
           </>
         )}
-        <Checkbox checked={notify} onChange={setNotify} disabled={pending} label={t('move.notify')} />
+        <Checkbox checked={notify} onChange={setNotify} disabled={pending} label={t(copy ? 'copy.notify' : 'move.notify')} />
         {error !== null && <div className={css.renameError} role="alert">{error}</div>}
       </div>
     </Modal>

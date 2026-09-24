@@ -150,6 +150,14 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
         skipped: [],
       },
     })),
+    copySession: vi.fn<WorkspaceBrowserProps['copySession']>(async opts => ({
+      ok: true,
+      value: {
+        sessionId: sid(`${opts.sessionId}-copy`), sourceSessionId: opts.sessionId,
+        workspaceId: 'workspaceId' in opts.destination ? opts.destination.workspaceId : wid('created'),
+        copied: [sid(`${opts.sessionId}-copy`)], truncated: opts.truncate === true,
+      },
+    })),
     requestSessionRelocation: controls.relocate,
     settleSessionRelocation: controls.closeRelocate,
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
@@ -234,6 +242,46 @@ describe('WorkspaceBrowser', () => {
       sessionId: sid('a'), destination: { workspaceId: wid('beta') }, stopLive: true, notify: true,
     })
     expect(b.controls.state.getSnapshot().relocation).toBeNull()
+  })
+
+  it('Copy to… starts in the own workspace with a "(copy)" title, asks about a running turn, then opens the copy', async () => {
+    const copySession = vi.fn<WorkspaceBrowserProps['copySession']>()
+      .mockResolvedValueOnce({
+        ok: false,
+        error: Object.assign(new Error('running'), {
+          code: 'session/copy-live' as const, details: { sessionId: sid('a'), blockers: [{ kind: 'turn' as const }] },
+        }) as never,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: { sessionId: sid('a-copy'), sourceSessionId: sid('a'), workspaceId: wid('alpha'), copied: [sid('a-copy')], truncated: true },
+      })
+    const open = vi.fn()
+    const b = mount({
+      copySession,
+      open,
+      useSessions: hook(sessionState([summary('a', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a']), workspace('beta', [])])),
+    })
+    act(() => { b.controls.relocate({ action: 'copy', sessionId: sid('a'), displayTitle: 'Notes' }) })
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('alpha')).toBeTruthy()
+    const title = within(dialog).getByRole('textbox')
+    expect((title as HTMLInputElement).value).toBe('Notes（副本）')
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['copy.confirm'] }))
+    await within(dialog).findByText(zh['archive.confirm.turn'])
+    expect(copySession).toHaveBeenLastCalledWith({
+      sessionId: sid('a'), destination: { workspaceId: wid('alpha') }, notify: true, title: 'Notes（副本）',
+    })
+    expect(within(dialog).getByRole<HTMLInputElement>('checkbox', { name: zh['copy.truncate'] }).checked).toBe(true)
+    fireEvent.change(title, { target: { value: 'Notes' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: zh['copy.confirm'] }))
+    await waitFor(() => { expect(open).toHaveBeenCalledWith(sid('a-copy')) })
+    // An unchanged title keeps the source's.
+    expect(copySession).toHaveBeenLastCalledWith({
+      sessionId: sid('a'), destination: { workspaceId: wid('alpha') }, notify: true, truncate: true,
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('Rehome… moves every member, reports the skips, and deletes the emptied source on request', async () => {

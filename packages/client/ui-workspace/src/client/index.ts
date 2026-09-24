@@ -51,7 +51,7 @@ import { derive } from './session-actions/derived.ts'
 import { ForkSessionMenuItem } from './session-actions/ForkSession.tsx'
 import { PinSessionMenuItem, PinSessionRowButton } from './session-actions/PinSession.tsx'
 import { RenameSessionMenuItem, SessionRenameDialog } from './session-actions/RenameSession.tsx'
-import { MoveSessionMenuItem } from './session-actions/RelocateSession.tsx'
+import { CopySessionMenuItem, MoveSessionMenuItem } from './session-actions/RelocateSession.tsx'
 import { RowActionToast } from './session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
@@ -250,6 +250,7 @@ export function apply(ctx: Context): void {
     createWorkspace: input => workspaces.create(input),
     moveSession: opts => sessions.move(opts),
     moveSessions: opts => sessions.moveMany(opts),
+    copySession: opts => sessions.copy(opts),
     requestSessionRelocation: shortcutControls.relocate,
     settleSessionRelocation: shortcutControls.closeRelocate,
     requestSearch: shortcutControls.search,
@@ -297,6 +298,7 @@ export function apply(ctx: Context): void {
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'rename', order: 200, locale: NS, inject: renameInjected }, RenameSessionMenuItem)
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'fork', order: 300, locale: NS, inject: forkInjected }, ForkSessionMenuItem)
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'move', order: 350, locale: NS, inject: relocateInjected }, MoveSessionMenuItem)
+    yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'copy', order: 360, locale: NS, inject: relocateInjected }, CopySessionMenuItem)
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.menu.item', id: 'archive', order: 400, locale: NS, inject: archiveInjected }, ArchiveSessionMenuItem)
   })
   ctx.slots.inject('sidebar.workspaces.session.row.action', function* () {

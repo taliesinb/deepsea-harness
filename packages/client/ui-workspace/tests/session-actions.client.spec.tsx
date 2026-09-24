@@ -29,7 +29,7 @@ import {
 import { ForkSessionMenuItem } from '../src/client/session-actions/ForkSession.tsx'
 import { PinSessionMenuItem, PinSessionRowButton } from '../src/client/session-actions/PinSession.tsx'
 import { RenameSessionMenuItem, SessionRenameDialog } from '../src/client/session-actions/RenameSession.tsx'
-import { MoveSessionMenuItem } from '../src/client/session-actions/RelocateSession.tsx'
+import { CopySessionMenuItem, MoveSessionMenuItem } from '../src/client/session-actions/RelocateSession.tsx'
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -237,6 +237,15 @@ describe('fork and rename rows', () => {
     render(<MoveSessionMenuItem {...menuRow(state)} requestSessionRelocation={requestSessionRelocation} />)
     fireEvent.click(screen.getByRole('menuitem', { name: '移动到…' }))
     expect(requestSessionRelocation).toHaveBeenCalledWith({ action: 'move', sessionId: sid('one'), displayTitle: 'Session title' })
+    expect(callOrder(setMenuOpen)).toBeLessThan(callOrder(requestSessionRelocation))
+  })
+
+  it('copy closes the menu, then asks for the copy dialog with the row title', () => {
+    const { state, setMenuOpen } = openMenu()
+    const requestSessionRelocation = vi.fn()
+    render(<CopySessionMenuItem {...menuRow(state)} requestSessionRelocation={requestSessionRelocation} />)
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制到…' }))
+    expect(requestSessionRelocation).toHaveBeenCalledWith({ action: 'copy', sessionId: sid('one'), displayTitle: 'Session title' })
     expect(callOrder(setMenuOpen)).toBeLessThan(callOrder(requestSessionRelocation))
   })
 })

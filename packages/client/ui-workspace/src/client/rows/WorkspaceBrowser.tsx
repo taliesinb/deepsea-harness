@@ -12,7 +12,7 @@
  * and `sidebar.workspaces.session.row.action` lists rendered through this
  * entry's `renderSlot`; the actions in them, this package's own included,
  * are slot entries with their own behavior. The one Session surface hosted
- * here is the Move to… dialog (RelocateDialogs.tsx): it picks destinations
+ * here is the Move to… / Copy to… dialog (RelocateDialogs.tsx): it picks destinations
  * through this entry's directory-flow hole, so the row action only raises a
  * request this component answers. A Session row dropped on another Workspace
  * group moves there directly; a refused drop opens the same dialog. The
@@ -898,6 +898,7 @@ export function WorkspaceBrowser({
   createWorkspace,
   moveSession,
   moveSessions,
+  copySession,
   requestSessionRelocation,
   settleSessionRelocation,
   searchSessions,
@@ -1566,12 +1567,16 @@ export function WorkspaceBrowser({
           request={shortcutState.relocation}
           workspaces={workspaces}
           moveSession={moveSession}
+          copySession={copySession}
           flow={destinationFlow}
           t={t}
           onClose={settleSessionRelocation}
-          onMoved={(workspaceId) => {
+          onDone={({ sessionId, workspaceId }) => {
+            const copied = shortcutState.relocation?.action === 'copy'
             settleSessionRelocation()
             actions.setGroupExpanded(workspaceId, true)
+            // Land on a copy: it is where the operator's attention goes next.
+            if (copied) open(sessionId)
           }}
         />
       )}
