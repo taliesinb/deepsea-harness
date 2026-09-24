@@ -539,6 +539,22 @@ describe('decorations (bare-invocation UI on host commands)', () => {
     expect(command.popupFor(scope.ctx).state.getSnapshot()).toMatchObject({ open: true, command: 'goal' })
   })
 
+  it('a claim submitted with nothing after it is the bare form: the decoration opens, the host is not called', async () => {
+    const { command, source, mint, warm, executeCalls } = await bench()
+    command.decorate(goalDecoration())
+    const scope = mint('s1')
+    await warm(proj('s1'))
+    const outcome = source.matchSpace!(proj('s1'), '/goal')
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected the host claim')
+    expect(await outcome.claim.submit('   ', new Context(), [])).toEqual({ kind: 'success' })
+    expect(executeCalls).toEqual([])
+    expect(command.popupFor(scope.ctx).state.getSnapshot()).toMatchObject({ open: true, command: 'goal' })
+    command.dismiss('goal')
+    // Arguments, or an attachment, still go to the host.
+    await outcome.claim.submit('ship it', new Context(), [])
+    expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/goal ship it', images: [] }])
+  })
+
   it('space never consults the decoration (host claim)', async () => {
     const { command, source, warm } = await bench()
     command.decorate(goalDecoration())
