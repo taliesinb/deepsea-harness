@@ -238,6 +238,15 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/move-error': { readonly sessionId: SessionId }
     /** The mounted Session storage cannot relocate Sessions. */
     'session/move-unsupported': Record<string, never>
+    /**
+     * Copy refused: the source's Agent is running a turn and `truncate` was
+     * not decided; `blockers` name the source's work in flight.
+     */
+    'session/copy-live': { readonly sessionId: SessionId; readonly blockers: readonly SessionActivity[] }
+    /** Copy refused: no stored Session with this id. */
+    'session/copy-missing': { readonly sessionId: SessionId }
+    /** Copy failed after validation; the message carries the read or storage failure. */
+    'session/copy-error': { readonly sessionId: SessionId }
     /** The destination directory could not be registered as a Workspace. */
     'workspace/create-failed': { readonly path: string }
     'subagent/not-found': {
@@ -386,6 +395,42 @@ export interface SessionMoveManyValue {
   readonly workspaceId: WorkspaceId
   readonly moved: readonly SessionId[]
   readonly skipped: readonly SessionMoveSkip[]
+}
+
+/**
+ * Copy one Session, with its subagent descendants, into a Workspace (its own
+ * included) as a new Session with a fresh id. The source is only read: a
+ * running Agent keeps running.
+ */
+export interface SessionCopyRequest {
+  readonly sessionId: SessionId
+  readonly destination: SessionMoveDestination
+  /**
+   * What to do with a turn in progress at the source. `true`: drop it whole
+   * (the copy ends after the last completed turn and the prompt that started
+   * the turn is cancelled). `false`: copy what has been recorded and close the
+   * turn as interrupted. Omitted: a running source is refused with
+   * `session/copy-live` so the caller decides; a cold source whose last turn
+   * never ended is closed as interrupted.
+   */
+  readonly truncate?: boolean
+  /** Title recorded on the copy as a user rename; omitted keeps the source's title. */
+  readonly title?: string
+  /** Append the copy notice the Agent reads on its next step; default true. */
+  readonly notify?: boolean
+}
+
+/** Result of one copy. */
+export interface SessionCopyValue {
+  /** The new root Session. */
+  readonly sessionId: SessionId
+  /** The Session that was copied. */
+  readonly sourceSessionId: SessionId
+  readonly workspaceId: WorkspaceId
+  /** Every Session stored, root first, descendants after. */
+  readonly copied: readonly SessionId[]
+  /** Whether a turn in progress was dropped. */
+  readonly truncated: boolean
 }
 
 /** Session fork request. */

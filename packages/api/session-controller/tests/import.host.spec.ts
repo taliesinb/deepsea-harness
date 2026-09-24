@@ -127,6 +127,7 @@ describe('importSessionArchive', () => {
     expect(result).toEqual({
       sessionId: rootId,
       attachments: 2,
+      truncated: false,
       imported: [
         { sessionId: rootId, exportedId: rootId },
         { sessionId: childId, exportedId: childId, parentSessionId: rootId },
@@ -237,8 +238,36 @@ describe('storeSessionLogs', () => {
       root: { header: header('parsed'), events: oneTurn(), inheritedEventCount: SessionLogOffset(0) },
       children: [],
     }, { workspace, origin: '/backups/home', keepIds: true, notify: false })
-    expect(result).toEqual({ sessionId: 'parsed', imported: [{ sessionId: 'parsed', exportedId: 'parsed' }], attachments: 0 })
+    expect(result).toEqual({
+      sessionId: 'parsed', imported: [{ sessionId: 'parsed', exportedId: 'parsed' }], attachments: 0, truncated: false,
+    })
     expect(attached).toEqual(['parsed'])
     expect((await read(root, SessionId('parsed'))).events).toHaveLength(3)
+  })
+
+  it('copies with fresh ids, a title, and the copy notice in copy mode, and words a same-host notice', async () => {
+    const { ctx, root, workspace } = await mount()
+    const result = await storeSessionLogs(ctx, {
+      root: { header: header('original'), events: oneTurn(), inheritedEventCount: SessionLogOffset(0) },
+      children: [],
+    }, { workspace, origin: 'the workspace `src`', mode: 'copy', title: '  Original (copy) ', crossHost: false })
+    expect(result.sessionId).not.toBe('original')
+    const stored = await read(root, result.sessionId)
+    expect(stored.events.slice(3).map(event => event.type)).toEqual(['session/title', 'agent/inbox/spliced'])
+    expect(stored.events[3]).toMatchObject({ data: { title: 'Original (copy)' } })
+    const notice = stored.events[4]
+    if (notice?.type !== 'agent/inbox/spliced') throw new Error('missing notice')
+    const text = notice.data.inserted[0]?.content[0]
+    expect(text?.type === 'text' ? text.text : '').toContain('Earlier file references may need to be re-read from the new location.')
+  })
+
+  it('refuses a log the current format would not read back', async () => {
+    const { ctx, workspace } = await mount()
+    const broken: SessionEvent = { type: 'turn/end', seq: SessionSeq(0), time: 1, data: { turn: 9, reason: { kind: 'completed' } } }
+    await expect(storeSessionLogs(ctx, {
+      root: { header: header('broken'), events: [broken], inheritedEventCount: SessionLogOffset(0) },
+      children: [],
+    }, { workspace, origin: 'x', notify: false })).rejects.toThrow()
+    expect(await ctx.sessionPersistence.stat(SessionId('broken'))).toBeUndefined()
   })
 })

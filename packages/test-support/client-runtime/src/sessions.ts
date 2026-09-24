@@ -311,7 +311,7 @@ export class TestSessions implements ISessions {
 
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
-    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork' | 'move' | 'moveMany'
+    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork' | 'move' | 'moveMany' | 'copy'
     args: unknown[]
   }[] = []
 
@@ -703,6 +703,21 @@ export class TestSessions implements ISessions {
     this.calls.push({ method: 'moveMany', args: [opts] })
     const workspaceId = 'workspaceId' in opts.destination ? opts.destination.workspaceId : opts.destination.path as SessionMoveValue['workspaceId']
     return Promise.resolve({ ok: true, value: { workspaceId, moved: [...opts.sessionIds], skipped: [] } })
+  }
+
+  /**
+   * Recorded copy stub: reports a copy under a synthetic id with nothing stored.
+   * @param opts - source, destination, mid-turn policy, and optional title.
+   * @returns a successful result naming `<source>-copy`.
+   */
+  copy(opts: Parameters<ISessions['copy']>[0]): ReturnType<ISessions['copy']> {
+    this.calls.push({ method: 'copy', args: [opts] })
+    const workspaceId = 'workspaceId' in opts.destination ? opts.destination.workspaceId : opts.destination.path as SessionMoveValue['workspaceId']
+    const sessionId = `${opts.sessionId}-copy` as typeof opts.sessionId
+    return Promise.resolve({
+      ok: true,
+      value: { sessionId, sourceSessionId: opts.sessionId, workspaceId, copied: [sessionId], truncated: false },
+    })
   }
 
   /**

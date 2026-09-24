@@ -147,8 +147,9 @@ async function readBody(body: ReadableStream<Uint8Array>, limit: number): Promis
 
 /**
  * `POST /api/session.import?workspaceId=<id>|cwd=<dir>[&origin=][&keepIds=false][&notify=false]`
- * with an export ZIP as the body: store its Sessions under the Workspace and
- * answer `{ sessionId, imported, attachments }`.
+ * `[&mode=copy[&truncate=true][&title=]]` with an export ZIP as the body:
+ * store its Sessions under the Workspace and answer
+ * `{ sessionId, imported, attachments, truncated }`.
  */
 async function sessionLogImportResponse(ctx: Context, request: Request): Promise<Response> {
   const url = new URL(request.url)
@@ -172,10 +173,14 @@ async function sessionLogImportResponse(ctx: Context, request: Request): Promise
   const zip = await readBody(request.body, MAX_IMPORT_BYTES)
   if (zip === undefined) return new Response('archive too large', { status: 413 })
   try {
+    const title = url.searchParams.get('title')
     const result = await importSessionZip(ctx, zip, {
       workspace,
       origin: url.searchParams.get('origin') ?? 'another DSH host',
+      mode: url.searchParams.get('mode') === 'copy' ? 'copy' : 'move',
       keepIds: url.searchParams.get('keepIds') !== 'false',
+      truncate: url.searchParams.get('truncate') === 'true',
+      ...(title === null ? {} : { title }),
       notify: url.searchParams.get('notify') !== 'false',
       signal: request.signal,
     })

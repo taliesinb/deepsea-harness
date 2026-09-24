@@ -7,6 +7,8 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
   SessionControlBaseline,
   SessionControlFrame,
+  SessionCopyRequest,
+  SessionCopyValue,
   SessionMoveManyRequest,
   SessionMoveManyValue,
   SessionMoveRequest,
@@ -540,6 +542,16 @@ export class SessionManager {
    */
   moveMany(opts: SessionMoveManyRequest): Promise<RemoteResult<SessionMoveManyValue>> {
     return this.remote.session.moveMany(opts)
+  }
+
+  /**
+   * Copy one Session through the Host. The copy's summary arrives as an
+   * `api-session/added` relay.
+   * @param opts - source, destination, mid-turn policy, and optional title.
+   * @returns the Host result, refusals included.
+   */
+  copy(opts: SessionCopyRequest): Promise<RemoteResult<SessionCopyValue>> {
+    return this.remote.session.copy(opts)
   }
 
   /**

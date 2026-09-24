@@ -396,6 +396,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SessionMoveValue: 'session.md',
   SessionMoveManyRequest: 'session.md',
   SessionMoveManyValue: 'session.md',
+  SessionCopyRequest: 'session.md',
+  SessionCopyValue: 'session.md',
   SessionImportResult: 'session.md',
   SessionImportTarget: 'session.md',
   SessionLogFamily: 'session.md',

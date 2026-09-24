@@ -6,7 +6,7 @@ import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { SESSION_SEARCH_RESULT_LIMIT } from '../../types.ts'
 import type {
-  SessionMoveManyRequest, SessionMoveManyValue, SessionMoveRequest, SessionMoveValue,
+  SessionCopyRequest, SessionCopyValue, SessionMoveManyRequest, SessionMoveManyValue, SessionMoveRequest, SessionMoveValue,
 } from '../../types.ts'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import {
@@ -493,6 +493,17 @@ export class ClientSessions implements ISessions {
    */
   async moveMany(opts: SessionMoveManyRequest): Promise<RemoteResult<SessionMoveManyValue>> {
     const result = await this.manager.moveMany(opts)
+    if (result.ok) this.projectList()
+    return result
+  }
+
+  /**
+   * Copy one Session through the Host and refresh the list projection on success.
+   * @param opts - source, destination, mid-turn policy, and optional title.
+   * @returns the Host result, refusals included.
+   */
+  async copy(opts: SessionCopyRequest): Promise<RemoteResult<SessionCopyValue>> {
+    const result = await this.manager.copy(opts)
     if (result.ok) this.projectList()
     return result
   }

@@ -143,6 +143,13 @@ class FakeSessions implements ISessions {
     ok: true,
     value: { sessionId: opts.sessionId, workspaceId: wid('moved'), moved: [opts.sessionId] },
   }))
+  readonly copy = vi.fn<ISessions['copy']>(async opts => ({
+    ok: true,
+    value: {
+      sessionId: sid(`${opts.sessionId}-copy`), sourceSessionId: opts.sessionId, workspaceId: wid('copied'),
+      copied: [sid(`${opts.sessionId}-copy`)], truncated: false,
+    },
+  }))
   readonly moveMany = vi.fn<ISessions['moveMany']>(async opts => ({
     ok: true,
     value: { workspaceId: wid('moved'), moved: [...opts.sessionIds], skipped: [] },
