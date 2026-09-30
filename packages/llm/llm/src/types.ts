@@ -406,8 +406,41 @@ export type SystemPromptUpdate = 'in-history'
  */
 export type ToolUpdate = 'in-history' | 'addition-only'
 
+/** List-price rates per million tokens, as decimal strings. */
+export interface LlmModelTokenRates {
+  /** Uncached input tokens. */
+  inputPerMillion: string
+  /** Output tokens, including reasoning. */
+  outputPerMillion: string
+  /** Cache-read input tokens; absent when the source publishes no rate. */
+  cacheReadPerMillion?: string
+  /** Cache-write input tokens; absent when the source publishes no rate. */
+  cacheWritePerMillion?: string
+}
+
+/**
+ * Published list prices for one exact model route. These are catalog rates,
+ * not a provider receipt: a consumer that multiplies them by usage produces an
+ * estimate. Adapters omit pricing for subscription routes and for models whose
+ * catalog carries no rates.
+ */
+export interface LlmModelPricing extends LlmModelTokenRates {
+  /** ISO 4217 currency of every rate. */
+  currency: string
+  /**
+   * Rates that replace the base rates when a request's total input (uncached +
+   * cache read + cache write) exceeds the threshold; the highest exceeded
+   * threshold applies.
+   */
+  tiers?: readonly (LlmModelTokenRates & { inputTokensAbove: number })[]
+  /** Where the rates come from, for display, e.g. `pi-ai catalog 2026-09-28`. */
+  source: string
+}
+
 /** Exact-route model metadata resolved by its owning adapter. */
 export interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Adapter-published list prices when known. */
+  pricing?: LlmModelPricing
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
   /** Adapter-configured per-request output cap materialized when callers omit one. */

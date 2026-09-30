@@ -498,6 +498,26 @@ describe('provider profile lifecycle', () => {
     expect(typeof info.context?.contextWindow).toBe('number')
   })
 
+  it('publishes installed catalog list prices on exact model metadata, except for subscription routes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: { anthropic: {}, 'anthropic-oauth': {}, 'openai-codex': {} } })
+    const catalog = getBuiltinModels('anthropic').find(model => model.cost.input > 0)!
+    const info = await ctx.llm.resolveModelInfo('anthropic', catalog.id)
+    expect(info.pricing).toMatchObject({
+      currency: 'USD',
+      inputPerMillion: String(catalog.cost.input),
+      outputPerMillion: String(catalog.cost.output),
+      cacheReadPerMillion: String(catalog.cost.cacheRead),
+      cacheWritePerMillion: String(catalog.cost.cacheWrite),
+    })
+    expect(info.pricing?.source).toMatch(/^pi-ai catalog/)
+    // The same model through the subscription sign-in is not billed per token.
+    expect((await ctx.llm.resolveModelInfo('anthropic-oauth', catalog.id)).pricing).toBeUndefined()
+    const codex = getBuiltinModels('openai-codex')[0]!
+    expect((await ctx.llm.resolveModelInfo('openai-codex', codex.id)).pricing).toBeUndefined()
+  })
+
   it('exposes pi-ai model thinking levels verbatim without inventing a provider default', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)

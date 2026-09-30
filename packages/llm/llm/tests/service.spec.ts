@@ -23,6 +23,7 @@ import type {
   LlmModelReasoningInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  LlmModelPricing,
   SystemPromptUpdate,
 } from '@deepseek-ai/dsh-llm'
 
@@ -728,6 +729,34 @@ describe('LlmRuntime', () => {
 
     await expect(ctx.llm.resolveModelInfo('route', 'model'))
       .rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+  })
+
+  it('detaches adapter-published list prices and rejects malformed ones', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const pricing = {
+      currency: 'USD', inputPerMillion: '4', outputPerMillion: '20', cacheReadPerMillion: '0.2',
+      tiers: [{ inputTokensAbove: 200_000, inputPerMillion: '8', outputPerMillion: '30' }], source: 'test catalog',
+    }
+    let published: unknown = pricing
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider: 'route', id: 'model', name: 'Model', pricing: published as LlmModelPricing })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+    const resolved = await ctx.llm.resolveModelInfo('route', 'model')
+    expect(resolved.pricing).toEqual(pricing)
+    pricing.tiers[0]!.inputPerMillion = '9'
+    expect(resolved.pricing?.tiers?.[0]?.inputPerMillion).toBe('8')
+    for (const bad of [
+      { ...pricing, inputPerMillion: 4 }, { ...pricing, outputPerMillion: '-1' }, { ...pricing, currency: 'usd' },
+      { ...pricing, source: '' }, { ...pricing, cacheWritePerMillion: '1e-3' },
+      { ...pricing, tiers: [{ inputTokensAbove: -1, inputPerMillion: '1', outputPerMillion: '1' }] },
+    ]) {
+      published = bad
+      await expect(ctx.llm.resolveModelInfo('route', 'model')).rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+    }
   })
 
   it('preserves modality metadata through exact model resolution', async () => {

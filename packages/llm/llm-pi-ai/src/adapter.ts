@@ -61,6 +61,7 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
+import { catalogPricing } from './pricing.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -293,7 +294,10 @@ export class PiAiAdapter extends LlmAdapter {
   ): Promise<LlmResolvedModelInfo> {
     return Promise.resolve().then(() => {
       const snapshot = this.current()
-      return this.modelInfo(snapshot, provider, model)
+      const info = this.modelInfo(snapshot, provider, model)
+      // Metadata lookups only; prepared calls do not carry prices.
+      const pricing = catalogPricing(provider, model)
+      return pricing === undefined ? info : { ...info, pricing }
     })
   }
 

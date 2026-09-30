@@ -20,6 +20,8 @@ import type {
   LlmModelDiscoveryRequest,
   LlmModelInfo,
   LlmResolvedModelInfo,
+  LlmModelPricing,
+  LlmModelTokenRates,
   LlmProviderInfo,
   ModelModality,
   StreamChunk,
@@ -55,6 +57,45 @@ export * from './provider-simulation.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
+
+const DECIMAL_RATE = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,18})?$/
+
+/**
+ * Validate and copy one set of per-million rates.
+ * @param rates - adapter-returned rates.
+ * @returns detached rates, or `null` when any rate is not a plain decimal string.
+ */
+function detachedRates(rates: LlmModelTokenRates): LlmModelTokenRates | null {
+  const valid = (rate: unknown): boolean => typeof rate === 'string' && DECIMAL_RATE.test(rate)
+  if (!valid(rates.inputPerMillion) || !valid(rates.outputPerMillion)
+    || [rates.cacheReadPerMillion, rates.cacheWritePerMillion].some(rate => rate !== undefined && !valid(rate))) return null
+  return {
+    inputPerMillion: rates.inputPerMillion,
+    outputPerMillion: rates.outputPerMillion,
+    ...rates.cacheReadPerMillion === undefined ? {} : { cacheReadPerMillion: rates.cacheReadPerMillion },
+    ...rates.cacheWritePerMillion === undefined ? {} : { cacheWritePerMillion: rates.cacheWritePerMillion },
+  }
+}
+
+/**
+ * Validate and copy adapter-published list prices.
+ * @param pricing - adapter-returned pricing.
+ * @returns detached pricing, or `null` when any field is malformed.
+ */
+function detachedPricing(pricing: LlmModelPricing): LlmModelPricing | null {
+  const base = detachedRates(pricing)
+  if (base === null || typeof pricing.currency !== 'string' || !/^[A-Z]{3}$/.test(pricing.currency)
+    || typeof pricing.source !== 'string' || pricing.source.length === 0 || pricing.source.length > 200) return null
+  if (pricing.tiers === undefined) return { ...base, currency: pricing.currency, source: pricing.source }
+  if (!Array.isArray(pricing.tiers) || pricing.tiers.length > 16) return null
+  const tiers: (LlmModelTokenRates & { inputTokensAbove: number })[] = []
+  for (const tier of pricing.tiers) {
+    const rates = detachedRates(tier)
+    if (rates === null || !Number.isSafeInteger(tier.inputTokensAbove) || tier.inputTokensAbove < 0) return null
+    tiers.push({ ...rates, inputTokensAbove: tier.inputTokensAbove })
+  }
+  return { ...base, currency: pricing.currency, tiers, source: pricing.source }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -807,10 +848,18 @@ export class LlmRuntime extends TypertRemoteService {
         'INVALID_MODEL_MAX_TOKENS',
       )
     }
+    const pricing = resolved.pricing === undefined ? undefined : detachedPricing(resolved.pricing)
+    if (pricing === null) {
+      throw new LlmError(
+        `adapter returned invalid pricing metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
+      ...pricing === undefined ? {} : { pricing },
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
