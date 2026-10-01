@@ -50,6 +50,7 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  LlmResponseCost,
   LlmSubscriptionUsage,
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
@@ -63,7 +64,7 @@ import { toPiContext } from './context.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
 import { catalogPricing } from './pricing.ts'
-import { readSubscriptionUsage } from './subscription-usage.ts'
+import { readResponseCost, readSubscriptionUsage } from './subscription-usage.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -319,6 +320,13 @@ export class PiAiAdapter extends LlmAdapter {
       ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
       ...reasoningInfo(resolvedModel, defaultLevel),
     }
+  }
+
+  override async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    const apiKey = await this.config.resolveApiKey(provider, profile) ?? (await snapshot.models.getAuth(provider))?.auth.apiKey
+    return readResponseCost(apiKey, provider, responseId, signal)
   }
 
   override subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {

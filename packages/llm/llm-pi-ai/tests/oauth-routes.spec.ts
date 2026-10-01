@@ -80,6 +80,28 @@ async function adapterContext(route: string, auth: PiAiAuthInjection, onReplayDe
   return ctx
 }
 
+describe('response cost', () => {
+  it('looks up one OpenRouter generation charge with the route key and ignores other routes and ids', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ data: { id: 'gen-1', total_cost: 0.01234 } }))))
+    vi.stubGlobal('fetch', fetchMock)
+    const profiles = resolveProfiles({ openrouter: {}, anthropic: {} })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['openrouter', 'anthropic'], new PiAiAdapter({
+      profiles: () => profiles, resolveApiKey: () => Promise.resolve('sk-or-fixture'), auth: memoryAuth(),
+    }))
+    await expect(ctx.llm.responseCost('openrouter', 'gen-1790793644-abc')).resolves.toEqual({ amount: '0.01234', currency: 'USD' })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://openrouter.ai/api/v1/generation?id=gen-1790793644-abc')
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer sk-or-fixture')
+    await expect(ctx.llm.responseCost('openrouter', 'not-a-generation')).resolves.toBeUndefined()
+    await expect(ctx.llm.responseCost('anthropic', 'gen-1')).resolves.toBeUndefined()
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 404 }))
+    await expect(ctx.llm.responseCost('openrouter', 'gen-2')).rejects.toMatchObject({ code: 'PROVIDER_ERROR' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('subscription usage', () => {
   it('reads Anthropic account usage once with the route token, normalizes it, and skips other routes', async () => {
     const native = catalogProvider('anthropic-oauth')!

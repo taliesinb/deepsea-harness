@@ -5,8 +5,8 @@
 
 import type { Models } from '@earendil-works/pi-ai'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { LlmSubscriptionUsage, LlmSubscriptionWindow } from '@deepseek-ai/dsh-llm'
-import { oauthCatalogProvider } from './catalog.ts'
+import type { LlmResponseCost, LlmSubscriptionUsage, LlmSubscriptionWindow } from '@deepseek-ai/dsh-llm'
+import { catalogProvider, oauthCatalogProvider } from './catalog.ts'
 
 /** Anthropic's account usage endpoint (the data behind Claude Code's `/usage`). */
 export const ANTHROPIC_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
@@ -71,4 +71,36 @@ export async function readSubscriptionUsage(
   }
   if (!response.ok) throw new LlmError(`subscription usage request failed with HTTP ${String(response.status)}`, response.status === 401 || response.status === 403 ? 'AUTH' : 'PROVIDER_ERROR')
   return parseAnthropicUsage(await response.json(), new Date().toISOString())
+}
+
+/** OpenRouter's per-generation accounting endpoint. */
+export const OPENROUTER_GENERATION_URL = 'https://openrouter.ai/api/v1/generation'
+
+/**
+ * Read OpenRouter's recorded charge for one past generation.
+ * @param apiKey - the route's API key.
+ * @param provider - provider route key.
+ * @param responseId - OpenRouter generation id (`gen-…`).
+ * @param signal - optional cancellation.
+ * @returns USD charge, or `undefined` for other routes, missing keys, or ids that are not generation ids.
+ */
+export async function readResponseCost(
+  apiKey: string | undefined,
+  provider: string,
+  responseId: string,
+  signal?: AbortSignal,
+): Promise<LlmResponseCost | undefined> {
+  if (catalogProvider(provider)?.id !== 'openrouter' || apiKey === undefined || !/^gen-[A-Za-z0-9_-]{1,160}$/.test(responseId)) return undefined
+  const timeout = AbortSignal.timeout(TIMEOUT_MS)
+  const response = await fetch(`${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(responseId)}`, {
+    headers: { authorization: `Bearer ${apiKey}`, accept: 'application/json' },
+    signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
+  })
+  if (response.status === 429) throw new LlmError('response cost lookup rate limited', 'RATE_LIMIT')
+  if (!response.ok) throw new LlmError(`response cost lookup failed with HTTP ${String(response.status)}`, response.status === 401 || response.status === 403 ? 'AUTH' : 'PROVIDER_ERROR')
+  const body = await response.json() as { data?: { total_cost?: unknown } }
+  const cost = body.data?.total_cost
+  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) throw new LlmError('response cost lookup returned no total_cost', 'PROVIDER_ERROR')
+  const text = String(cost)
+  return { amount: /e/i.test(text) ? cost.toFixed(18).replace(/\.?0+$/, '') : text, currency: 'USD' }
 }

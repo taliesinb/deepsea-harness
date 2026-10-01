@@ -437,6 +437,14 @@ export interface LlmModelPricing extends LlmModelTokenRates {
   source: string
 }
 
+/** The provider's own recorded charge for one past response. */
+export interface LlmResponseCost {
+  /** Charged amount as a plain decimal string. */
+  amount: string
+  /** ISO 4217 currency of the amount. */
+  currency: string
+}
+
 /** One subscription rate-limit window. */
 export interface LlmSubscriptionWindow {
   /** Window duration label, e.g. `5h` or `7d`. */

@@ -112,6 +112,8 @@ A profile's `models` list replaces the route's installed catalog rather than ext
 
 `subscriptionUsage()` is implemented for the `anthropic-oauth` route: one `GET https://api.anthropic.com/api/oauth/usage` with the route's own sign-in token (resolved, and refreshed if needed, through pi-ai's `Models.getAuth`), normalized to `5h` and `7d` windows plus `extra_usage.is_enabled`. The endpoint is undocumented (it backs Claude Code's `/usage`) and has its own cooldown: HTTP 429 surfaces as `RATE_LIMIT`. Custom base URLs and other OAuth routes return `undefined`. No model request is made.
 
+`responseCost()` is implemented for the `openrouter` route: one `GET https://openrouter.ai/api/v1/generation?id=<gen-…>` with the route's API key, returning `data.total_cost` in USD. Other routes and ids that are not generation ids return `undefined`.
+
 For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
 
 ### Change configuration at runtime

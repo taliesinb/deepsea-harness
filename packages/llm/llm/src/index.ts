@@ -22,6 +22,7 @@ import type {
   LlmResolvedModelInfo,
   LlmModelPricing,
   LlmModelTokenRates,
+  LlmResponseCost,
   LlmSubscriptionUsage,
   LlmSubscriptionWindow,
   LlmProviderInfo,
@@ -292,6 +293,19 @@ export abstract class LlmAdapter {
    * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
    */
   subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
+   * Look up the provider's recorded charge for one past response by its
+   * response id. The default supports none. Implementations make at most one
+   * provider request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _responseId - provider response id carried in replay state.
+   * @param _signal - cancellation for the lookup.
+   * @returns the charge, or `undefined` when the route cannot look one up.
+   */
+  responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
     return Promise.resolve(undefined)
   }
 
@@ -780,6 +794,25 @@ export class LlmRuntime extends TypertRemoteService {
         ...inputModalities === undefined ? {} : { inputModalities },
       }
     })
+  }
+
+  /**
+   * Look up and validate the provider's recorded charge for one past response.
+   * @param provider - registered provider route.
+   * @param responseId - provider response id.
+   * @param signal - optional cancellation for the lookup.
+   * @returns the detached charge, or `undefined` when the route cannot look one up.
+   */
+  async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    const registration = this.registration(provider)
+    const cost = await registration.adapter.responseCost(registration.provider.id, responseId, signal)
+    if (cost === undefined) return undefined
+    const amount: unknown = cost.amount
+    const currency: unknown = cost.currency
+    if (typeof amount !== 'string' || !DECIMAL_RATE.test(amount) || typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+      throw new LlmError(`adapter returned an invalid response cost for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return { amount, currency }
   }
 
   /**
