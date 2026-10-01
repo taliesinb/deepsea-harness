@@ -80,6 +80,40 @@ async function adapterContext(route: string, auth: PiAiAuthInjection, onReplayDe
   return ctx
 }
 
+describe('subscription usage', () => {
+  it('reads Anthropic account usage once with the route token, normalizes it, and skips other routes', async () => {
+    const native = catalogProvider('anthropic-oauth')!
+    vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: 'sk-ant-oat01-fixture' })
+    const body = {
+      five_hour: { utilization: 3.0, resets_at: '2026-10-01T05:00:00.5+00:00' },
+      seven_day: { utilization: 41, resets_at: '2026-10-04T11:00:00+00:00' },
+      seven_day_opus: null, iguana_necktie: null,
+      extra_usage: { is_enabled: false },
+    }
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = await adapterContext('anthropic-oauth', memoryAuth({ 'anthropic-oauth': grant('sk-ant-oat01-fixture') }))
+    const usage = await ctx.llm.subscriptionUsage('anthropic-oauth')
+    expect(usage).toMatchObject({
+      windows: [
+        { label: '5h', usedPercent: 3, resetAt: '2026-10-01T05:00:00.500Z' },
+        { label: '7d', usedPercent: 41, resetAt: '2026-10-04T11:00:00.000Z' },
+      ],
+      extraUsageEnabled: false,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.anthropic.com/api/oauth/usage')
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer sk-ant-oat01-fixture')
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '160' } }))
+    await expect(ctx.llm.subscriptionUsage('anthropic-oauth')).rejects.toMatchObject({ code: 'RATE_LIMIT' })
+    const other = flows.find(flow => flow.id !== 'anthropic')!
+    const otherCtx = await adapterContext(other.route, memoryAuth({ [other.route]: grant('other-access') }))
+    await expect(otherCtx.llm.subscriptionUsage(other.route)).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('every installed OAuth catalog route', () => {
   it('enumerates exactly one dedicated alias per installed OAuth flow', () => {
     expect(flows.length).toBeGreaterThan(0)

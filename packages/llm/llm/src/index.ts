@@ -22,6 +22,8 @@ import type {
   LlmResolvedModelInfo,
   LlmModelPricing,
   LlmModelTokenRates,
+  LlmSubscriptionUsage,
+  LlmSubscriptionWindow,
   LlmProviderInfo,
   ModelModality,
   StreamChunk,
@@ -87,9 +89,10 @@ function detachedPricing(pricing: LlmModelPricing): LlmModelPricing | null {
   if (base === null || typeof pricing.currency !== 'string' || !/^[A-Z]{3}$/.test(pricing.currency)
     || typeof pricing.source !== 'string' || pricing.source.length === 0 || pricing.source.length > 200) return null
   if (pricing.tiers === undefined) return { ...base, currency: pricing.currency, source: pricing.source }
-  if (!Array.isArray(pricing.tiers) || pricing.tiers.length > 16) return null
+  const published: unknown = pricing.tiers
+  if (!Array.isArray(published) || published.length > 16) return null
   const tiers: (LlmModelTokenRates & { inputTokensAbove: number })[] = []
-  for (const tier of pricing.tiers) {
+  for (const tier of published as readonly (LlmModelTokenRates & { inputTokensAbove: number })[]) {
     const rates = detachedRates(tier)
     if (rates === null || !Number.isSafeInteger(tier.inputTokensAbove) || tier.inputTokensAbove < 0) return null
     tiers.push({ ...rates, inputTokensAbove: tier.inputTokensAbove })
@@ -278,6 +281,18 @@ export abstract class LlmAdapter {
    */
   imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined {
     return undefined
+  }
+
+  /**
+   * Read current subscription usage for one owned route's signed-in account.
+   * The default supports none. Implementations make at most one provider
+   * request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
+   */
+  subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve(undefined)
   }
 
   /**
@@ -765,6 +780,41 @@ export class LlmRuntime extends TypertRemoteService {
         ...inputModalities === undefined ? {} : { inputModalities },
       }
     })
+  }
+
+  /**
+   * Read and validate the current subscription usage of one route's signed-in
+   * account from its owning adapter.
+   * @param provider - registered provider route.
+   * @param signal - optional cancellation for the lookup.
+   * @returns detached usage windows, or `undefined` when the route exposes none.
+   */
+  async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    const registration = this.registration(provider)
+    const usage = await registration.adapter.subscriptionUsage(registration.provider.id, signal)
+    if (usage === undefined) return undefined
+    const published: unknown = usage.windows
+    const windows: readonly LlmSubscriptionWindow[] = Array.isArray(published) ? published as LlmSubscriptionWindow[] : []
+    const validWindow = (w: LlmSubscriptionWindow): boolean => {
+      const label: unknown = w.label
+      const used: unknown = w.usedPercent
+      const resetAt: unknown = w.resetAt
+      return typeof label === 'string' && label.length > 0 && label.length <= 32
+        && typeof used === 'number' && Number.isFinite(used) && used >= 0 && used <= 100
+        && (resetAt === undefined || (typeof resetAt === 'string' && Number.isFinite(Date.parse(resetAt))))
+    }
+    const valid = Array.isArray(published) && windows.length <= 16 && windows.every(validWindow)
+    const observedAt: unknown = usage.observedAt
+    const extra: unknown = usage.extraUsageEnabled
+    if (!valid || typeof observedAt !== 'string' || !Number.isFinite(Date.parse(observedAt))
+      || (extra !== undefined && typeof extra !== 'boolean')) {
+      throw new LlmError(`adapter returned invalid subscription usage for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return {
+      windows: windows.map(w => ({ label: w.label, usedPercent: w.usedPercent, ...w.resetAt === undefined ? {} : { resetAt: w.resetAt } })),
+      ...usage.extraUsageEnabled === undefined ? {} : { extraUsageEnabled: usage.extraUsageEnabled },
+      observedAt: usage.observedAt,
+    }
   }
 
   /**

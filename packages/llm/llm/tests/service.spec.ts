@@ -24,6 +24,7 @@ import type {
   LlmProviderInfo,
   LlmResolvedModelInfo,
   LlmModelPricing,
+  LlmSubscriptionUsage,
   SystemPromptUpdate,
 } from '@deepseek-ai/dsh-llm'
 
@@ -729,6 +730,25 @@ describe('LlmRuntime', () => {
 
     await expect(ctx.llm.resolveModelInfo('route', 'model'))
       .rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+  })
+
+  it('detaches adapter subscription usage and rejects malformed windows', async () => {
+    const ctx = await (async () => { const c = new Context(); await c.plugin(LlmRuntime); return c })()
+    let published: unknown = { windows: [{ label: '5h', usedPercent: 3, resetAt: '2026-10-01T05:00:00.000Z' }], observedAt: '2026-10-01T00:00:00.000Z' }
+    ctx.llm.registerAdapter(['route'], new class extends ScriptedAdapter {
+      override subscriptionUsage(): Promise<LlmSubscriptionUsage | undefined> { return Promise.resolve(published as LlmSubscriptionUsage) }
+    }(SCRIPT))
+    await expect(ctx.llm.subscriptionUsage('route')).resolves.toEqual(published)
+    for (const bad of [
+      { windows: [{ label: '5h', usedPercent: 101 }], observedAt: '2026-10-01T00:00:00.000Z' },
+      { windows: [{ label: '', usedPercent: 1 }], observedAt: '2026-10-01T00:00:00.000Z' },
+      { windows: [], observedAt: 'never' },
+    ]) {
+      published = bad
+      await expect(ctx.llm.subscriptionUsage('route')).rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+    }
+    ctx.llm.registerAdapter(['plain'], new ScriptedAdapter(SCRIPT))
+    await expect(ctx.llm.subscriptionUsage('plain')).resolves.toBeUndefined()
   })
 
   it('detaches adapter-published list prices and rejects malformed ones', async () => {

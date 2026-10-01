@@ -437,6 +437,29 @@ export interface LlmModelPricing extends LlmModelTokenRates {
   source: string
 }
 
+/** One subscription rate-limit window. */
+export interface LlmSubscriptionWindow {
+  /** Window duration label, e.g. `5h` or `7d`. */
+  label: string
+  /** Percent of the window used, 0–100. */
+  usedPercent: number
+  /** ISO time the window resets, when reported. */
+  resetAt?: string
+}
+
+/**
+ * Current subscription usage for one route's signed-in account, read from the
+ * provider's usage endpoint. Account-wide, not per session; not a bill.
+ */
+export interface LlmSubscriptionUsage {
+  /** Rate-limit windows in provider order. */
+  windows: readonly LlmSubscriptionWindow[]
+  /** Whether paid usage beyond the plan is enabled, when reported. */
+  extraUsageEnabled?: boolean
+  /** ISO time of the reading. */
+  observedAt: string
+}
+
 /** Exact-route model metadata resolved by its owning adapter. */
 export interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Adapter-published list prices when known. */
