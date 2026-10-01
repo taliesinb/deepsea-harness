@@ -12,6 +12,7 @@ import { credentialStoreFrom, recordKeyFor } from '../src/auth.ts'
 import { catalogProvider, oauthCatalogProvider, oauthProviderIds, oauthRouteAuth, oauthRouteDisplayName } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { parseCodexUsage } from '../src/subscription-usage.ts'
 import { assemble } from './assemble.ts'
 import { memoryAuth } from './auth-double.ts'
 
@@ -129,10 +130,51 @@ describe('subscription usage', () => {
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer sk-ant-oat01-fixture')
     fetchMock.mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '160' } }))
     await expect(ctx.llm.subscriptionUsage('anthropic-oauth')).rejects.toMatchObject({ code: 'RATE_LIMIT' })
-    const other = flows.find(flow => flow.id !== 'anthropic')!
+    const other = flows.find(flow => flow.id !== 'anthropic' && flow.id !== 'openai-codex')!
     const otherCtx = await adapterContext(other.route, memoryAuth({ [other.route]: grant('other-access') }))
     await expect(otherCtx.llm.subscriptionUsage(other.route)).resolves.toBeUndefined()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads Codex account usage with the route token and its account id, labelling windows by length', async () => {
+    const claims = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-fixture' } })).toString('base64url')
+    const token = `header.${claims}.signature`
+    const native = catalogProvider('openai-codex-oauth')!
+    vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: token })
+    const body = {
+      plan_type: 'plus',
+      rate_limit: {
+        allowed: true, limit_reached: false,
+        primary_window: { used_percent: 12, limit_window_seconds: 18000, reset_after_seconds: 100, reset_at: 1790884286 },
+        secondary_window: { used_percent: 3, limit_window_seconds: 604800, reset_after_seconds: 100, reset_at: 1791483086 },
+      },
+      credits: { has_credits: false, unlimited: false, balance: '0' },
+    }
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = await adapterContext('openai-codex-oauth', memoryAuth({ 'openai-codex-oauth': grant(token) }))
+    await expect(ctx.llm.subscriptionUsage('openai-codex-oauth')).resolves.toMatchObject({
+      windows: [
+        { label: '5h', usedPercent: 12, resetAt: new Date(1790884286 * 1000).toISOString() },
+        { label: '7d', usedPercent: 3, resetAt: new Date(1791483086 * 1000).toISOString() },
+      ],
+    })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://chatgpt.com/backend-api/wham/usage')
+    const headers = init.headers as Record<string, string>
+    expect(headers.authorization).toBe(`Bearer ${token}`)
+    expect(headers['chatgpt-account-id']).toBe('acct-fixture')
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 401 }))
+    await expect(ctx.llm.subscriptionUsage('openai-codex-oauth')).rejects.toMatchObject({ code: 'AUTH' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('parses only well-formed Codex windows', () => {
+    expect(parseCodexUsage({ rate_limit: {
+      primary_window: { used_percent: 140, limit_window_seconds: 3600, reset_at: 0 },
+      secondary_window: { used_percent: 'x', limit_window_seconds: 604800 },
+    } }, '2026-10-01T00:00:00.000Z')).toEqual({ windows: [{ label: '1h', usedPercent: 100 }], observedAt: '2026-10-01T00:00:00.000Z' })
+    expect(parseCodexUsage(null, '2026-10-01T00:00:00.000Z').windows).toEqual([])
   })
 })
 
