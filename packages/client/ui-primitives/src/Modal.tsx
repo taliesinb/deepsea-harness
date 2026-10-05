@@ -14,6 +14,8 @@ interface ModalBaseProps {
   children?: ReactNode
   footer?: ReactNode
   className?: string
+  /** Dialog card width in CSS px (default 380); still capped at the viewport. */
+  width?: number | undefined
   contentClassName?: string
   shortcutModal?: string
   onKeyDownCapture?: KeyboardEventHandler<HTMLDivElement>
@@ -36,6 +38,7 @@ type ModalProps = ModalBaseProps & (
  * @param props.children - dialog body; mark its initial-focus control with
  * data-modal-autofocus instead of React autoFocus to preserve return focus.
  * @param props.footer - action row (Cancel / Create).
+ * @param props.width - dialog card width in CSS px; the default stylesheet width applies when absent.
  * @param props.contentClassName - optional class for a scrollable content region.
  * @param props.backdropBlur - disable when the caller already blurs the page; defaults to true.
  * @param props.shortcutModal - command scope allowed by shortcut owners; unnamed
@@ -47,7 +50,7 @@ type ModalProps = ModalBaseProps & (
  */
 export function Modal({
   open, onClose, title, closeLabel, description, children, footer, className, contentClassName,
-  onKeyDownCapture, headless = false, backdropBlur = true, shortcutModal,
+  onKeyDownCapture, headless = false, backdropBlur = true, shortcutModal, width,
 }: ModalProps) {
   const dialog = useRef<HTMLDivElement>(null)
   useModalLayer(dialog, open, onClose)
@@ -62,6 +65,7 @@ export function Modal({
         tabIndex={-1}
         data-shortcut-modal={shortcutModal}
         className={clsx(css.dialog, className)}
+        style={width === undefined ? undefined : { width: `min(${String(width)}px, 100%)` }}
         role="dialog"
         aria-modal="true"
         aria-label={title}
