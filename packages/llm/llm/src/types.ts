@@ -225,6 +225,13 @@ export interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+  /** Catalog (vendor) provider the route resolves to, when the adapter knows it, e.g. `anthropic` for `anthropic-oauth`. */
+  catalogProvider?: string
+  /**
+   * How the route authenticates and is billed: a subscription sign-in, a per-token API key, or a
+   * model served on this machine (no charge); absent when unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
 }
 
 /** Merge-extensible provider model modality vocabulary. */
@@ -455,6 +462,20 @@ export interface LlmSubscriptionWindow {
   resetAt?: string
 }
 
+/** The signed-in account a subscription reading belongs to; every field is optional and display-only. */
+export interface LlmSubscriptionAccount {
+  /** The provider's stable identifier of the signed-in account (and its organization), suitable as a key. */
+  id?: string
+  /** Account email address. */
+  email?: string
+  /** Account holder's name. */
+  name?: string
+  /** Organization or workspace the subscription belongs to. */
+  organization?: string
+  /** Provider plan label, e.g. `plus` or `claude_team`. */
+  plan?: string
+}
+
 /**
  * Current subscription usage for one route's signed-in account, read from the
  * provider's usage endpoint. Account-wide, not per session; not a bill.
@@ -464,6 +485,8 @@ export interface LlmSubscriptionUsage {
   windows: readonly LlmSubscriptionWindow[]
   /** Whether paid usage beyond the plan is enabled, when reported. */
   extraUsageEnabled?: boolean
+  /** The signed-in account, when the provider identifies it. */
+  account?: LlmSubscriptionAccount
   /** ISO time of the reading. */
   observedAt: string
 }
@@ -472,6 +495,12 @@ export interface LlmSubscriptionUsage {
 export interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Adapter-published list prices when known. */
   pricing?: LlmModelPricing
+  /**
+   * List prices of the same model on the provider's per-token API, published
+   * for subscription routes that publish no `pricing` because the route does
+   * not charge per token. An API-price equivalent, not a charge.
+   */
+  listPricing?: LlmModelPricing
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
   /** Adapter-configured per-request output cap materialized when callers omit one. */

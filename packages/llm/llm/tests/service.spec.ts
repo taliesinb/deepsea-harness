@@ -739,7 +739,13 @@ describe('LlmRuntime', () => {
       override subscriptionUsage(): Promise<LlmSubscriptionUsage | undefined> { return Promise.resolve(published as LlmSubscriptionUsage) }
     }(SCRIPT))
     await expect(ctx.llm.subscriptionUsage('route')).resolves.toEqual(published)
+    published = { windows: [], observedAt: '2026-10-01T00:00:00.000Z', account: { id: 'acct/user', email: 'user@example.com', plan: 'plus', extra: 'dropped' } }
+    await expect(ctx.llm.subscriptionUsage('route')).resolves.toEqual({ windows: [], observedAt: '2026-10-01T00:00:00.000Z', account: { id: 'acct/user', email: 'user@example.com', plan: 'plus' } })
+    published = { windows: [], observedAt: '2026-10-01T00:00:00.000Z', account: {} }
+    await expect(ctx.llm.subscriptionUsage('route')).resolves.toEqual({ windows: [], observedAt: '2026-10-01T00:00:00.000Z' })
     for (const bad of [
+      { windows: [], observedAt: '2026-10-01T00:00:00.000Z', account: { email: 42 } },
+      { windows: [], observedAt: '2026-10-01T00:00:00.000Z', account: 'user@example.com' },
       { windows: [{ label: '5h', usedPercent: 101 }], observedAt: '2026-10-01T00:00:00.000Z' },
       { windows: [{ label: '', usedPercent: 1 }], observedAt: '2026-10-01T00:00:00.000Z' },
       { windows: [], observedAt: 'never' },
@@ -777,6 +783,23 @@ describe('LlmRuntime', () => {
       published = bad
       await expect(ctx.llm.resolveModelInfo('route', 'model')).rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
     }
+  })
+
+  it('detaches subscription-route list prices and rejects malformed ones', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const listPricing = { currency: 'USD', inputPerMillion: '4', outputPerMillion: '20', source: 'test catalog' }
+    let published: unknown = listPricing
+    ctx.llm.registerAdapter(['route'], new class extends ScriptedAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider: 'route', id: 'model', name: 'Model', listPricing: published as LlmModelPricing })
+      }
+    }(SCRIPT))
+    const resolved = await ctx.llm.resolveModelInfo('route', 'model')
+    expect(resolved.listPricing).toEqual(listPricing)
+    expect(resolved.pricing).toBeUndefined()
+    published = { ...listPricing, currency: 'usd' }
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
   })
 
   it('preserves modality metadata through exact model resolution', async () => {
@@ -1286,12 +1309,22 @@ describe('LlmRuntime', () => {
     [{ id: 'other', name: 'Name' }, 'mismatched id'],
     [{ id: 'route', name: 1 }, 'non-string name'],
     [{ id: 'route', name: '' }, 'empty name'],
+    [{ id: 'route', name: 'Name', catalogProvider: '' }, 'empty catalog provider'],
+    [{ id: 'route', name: 'Name', auth: 'password' }, 'unknown auth kind'],
   ] as const)('rejects invalid provider metadata atomically (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     const adapter = new CatalogAdapter(metadata as unknown as LlmProviderInfo, [])
     expect(() => ctx.llm.registerAdapter(['route'], adapter)).toThrow(expect.objectContaining({ code: 'INVALID_ADAPTER' }))
     expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('keeps a route\'s catalog provider and auth kind, dropping undeclared metadata', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const metadata = { id: 'route', name: 'Name', catalogProvider: 'vendor', auth: 'subscription', extra: 'dropped' }
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(metadata as unknown as LlmProviderInfo, []))
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'route', name: 'Name', catalogProvider: 'vendor', auth: 'subscription' }])
   })
 
   it.each([

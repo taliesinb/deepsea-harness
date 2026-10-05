@@ -23,6 +23,7 @@ import type {
   LlmModelPricing,
   LlmModelTokenRates,
   LlmResponseCost,
+  LlmSubscriptionAccount,
   LlmSubscriptionUsage,
   LlmSubscriptionWindow,
   LlmProviderInfo,
@@ -509,12 +510,23 @@ export class LlmRuntime extends TypertRemoteService {
       if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
         throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
       }
+      const catalogProvider: unknown = info.catalogProvider
+      const auth: unknown = info.auth
+      if ((catalogProvider !== undefined && (typeof catalogProvider !== 'string' || catalogProvider.length === 0))
+        || (auth !== undefined && auth !== 'subscription' && auth !== 'api-key' && auth !== 'local')) {
+        throw new LlmError(`adapter metadata for provider "${provider}" has an invalid catalog provider or auth kind`, 'INVALID_ADAPTER')
+      }
       unique.add(provider)
       const retryPolicy = adapter.providerRetryPolicy(provider)
         ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
       registrations.push({
         adapter,
-        provider: { id: info.id, name: info.name },
+        provider: {
+          id: info.id,
+          name: info.name,
+          ...info.catalogProvider === undefined ? {} : { catalogProvider: info.catalogProvider },
+          ...info.auth === undefined ? {} : { auth: info.auth },
+        },
         retryPolicy,
       })
     }
@@ -839,13 +851,26 @@ export class LlmRuntime extends TypertRemoteService {
     const valid = Array.isArray(published) && windows.length <= 16 && windows.every(validWindow)
     const observedAt: unknown = usage.observedAt
     const extra: unknown = usage.extraUsageEnabled
+    const account: unknown = usage.account
+    const accountFields = ['id', 'email', 'name', 'organization', 'plan'] as const
+    const validAccount = account === undefined || (typeof account === 'object' && account !== null && !Array.isArray(account)
+      && accountFields.every((key) => {
+        const value: unknown = (account as Record<string, unknown>)[key]
+        return value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 256)
+      }))
     if (!valid || typeof observedAt !== 'string' || !Number.isFinite(Date.parse(observedAt))
-      || (extra !== undefined && typeof extra !== 'boolean')) {
+      || (extra !== undefined && typeof extra !== 'boolean') || !validAccount) {
       throw new LlmError(`adapter returned invalid subscription usage for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    const identity: LlmSubscriptionAccount = {}
+    for (const key of accountFields) {
+      const value = usage.account?.[key]
+      if (value !== undefined) identity[key] = value
     }
     return {
       windows: windows.map(w => ({ label: w.label, usedPercent: w.usedPercent, ...w.resetAt === undefined ? {} : { resetAt: w.resetAt } })),
       ...usage.extraUsageEnabled === undefined ? {} : { extraUsageEnabled: usage.extraUsageEnabled },
+      ...Object.keys(identity).length === 0 ? {} : { account: identity },
       observedAt: usage.observedAt,
     }
   }
@@ -932,7 +957,8 @@ export class LlmRuntime extends TypertRemoteService {
       )
     }
     const pricing = resolved.pricing === undefined ? undefined : detachedPricing(resolved.pricing)
-    if (pricing === null) {
+    const listPricing = resolved.listPricing === undefined ? undefined : detachedPricing(resolved.listPricing)
+    if (pricing === null || listPricing === null) {
       throw new LlmError(
         `adapter returned invalid pricing metadata for provider "${provider}" model "${model}"`,
         'INVALID_MODEL_INFO',
@@ -943,6 +969,7 @@ export class LlmRuntime extends TypertRemoteService {
       id: model,
       name: resolved.name,
       ...pricing === undefined ? {} : { pricing },
+      ...listPricing === undefined ? {} : { listPricing },
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },

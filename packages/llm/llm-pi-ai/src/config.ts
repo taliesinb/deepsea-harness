@@ -25,6 +25,7 @@ import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import {
   CACHE_CONTROL_FORMATS,
   oauthCatalogProvider,
+  oauthRouteAuth,
   oauthRouteDisplayName,
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
@@ -96,6 +97,14 @@ export interface PiAiProviderProfile {
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
+  /**
+   * How this route is billed, published on provider info for billing surfaces: `subscription`,
+   * `api-key`, or `local` (a model served on this machine, free). Omission infers it: OAuth and
+   * subscription-only catalog routes are `subscription`, other catalog routes are `api-key` (even
+   * behind a local proxy), a custom route whose `baseURL` is a loopback address is `local`, and
+   * anything else is unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
   /**
    * Wire protocol every model on this route speaks. Omission keeps each
    * installed catalog model's own protocol, which is why a catalog route needs
@@ -328,6 +337,7 @@ const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 const profile = z.object({
   apiKeyEnv: z.string().role('credential-ref'),
   displayName: z.string(),
+  auth: z.union(['subscription', 'api-key', 'local']),
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
@@ -463,6 +473,10 @@ export function resolveProfiles(
     const oauthProvider = oauthCatalogProvider(provider)
     if (oauthProvider !== undefined && (source.apiKeyEnv !== undefined || source.api !== undefined || source.baseURL !== undefined)) {
       throw new Error(`llm-pi-ai: ${provider} uses its OAuth grant and native catalog; configure API keys and custom endpoints on another route`)
+    }
+    const oauthAuth = oauthRouteAuth(provider)
+    if (oauthAuth !== undefined && source.auth !== undefined && source.auth !== oauthAuth) {
+      throw new Error(`llm-pi-ai: ${provider} signs in with OAuth and is billed as "${oauthAuth}"; its auth cannot be "${source.auth}"`)
     }
     const displayName = source.displayName ?? oauthRouteDisplayName(provider) ?? provider
     let catalog: RouteCatalog | undefined
