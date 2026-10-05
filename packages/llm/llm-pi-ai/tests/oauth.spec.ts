@@ -20,9 +20,9 @@ vi.mock('../src/models.ts', async importOriginal => ({
 }))
 
 const { credentialStoreFrom, authContextFrom, recordKeyFor } = await import('../src/auth.ts')
-const { registerPiAiFlows } = await import('../src/login.ts')
+const { registerPiAiOAuthFlows } = await import('../src/oauth.ts')
 
-const CODEX = recordKeyFor('openai-codex')
+const CODEX = recordKeyFor('openai-codex-oauth')
 const dirs: string[] = []
 
 /** A context with the record store, the seam, and every pi-ai login flow. */
@@ -32,7 +32,7 @@ async function harness(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
   await ctx.plugin(AuthorizationService)
-  registerPiAiFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
+  registerPiAiOAuthFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
   return ctx
 }
 
@@ -80,7 +80,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
-describe('pi-ai login flows', () => {
+describe('pi-ai OAuth flows', () => {
   it('offers one flow per installed provider, with the methods that provider ships', async () => {
     const ctx = await harness()
     const offered = ctx.authorization.list()
@@ -89,23 +89,24 @@ describe('pi-ai login flows', () => {
     // else could ever configure it.
     expect(offered.find(entry => entry.key === CODEX)?.methods)
       .toEqual([{ id: 'oauth', label: expect.stringContaining('ChatGPT') as string }])
-    // A provider offering both keeps both, the subscription login first.
-    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))?.methods.map(one => one.id))
-      .toEqual(['oauth', 'api-key'])
-    // A key-only provider still gets a flow, because pi-ai collects the key
-    // through its own prompt rather than leaving it to the settings form.
-    expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
-      .toEqual(['api-key'])
+    // Anthropic's subscription login owns a separate credential and route.
+    expect(offered.find(entry => entry.key === recordKeyFor('anthropic-oauth'))?.methods.map(one => one.id))
+      .toEqual(['oauth'])
+    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))).toBeUndefined()
+    // OAuth commands never offer key-only providers.
+    expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))).toBeUndefined()
   })
 
   it('runs the pi-ai auth type the chosen method names', async () => {
     const ctx = await harness()
 
     await attempt(ctx, () => Promise.resolve())
-    expect(login).toHaveBeenLastCalledWith('openai-codex', 'oauth', expect.anything())
+    expect(login).toHaveBeenLastCalledWith('openai-codex-oauth', 'oauth', expect.anything())
 
-    await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic'), method: 'api-key' })
-    expect(login).toHaveBeenLastCalledWith('anthropic', 'api_key', expect.anything())
+    await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic-oauth') })
+    expect(login).toHaveBeenLastCalledWith('anthropic-oauth', 'oauth', expect.anything())
+    await expect(ctx.credentials.readRecord(recordKeyFor('anthropic-oauth'))).resolves.toMatchObject({ kind: 'grant' })
+    await expect(ctx.credentials.readRecord(recordKeyFor('anthropic'))).resolves.toBeUndefined()
   })
 
   it('commits what the login produced, where the adapter reads it back', async () => {

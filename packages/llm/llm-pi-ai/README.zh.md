@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以使用已存储的 OAuth 或交互式密钥登录，并通过跨进程锁刷新凭据。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
+`@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以在独立路由上使用已存储的 OAuth，并通过跨进程锁刷新凭据。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
 
 ## 目录
 
@@ -92,7 +92,11 @@ kind: "package-reference"
 
 ### 登录提供方
 
-pi-ai 提供登录的提供方可以通过 harness 授权 seam 登录：流程提供 OAuth 或交互式密钥提示（密钥键入 pi-ai 自己的登录提示，而非设置表单），得到的凭据存储在 harness 凭据存储的 `llm-pi-ai/<provider id>` 记录中。存储的登录在其路由的 `apiKeyEnv` 覆盖之下完成认证，并在存储的跨进程锁下自行刷新；退出登录即删除存储记录。落在记录文法之外——小写连字符标识符——的手工声明路由键无法登录，因为对它的记录写入会以 `LlmError('UNSTORABLE_PROVIDER_ID')` 拒绝；这类路由改用 `apiKeyEnv` 或提供方 ambient 设置认证。
+每个支持 OAuth 的已安装 pi-ai 提供方都会以其专用路由为键注册一个 `ctx.authorization` 流程，例如 `anthropic-oauth`，其 grant 存入 `llm-pi-ai/anthropic-oauth`。运行该流程的界面（例如一个 `/oauth` 命令插件）负责把 `anthropic-oauth` 路由加入配置并发起授权。所有受支持的流程都使用相同的 `<provider>-oauth` 路由与凭据隔离规则，包括 `openai-codex` 等仅支持 OAuth 的提供方。
+
+OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；停用仅删除该记录，不移除路由。已有的不带后缀的 grant 不会被自动移动或删除：使用简短流程名称激活独立路由。API 密钥在 Settings 中配置，而非通过 `/oauth`。
+
+传输分派会恢复 pi-ai 用于提供方专属标头与重放的原生提供方 id。持久化重放仍标识已配置的路由，使 OAuth 与 API 密钥历史保持独立。
 
 ### 解析模型目录
 
@@ -140,7 +144,7 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的�
 |---|---|
 | [`src/index.ts`](src/index.ts) | Config 快照、目录及路由注册 |
 | [`src/auth.ts`](src/auth.ts) | 覆盖 harness 凭据平面的凭据存储与 ambient auth context |
-| [`src/login.ts`](src/login.ts) | 面向提供登录的已安装提供方的授权流程 |
+| [`src/oauth.ts`](src/oauth.ts) | 所有受支持目录提供方的 OAuth 专用流程 |
 | [`src/config.ts`](src/config.ts) | Profile schema、解析与可服务性校验 |
 | [`src/catalog.ts`](src/catalog.ts) | 已安装目录集成与漂移门禁 |
 | [`src/models.ts`](src/models.ts) | 基于 pi-ai 窄入口的 model collection、静态 provider 与 reasoning level |

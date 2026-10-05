@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-llm-pi-ai` routes model requests to multiple pi-ai providers, OpenAI-compatible gateways, or self-hosted servers from one configuration. Installed pi-ai providers supply endpoint, protocol, and model-catalog defaults; custom routes can declare those values without code changes. Profiles and credentials are resolved for each request, so settings changes take effect on the next request without a restart. Supported providers can use stored OAuth or interactive-key sign-in with cross-process refresh locking. The package may start with no routes and activate when user settings add them.
+`@deepseek-ai/dsh-llm-pi-ai` routes model requests to multiple pi-ai providers, OpenAI-compatible gateways, or self-hosted servers from one configuration. Installed pi-ai providers supply endpoint, protocol, and model-catalog defaults; custom routes can declare those values without code changes. Profiles and credentials are resolved for each request, so settings changes take effect on the next request without a restart. Supported providers can use stored OAuth on dedicated routes with cross-process refresh locking. The package may start with no routes and activate when user settings add them.
 
 ## Table of Contents
 
@@ -92,7 +92,11 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Sign in to a provider
 
-A provider pi-ai ships a login for can be signed into through the harness authorization seam: the flow offers OAuth or an interactive key prompt (a key is typed into pi-ai's own login prompt, not into the settings form), and the resulting credential is stored in the harness credential store at `llm-pi-ai/<provider id>`. The stored sign-in authenticates its route beneath any `apiKeyEnv` override and refreshes itself under the store's cross-process lock; signing out deletes the stored record. A hand-declared route key outside the record grammar — a lowercase hyphenated identifier — cannot be signed into, because a record write for it refuses with `LlmError('UNSTORABLE_PROVIDER_ID')`; such a route authenticates through `apiKeyEnv` or ambient provider settings instead.
+Every installed pi-ai provider with OAuth registers one `ctx.authorization` flow keyed by its dedicated route: `anthropic-oauth`, for example, whose grant is stored at `llm-pi-ai/anthropic-oauth`. A surface that runs the flow (an `/oauth` command plugin, say) adds the `anthropic-oauth` route to the configuration and begins the attempt. The same `<provider>-oauth` route and credential separation applies to every supported flow, including OAuth-only providers such as `openai-codex`.
+
+OAuth routes use the native catalog and transport, reject `apiKeyEnv`, `api`, and `baseURL` overrides, and never fall back to API-key records or ambient keys. The unsuffixed provider route, its settings, and its stored credentials remain independent. Refresh writes only the OAuth route's record under the credential store's cross-process lock; deactivation deletes that record without removing its route. Existing unsuffixed grants are not moved or deleted automatically: activate the short flow name to authorize the dedicated route. API keys are configured in Settings, not through `/oauth`.
+
+Transport dispatch restores the native provider id where pi-ai uses it for provider-specific headers and replay. Durable replay continues to identify the configured route, keeping OAuth and API-key histories distinct.
 
 ### Resolve the model catalog
 
@@ -140,7 +144,7 @@ The adapter is built on immutable snapshots and per-operation resolution. Each o
 |---|---|
 | [`src/index.ts`](src/index.ts) | Config snapshots, directory and route registration |
 | [`src/auth.ts`](src/auth.ts) | The credential store and ambient auth context over the harness credential plane |
-| [`src/login.ts`](src/login.ts) | Authorization flows for the installed providers that ship a login |
+| [`src/oauth.ts`](src/oauth.ts) | OAuth-only flows for every supported catalog provider |
 | [`src/config.ts`](src/config.ts) | Profile schema, resolution, and serviceability checks |
 | [`src/catalog.ts`](src/catalog.ts) | Installed-catalog integration and drift gates |
 | [`src/models.ts`](src/models.ts) | Model collections, static providers, and reasoning levels over narrow pi-ai entry points |

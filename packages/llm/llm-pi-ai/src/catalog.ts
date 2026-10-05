@@ -182,7 +182,29 @@ function catalogProviders(): Map<string, Provider> {
  * @returns the catalog provider, or `undefined` for a route pi-ai does not ship.
  */
 export function catalogProvider(provider: string): Provider | undefined {
-  return catalogProviders().get(provider)
+  return catalogProviders().get(provider) ?? oauthCatalogProvider(provider)
+}
+
+/**
+ * Resolve a dedicated OAuth route to its native catalog provider.
+ * @param route - isolated provider route id, including its `-oauth` suffix.
+ * @returns the OAuth-capable catalog provider, or undefined for other routes.
+ */
+export function oauthCatalogProvider(route: string): Provider | undefined {
+  if (!route.endsWith('-oauth') || catalogProviders().has(route)) return undefined
+  const provider = catalogProviders().get(route.slice(0, -'-oauth'.length))
+  return provider?.auth.oauth === undefined ? undefined : provider
+}
+
+/**
+ * Dedicated route ids for every OAuth flow shipped by the installed catalog.
+ * @returns OAuth-only provider route ids, distinct from native catalog ids.
+ */
+export function oauthProviderIds(): readonly string[] {
+  return catalogProviderIds().flatMap((id) => {
+    const route = `${id}-oauth`
+    return oauthCatalogProvider(route) === undefined ? [] : [route]
+  })
 }
 
 /**
@@ -199,8 +221,9 @@ export function catalogProviderIds(): readonly string[] {
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
-  if (!catalogProviders().has(provider)) return new Map()
-  const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
+  const catalogId = catalogProvider(provider)?.id
+  if (catalogId === undefined) return new Map()
+  const models = getBuiltinModels(catalogId as BuiltinProvider) as Model<Api>[]
   return new Map(models.map(model => [model.id, model]))
 }
 
