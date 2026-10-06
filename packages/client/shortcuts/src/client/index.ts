@@ -40,9 +40,14 @@ export default class ShortcutsService extends Service implements Shortcuts {
   private readonly registry: ShortcutRegistry
 
   constructor(ctx: Context) {
-    const environment = detectEnvironment(document, navigator)
-    const keyboard = environment.runtime === 'desktop'
-      ? (window as Window & { dshDesktop?: { keyboard?: DesktopKeyboardApi } }).dshDesktop?.keyboard : undefined
+    const detected = detectEnvironment(document, navigator)
+    const bridge = (window as Window & { dshDesktop?: { keyboard?: DesktopKeyboardApi } }).dshDesktop
+    // A desktop-marked document with no desktop bridge at all is a native web view around the
+    // Web app (one that borrows the darwin layout): its keys arrive as DOM events, so it runs
+    // the Web runtime on the marked platform. A present bridge without its keyboard still fails.
+    const environment = detected.runtime === 'desktop' && bridge === undefined
+      ? { ...detected, runtime: 'web' as const } : detected
+    const keyboard = environment.runtime === 'desktop' ? bridge?.keyboard : undefined
     if (environment.runtime === 'desktop' && keyboard === undefined) throw new Error('Desktop keyboard bridge unavailable')
     super(ctx, 'shortcuts')
     this.keyboard = keyboard
