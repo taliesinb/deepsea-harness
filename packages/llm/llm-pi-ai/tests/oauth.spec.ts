@@ -170,13 +170,45 @@ describe('pi-ai OAuth flows', () => {
       for (const prompt of prompts) await interaction.prompt(prompt)
     })
 
-    expect(ui.prompts).toEqual([
+    const withdrawable = ui.prompts[4]?.signal
+    expect(ui.prompts.map(({ signal: _signal, ...prompt }) => prompt)).toEqual([
       { kind: 'text', message: 'Your workspace', placeholder: 'acme' },
       { kind: 'secret', message: 'Paste the key' },
       { kind: 'secret', message: 'Paste the token', placeholder: 'sk-…' },
       { kind: 'select', message: 'Which account?', options: [{ id: 'a', label: 'Work' }] },
-      { kind: 'text', message: 'Paste the code', signal: withdraw.signal },
+      { kind: 'text', message: 'Paste the code' },
     ])
+    // Only the racing question carries a signal, and pi-ai's withdrawal reaches it.
+    expect(ui.prompts.slice(0, 4).every(prompt => prompt.signal === undefined)).toBe(true)
+    expect(withdrawable?.aborted).toBe(false)
+    withdraw.abort()
+    expect(withdrawable?.aborted).toBe(true)
+  })
+
+  it('withdraws a racing question when the attempt is cancelled, so the flow can close its callback server', async () => {
+    const ctx = await harness()
+    const controller = new AbortController()
+    let questionSignal: AbortSignal | undefined
+    const asked = Promise.withResolvers<undefined>()
+    login.mockImplementation(async (_id: string, _type: AuthType, interaction: AuthInteraction) => {
+      // pi-ai's loopback shape: its own signal for the manual question, aborted only after the await.
+      const manual = new AbortController()
+      try { await interaction.prompt({ type: 'manual_code', message: 'Paste the code', signal: manual.signal }) }
+      finally { manual.abort() }
+      return new Promise(() => {})
+    })
+    const ui = surface()
+    ui.prompt = (prompt) => {
+      questionSignal = prompt.signal
+      asked.resolve(undefined)
+      return new Promise((_resolve, reject) => { prompt.signal?.addEventListener('abort', () => { reject(new Error('withdrawn')) }, { once: true }) })
+    }
+    const outcome = ctx.authorization.begin({ key: CODEX, interaction: ui, signal: controller.signal })
+    await asked.promise
+    expect(questionSignal?.aborted).toBe(false)
+    controller.abort()
+    await expect(outcome).resolves.toEqual({ status: 'cancelled' })
+    expect(questionSignal?.aborted).toBe(true)
   })
 
   it('hands the flow the attempt-wide cancellation signal', async () => {

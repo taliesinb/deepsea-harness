@@ -64,12 +64,18 @@ function relay(event: AuthEvent, session: AuthorizationSession): void {
  * draws — a code the human copies from a browser rather than a value they know
  * — changes nothing a surface renders. Its own `signal` is carried through, and
  * that is the part which matters: it is how a flow racing a typed code against
- * a browser callback withdraws the losing question.
+ * a browser callback withdraws the losing question. It also fires when the
+ * whole attempt is cancelled: pi-ai's loopback flows (Anthropic's fixed
+ * callback port 53692 among them) stop the callback wait on cancel but then
+ * await this question before closing their server, and withdraw it only after
+ * that await — so a surface holding the question until its signal fires would
+ * keep the attempt, and the port, forever.
  * @param prompt - what pi-ai asked.
+ * @param attempt - the attempt-wide cancellation signal.
  * @returns the neutral prompt to put to the human.
  */
-function restate(prompt: AuthPrompt): AuthorizationPrompt {
-  const signal = prompt.signal === undefined ? {} : { signal: prompt.signal }
+function restate(prompt: AuthPrompt, attempt: AbortSignal): AuthorizationPrompt {
+  const signal = prompt.signal === undefined ? {} : { signal: AbortSignal.any([prompt.signal, attempt]) }
   switch (prompt.type) {
     case 'select':
       return { ...signal, kind: 'select', message: prompt.message, options: prompt.options }
@@ -128,7 +134,7 @@ export function registerPiAiOAuthFlows(ctx: Context, auth: PiAiAuthInjection): v
         await models.login(flowProviderId, 'oauth', {
           signal: session.signal,
           notify: (event) => { relay(event, session) },
-          prompt: prompt => session.prompt(restate(prompt)),
+          prompt: prompt => session.prompt(restate(prompt, session.signal)),
         })
       },
     })
