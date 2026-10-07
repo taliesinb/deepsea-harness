@@ -449,11 +449,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
           const credentialMissing = !credentialConfigured && (signIn === undefined
             ? row.apiKeyEnv !== undefined && row.credential?.configured === false
             : row.signInState?.signedIn === false)
+          // A sign-in route has nothing to edit: its Details open the account facts in the editor's place.
           const account = row.signInState?.account
-          const facts = signIn === undefined || account === undefined ? [] : [
-            ['signInAccount', account.email ?? account.name],
-            ['signInOrganization', account.organization],
-            ['signInPlan', account.plan === undefined ? undefined : planLabel(account.plan)],
+          const facts = signIn === undefined ? [] : [
+            ['signInStatus', t(row.signInState?.signedIn === true ? 'signedIn' : 'signedOut')],
+            ['signInAccount', account?.email ?? account?.name],
+            ['signInOrganization', account?.organization],
+            ['signInPlan', account?.plan === undefined ? undefined : planLabel(account.plan)],
+            ['customRoute', row.entry.provider],
           ].filter((fact): fact is [keyof typeof en, string] => fact[1] !== undefined)
           return (
             <li key={row.entry.provider} className={styles['rowCard']}>
@@ -490,10 +493,11 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       : null}
                 </span>
                 <span className={styles['rowActions']}>
-                  {signIn !== undefined ? null : <button
+                  <button
                     type="button"
                     className={styles['secondaryButton']}
-                    aria-label={providerCopy(t('editProvider'), target)}
+                    aria-label={providerCopy(t(signIn === undefined ? 'editProvider' : 'detailsProvider'), target)}
+                    aria-expanded={open}
                     onClick={() => {
                       setSavedTarget(undefined)
                       // One card at a time: the add card closes with whatever
@@ -503,8 +507,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       setEditing(open ? undefined : target)
                     }}
                   >
-                    {t('edit')}
-                  </button>}
+                    {t(signIn === undefined ? 'edit' : 'details')}
+                  </button>
                   {row.removable
                     ? (
                       <button
@@ -525,7 +529,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
               </div>
               {error}
-              {facts.length === 0 ? null : (
+              {!open || signIn === undefined ? null : (
                 <dl className={styles['signInFacts']}>
                   {facts.map(([label, value]) => [
                     <dt key={`${label}:t`}>{t(label)}</dt>,
@@ -538,7 +542,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
                 { entryKey: row.entry.settingsNs },
               )}
-              {open
+              {open && signIn === undefined
                 ? renderProviderEditor({
                   target,
                   namespace,

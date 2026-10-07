@@ -383,12 +383,22 @@ describe('ModelsSection', () => {
     expect(screen.queryByText('Zombie Plan')).toBeNull()
     expect(screen.getByText(en.signInPlanTag)).toBeTruthy()
     expect(screen.getByRole('img', { name: en.signedIn })).toBeTruthy()
-    for (const [label, value] of [[en.signInAccount, 'user@example.com'], [en.signInOrganization, 'Fixture Org'], [en.signInPlan, 'Max']]) {
-      expect(screen.getByText(label!)).toBeTruthy()
-      expect(screen.getByText(value!)).toBeTruthy()
-    }
     expect(screen.queryByRole('button', { name: /^Edit/u })).toBeNull()
+    // Details, in the editor's place, toggle the account facts; there is no key field.
+    expect(screen.queryByText(en.signInAccount)).toBeNull()
+    const details = screen.getByRole('button', { name: providerCopy(en.detailsProvider, { provider: 'zombie', displayName: 'Zombie Plan' }) })
+    expect(details.textContent).toBe(en.details)
+    fireEvent.click(details)
+    for (const [label, value] of [
+      [en.signInStatus, en.signedIn], [en.signInAccount, 'user@example.com'], [en.signInOrganization, 'Fixture Org'],
+      [en.signInPlan, 'Max'], [en.customRoute, 'zombie'],
+    ]) {
+      expect(screen.getByText(label!, { selector: 'dt' })).toBeTruthy()
+      expect(screen.getByText(value!, { selector: 'dd' })).toBeTruthy()
+    }
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    fireEvent.click(details)
+    expect(screen.queryByText(en.signInAccount)).toBeNull()
     expect(describeSignIn).toHaveBeenCalledWith('zombie')
     // A removable route keeps its Delete.
     expect(screen.getByRole('button', { name: providerCopy(en.removeProvider, { provider: 'zombie', displayName: 'Zombie Plan' }) })).toBeTruthy()

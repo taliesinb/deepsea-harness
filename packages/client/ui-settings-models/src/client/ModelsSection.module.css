@@ -113,13 +113,16 @@
   background: var(--dsw-alias-state-error-primary);
 }
 
-/* A sign-in route's account: label/value pairs under the row head. */
+/* A sign-in route's Details: label/value pairs in the editor's inset box. */
 .signInFacts {
   display: grid;
   grid-template-columns: max-content 1fr;
   column-gap: 16px;
-  row-gap: 4px;
+  row-gap: 6px;
   margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-module-platform);
   font-size: 13px;
   line-height: 20px;
 }
