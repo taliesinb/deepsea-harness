@@ -29,8 +29,8 @@ import type { SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
-import { deriveKeyRef, protocolChoices, providerUsable } from './store.ts'
-import type { ModelsSettingsStore, ProviderRow } from './store.ts'
+import { deriveKeyRef, modelsGroupOf, protocolChoices, providerUsable } from './store.ts'
+import type { ModelsGroup, ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
@@ -60,7 +60,7 @@ export interface ModelsSectionInjected {
 type AddMode = 'catalog' | 'custom'
 
 /** The child slots this section declares and dispatches (see ./slot-contract.ts). */
-type ModelsChildSlots = 'settings.models.provider-card' | 'settings.models.footer'
+type ModelsChildSlots = 'settings.models.provider-card' | 'settings.models.section-actions' | 'settings.models.footer'
 
 /** The child-slot dispatch function the renderer binds for the section. */
 type ModelsRenderSlot = PropsRenderSlots<ModelsChildSlots>['renderSlot']
@@ -248,6 +248,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const [editing, setEditing] = useState<EditorTarget | undefined>(undefined)
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<AddMode>('catalog')
+  /** The section whose add control opened the add card. */
+  const [addGroup, setAddGroup] = useState<Exclude<ModelsGroup, 'plans'>>('apiKeys')
   /** The modes shown since the add card opened; each keeps its panel mounted. */
   const [visited, setVisited] = useState<ReadonlySet<AddMode>>(() => new Set())
   /** Whether each add panel has a write or an interrogation in flight. */
@@ -395,179 +397,178 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
     ? undefined
     : state.rows.find(row => row.entry.provider === draft.target.provider)
 
-  return (
-    <div className={styles['section']}>
-      <h2 className={styles['title']}>{t('title')}</h2>
-      <p className={styles['intro']}>{t('intro')}</p>
-      {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
-      {savedIdentity === undefined
-        ? null
-        : (
-          <p className={styles['savedNotice']} role="status" aria-live="polite">
-            {providerCopy(t('savedProvider'), savedIdentity)}
-          </p>
-        )}
-      <ul className={styles['rows']}>
-        {configured.map((row) => {
-          const target = targetOf(row)
-          const namespace = state.namespaces.get(target.settingsNs)
-          /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
-          if (namespace === undefined) return null
-          const error = row.entry.error === undefined
-            ? null
-            : <p role="alert" className={styles['error']}>{row.entry.error}</p>
-          if (needsSetup(row, anyUsable) && !dismissedSetup.has(row.entry.provider)) {
-            // First-run posture: the provider exists but has no key — the
-            // setup card IS its presence on the page, until the user closes it.
-            return (
-              <li key={row.entry.provider} className={styles['setupCard']}>
-                {error}
-                {renderProviderEditor({
-                  target,
-                  namespace,
-                  schema,
-                  operations,
-                  t,
-                  readOnly: !state.writable,
-                  onClose: (changed) => { closeSetup(changed, target) },
-                })}
-                {renderSlot(
-                  'settings.models.provider-card',
-                  { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
-                  { entryKey: row.entry.settingsNs },
-                )}
-              </li>
-            )
-          }
-          const open = !addOpen && editing?.provider === row.entry.provider
-          // A browser sign-in route: no key, no endpoint, no models to edit — it shows its
-          // account, and the tag (not the name) says whether it is a plan or an OAuth key.
-          const signIn = row.entry.signIn
-          const credentialConfigured = signIn === undefined
-            ? row.credential?.configured === true
-            : row.signInState?.signedIn === true
-          const credentialMissing = !credentialConfigured && (signIn === undefined
-            ? row.apiKeyEnv !== undefined && row.credential?.configured === false
-            : row.signInState?.signedIn === false)
-          // A sign-in route has nothing to edit: its Details open the account facts in the editor's place.
-          const account = row.signInState?.account
-          const facts = signIn === undefined ? [] : [
-            ['signInStatus', t(row.signInState?.signedIn === true ? 'signedIn' : 'signedOut')],
-            ['signInAccount', account?.email ?? account?.name],
-            ['signInOrganization', account?.organization],
-            ['signInPlan', account?.plan === undefined ? undefined : planLabel(account.plan)],
-            ['customRoute', row.entry.provider],
-          ].filter((fact): fact is [keyof typeof en, string] => fact[1] !== undefined)
-          return (
-            <li key={row.entry.provider} className={styles['rowCard']}>
-              <div className={styles['rowHead']}>
-                <span className={styles['rowIdentity']}>
-                  <span className={styles['rowName']}>{signIn?.vendor ?? row.entry.displayName}</span>
-                  {signIn === undefined
-                    ? null
-                    : <span className={styles['rowTag']}>{t(signIn.kind === 'subscription' ? 'signInPlanTag' : 'signInOAuthTag')}</span>}
-                  {/* Only the adapter can tell a hand-declared route from a
-                      shipped one it also has a stored profile for, so the tag
-                      follows its answer and stays off when it gives none. */}
-                  {row.entry.declared === true
-                    ? <span className={styles['rowTag']}>{t('customTag')}</span>
-                    : null}
-                  {credentialConfigured
-                    ? (
-                      <span
-                        className={`${styles['credentialDot']} ${styles['credentialDotConfigured']}`}
-                        role="img"
-                        aria-label={t(signIn === undefined ? 'credentialConfigured' : 'signedIn')}
-                        title={t(signIn === undefined ? 'credentialConfigured' : 'signedIn')}
-                      />
-                    )
-                    : credentialMissing
-                      ? (
-                        <span
-                          className={`${styles['credentialDot']} ${styles['credentialDotMissing']}`}
-                          role="img"
-                          aria-label={t(signIn === undefined ? 'credentialMissing' : 'signedOut')}
-                          title={t(signIn === undefined ? 'credentialMissing' : 'signedOut')}
-                        />
-                      )
-                      : null}
-                </span>
-                <span className={styles['rowActions']}>
-                  <button
-                    type="button"
-                    className={styles['secondaryButton']}
-                    aria-label={providerCopy(t(signIn === undefined ? 'editProvider' : 'detailsProvider'), target)}
-                    aria-expanded={open}
-                    onClick={() => {
-                      setSavedTarget(undefined)
-                      // One card at a time: the add card closes with whatever
-                      // it held, since closing either card would otherwise
-                      // discard the other's draft.
-                      setAddOpen(false)
-                      setEditing(open ? undefined : target)
-                    }}
-                  >
-                    {t(signIn === undefined ? 'edit' : 'details')}
-                  </button>
-                  {row.removable
-                    ? (
-                      <button
-                        type="button"
-                        className={styles['dangerButton']}
-                        aria-label={providerCopy(t('removeProvider'), target)}
-                        disabled={!state.writable}
-                        onClick={() => {
-                          setSavedTarget(undefined)
-                          setDeleteFailure(undefined)
-                          setDeleteTarget(target)
-                        }}
-                      >
-                        {t('remove')}
-                      </button>
-                    )
-                    : null}
-                </span>
-              </div>
-              {error}
-              {!open || signIn === undefined ? null : (
-                <dl className={styles['signInFacts']}>
-                  {facts.map(([label, value]) => [
-                    <dt key={`${label}:t`}>{t(label)}</dt>,
-                    <dd key={`${label}:d`} title={value}>{value}</dd>,
-                  ])}
-                </dl>
-              )}
-              {renderSlot(
-                'settings.models.provider-card',
-                { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
-                { entryKey: row.entry.settingsNs },
-              )}
-              {open && signIn === undefined
-                ? renderProviderEditor({
-                  target,
-                  namespace,
-                  schema,
-                  operations,
-                  t,
-                  readOnly: !state.writable,
-                  onClose: (changed) => { closeEditor(changed, target) },
-                })
+  /** One provider row's card: its first-run setup posture, or the row with its editor or details. */
+  const renderRow = (row: ProviderRow): ReactNode => {
+    const target = targetOf(row)
+    const namespace = state.namespaces.get(target.settingsNs)
+    /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
+    if (namespace === undefined) return null
+    const error = row.entry.error === undefined
+      ? null
+      : <p role="alert" className={styles['error']}>{row.entry.error}</p>
+    if (needsSetup(row, anyUsable) && !dismissedSetup.has(row.entry.provider)) {
+      // First-run posture: the provider exists but has no key — the
+      // setup card IS its presence on the page, until the user closes it.
+      return (
+        <li key={row.entry.provider} className={styles['setupCard']}>
+          {error}
+          {renderProviderEditor({
+            target,
+            namespace,
+            schema,
+            operations,
+            t,
+            readOnly: !state.writable,
+            onClose: (changed) => { closeSetup(changed, target) },
+          })}
+          {renderSlot(
+            'settings.models.provider-card',
+            { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
+            { entryKey: row.entry.settingsNs },
+          )}
+        </li>
+      )
+    }
+    const open = !addOpen && editing?.provider === row.entry.provider
+    // A browser sign-in route: no key, no endpoint, no models to edit — it shows its
+    // account, and the tag (not the name) says whether it is a plan or an OAuth key.
+    const signIn = row.entry.signIn
+    const credentialConfigured = signIn === undefined
+      ? row.credential?.configured === true
+      : row.signInState?.signedIn === true
+    const credentialMissing = !credentialConfigured && (signIn === undefined
+      ? row.apiKeyEnv !== undefined && row.credential?.configured === false
+      : row.signInState?.signedIn === false)
+    // A sign-in route has nothing to edit: its Details open the account facts in the editor's place.
+    const account = row.signInState?.account
+    const facts = signIn === undefined ? [] : [
+      ['signInStatus', t(row.signInState?.signedIn === true ? 'signedIn' : 'signedOut')],
+      ['signInAccount', account?.email ?? account?.name],
+      ['signInOrganization', account?.organization],
+      ['signInPlan', account?.plan === undefined ? undefined : planLabel(account.plan)],
+      ['customRoute', row.entry.provider],
+    ].filter((fact): fact is [keyof typeof en, string] => fact[1] !== undefined)
+    return (
+      <li key={row.entry.provider} className={styles['rowCard']}>
+        <div className={styles['rowHead']}>
+          <span className={styles['rowIdentity']}>
+            <span className={styles['rowName']}>{signIn?.vendor ?? row.entry.displayName}</span>
+            {signIn === undefined
+              ? null
+              : <span className={styles['rowTag']}>{t(signIn.kind === 'subscription' ? 'signInPlanTag' : 'signInOAuthTag')}</span>}
+            {/* Only the adapter can tell a hand-declared route from a
+                shipped one it also has a stored profile for, so the tag
+                follows its answer and stays off when it gives none. */}
+            {row.entry.declared === true
+              ? <span className={styles['rowTag']}>{t('customTag')}</span>
+              : null}
+            {credentialConfigured
+              ? (
+                <span
+                  className={`${styles['credentialDot']} ${styles['credentialDotConfigured']}`}
+                  role="img"
+                  aria-label={t(signIn === undefined ? 'credentialConfigured' : 'signedIn')}
+                  title={t(signIn === undefined ? 'credentialConfigured' : 'signedIn')}
+                />
+              )
+              : credentialMissing
+                ? (
+                  <span
+                    className={`${styles['credentialDot']} ${styles['credentialDotMissing']}`}
+                    role="img"
+                    aria-label={t(signIn === undefined ? 'credentialMissing' : 'signedOut')}
+                    title={t(signIn === undefined ? 'credentialMissing' : 'signedOut')}
+                  />
+                )
                 : null}
-            </li>
-          )
-        })}
-      </ul>
+          </span>
+          <span className={styles['rowActions']}>
+            <button
+              type="button"
+              className={styles['secondaryButton']}
+              aria-label={providerCopy(t(signIn === undefined ? 'editProvider' : 'detailsProvider'), target)}
+              aria-expanded={open}
+              onClick={() => {
+                setSavedTarget(undefined)
+                // One card at a time: the add card closes with whatever
+                // it held, since closing either card would otherwise
+                // discard the other's draft.
+                setAddOpen(false)
+                setEditing(open ? undefined : target)
+              }}
+            >
+              {t(signIn === undefined ? 'edit' : 'details')}
+            </button>
+            {row.removable
+              ? (
+                <button
+                  type="button"
+                  className={styles['dangerButton']}
+                  aria-label={providerCopy(t('removeProvider'), target)}
+                  disabled={!state.writable}
+                  onClick={() => {
+                    setSavedTarget(undefined)
+                    setDeleteFailure(undefined)
+                    setDeleteTarget(target)
+                  }}
+                >
+                  {t('remove')}
+                </button>
+              )
+              : null}
+          </span>
+        </div>
+        {error}
+        {!open || signIn === undefined ? null : (
+          <dl className={styles['signInFacts']}>
+            {facts.map(([label, value]) => [
+              <dt key={`${label}:t`}>{t(label)}</dt>,
+              <dd key={`${label}:d`} title={value}>{value}</dd>,
+            ])}
+          </dl>
+        )}
+        {renderSlot(
+          'settings.models.provider-card',
+          { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
+          { entryKey: row.entry.settingsNs },
+        )}
+        {open && signIn === undefined
+          ? renderProviderEditor({
+            target,
+            namespace,
+            schema,
+            operations,
+            t,
+            readOnly: !state.writable,
+            onClose: (changed) => { closeEditor(changed, target) },
+          })
+          : null}
+      </li>
+    )
+  }
+
+  /**
+   * A section's add control and, while it is open, the add card. API keys
+   * offer both the catalog and the custom mode; Local opens the custom mode
+   * alone (a route on this machine lands in Local by its loopback URL).
+   */
+  const renderAddBlock = (group: Exclude<ModelsGroup, 'plans'>): ReactNode => {
+    const both = group === 'apiKeys' && bothOffered
+    const shownMode: AddMode = group === 'local' ? 'custom' : mode
+    const isMounted = (candidate: AddMode): boolean => shownMode === candidate || (group === 'apiKeys' && mounted(candidate))
+    const offered = group === 'local' ? customOffered : catalogOffered || customOffered
+    return (
       <div className={styles['addBlock']}>
-        {addOpen
+        {addOpen && addGroup === group
           ? (
             <div className={styles['addCard']}>
               <div className={styles['addModes']}>
-                {bothOffered
+                {both
                   ? (
                     <SegmentedControl
                       id={addId}
                       label={t('addMode')}
-                      value={mode}
+                      value={shownMode}
                       disabled={switchLocked}
                       options={[
                         {
@@ -590,22 +591,22 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     />
                   )
                   : (
-                    // One mode alone has no switch to name it, so the card
-                    // carries the mode as its title instead.
+                  // One mode alone has no switch to name it, so the card
+                  // carries the mode as its title instead.
                     <div className={styles['editorHeader']}>
-                      <span className={styles['editorTitle']}>{t(mode === 'catalog' ? 'addCatalog' : 'addCustom')}</span>
+                      <span className={styles['editorTitle']}>{t(group === 'local' ? 'addLocalTitle' : shownMode === 'catalog' ? 'addCatalog' : 'addCustom')}</span>
                     </div>
                   )}
                 <p className={styles['advancedHint']}>
-                  {t(mode === 'catalog' ? 'addCatalogHint' : 'addCustomHint')}
+                  {t(shownMode === 'catalog' ? 'addCatalogHint' : 'addCustomHint')}
                 </p>
               </div>
-              {mounted('catalog') && draft !== undefined
+              {isMounted('catalog') && draft !== undefined
                 ? (
                   <div
                     id={`${addId}-catalog-panel`}
-                    {...bothOffered ? { role: 'tabpanel', 'aria-labelledby': `${addId}-catalog` } : {}}
-                    hidden={mode !== 'catalog'}
+                    {...both ? { role: 'tabpanel', 'aria-labelledby': `${addId}-catalog` } : {}}
+                    hidden={shownMode !== 'catalog'}
                     className={styles['addPanel']}
                   >
                     <div className={styles['field']}>
@@ -651,12 +652,12 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   </div>
                 )
                 : null}
-              {mounted('custom') && piAi !== undefined
+              {isMounted('custom') && piAi !== undefined
                 ? (
                   <div
                     id={`${addId}-custom-panel`}
-                    {...bothOffered ? { role: 'tabpanel', 'aria-labelledby': `${addId}-custom` } : {}}
-                    hidden={mode !== 'custom'}
+                    {...both ? { role: 'tabpanel', 'aria-labelledby': `${addId}-custom` } : {}}
+                    hidden={shownMode !== 'custom'}
                     className={styles['addPanel']}
                   >
                     <CustomProviderCard
@@ -677,32 +678,67 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 : null}
             </div>
           )
-          : catalogOffered || customOffered
+          : offered
             ? (
-              // One entry for both ways to gain a provider; the card behind it
-              // splits them. Full width, so it lines up with the rows above.
+            // One entry for both ways to gain a provider; the card behind it
+            // splits them. Full width, so it lines up with the rows above.
               <div className={styles['addActions']}>
                 <button
                   type="button"
                   className={styles['addButton']}
-                  disabled={!state.writable || (!catalogEnabled && !customEnabled)}
+                  disabled={!state.writable || (group === 'local' ? !customEnabled : !catalogEnabled && !customEnabled)}
                   onClick={() => {
                     const first = addable[0]
-                    const initial: AddMode = catalogEnabled ? 'catalog' : 'custom'
+                    const initial: AddMode = group === 'apiKeys' && catalogEnabled ? 'catalog' : 'custom'
                     setSavedTarget(undefined)
                     setEditing(first === undefined ? undefined : targetOf(first.row))
                     setAddMode(initial)
                     setVisited(new Set([initial]))
+                    setAddGroup(group)
                     setAddOpen(true)
                   }}
                 >
                   <IconPlusOutlineRegular size={14} />
-                  {t('add')}
+                  {t(group === 'local' ? 'addLocal' : 'add')}
                 </button>
               </div>
             )
             : null}
       </div>
+    )
+  }
+
+  // Plans show while the directory offers any; Local while a custom route can be added.
+  const groupShown: Record<ModelsGroup, boolean> = {
+    apiKeys: true,
+    plans: state.rows.some(row => modelsGroupOf(row.entry) === 'plans'),
+    local: customOffered || configured.some(row => modelsGroupOf(row.entry) === 'local'),
+  }
+  const groupTitle = { apiKeys: 'groupApiKeys', plans: 'groupPlans', local: 'groupLocal' } as const
+
+  return (
+    <div className={styles['section']}>
+      <h2 className={styles['title']}>{t('title')}</h2>
+      {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
+      {savedIdentity === undefined
+        ? null
+        : (
+          <p className={styles['savedNotice']} role="status" aria-live="polite">
+            {providerCopy(t('savedProvider'), savedIdentity)}
+          </p>
+        )}
+      {(['apiKeys', 'plans', 'local'] as const).map((group) => {
+        if (!groupShown[group]) return null
+        const rows = configured.filter(row => modelsGroupOf(row.entry) === group)
+        return (
+          <section key={group} className={styles['group']} aria-labelledby={`${addId}-${group}`}>
+            <h3 id={`${addId}-${group}`} className={styles['groupTitle']}>{t(groupTitle[group])}</h3>
+            {rows.length === 0 ? null : <ul className={styles['rows']}>{rows.map(renderRow)}</ul>}
+            {group === 'plans' ? null : renderAddBlock(group)}
+            {renderSlot('settings.models.section-actions', { section: group, writable: state.writable }, { entryKey: group })}
+          </section>
+        )
+      })}
       {renderSlot('settings.models.footer', {})}
       <Modal
         open={deleteTarget !== undefined}

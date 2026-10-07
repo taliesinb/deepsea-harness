@@ -418,6 +418,34 @@ describe('ModelsSection', () => {
     expect(options).not.toContain('xai-oauth')
   })
 
+  it('groups providers into API keys, Plans and Local, each with its own add action', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listProviders.mockResolvedValue(remoteOk([
+      { id: 'openai', name: 'openai', auth: 'api-key' },
+      { id: 'zombie', name: 'Zombie Plan', auth: 'subscription' },
+    ]))
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+      { provider: 'zombie', displayName: 'Zombie Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'],
+        signIn: { kind: 'subscription', vendor: 'Zombie' } },
+    ]))
+    Object.assign(scripted.face.llm, { describeSignIn: vi.fn(() => Promise.resolve(remoteOk({ signedIn: false }))) })
+    const { renderSlot } = await mountFace(scripted)
+    const section = (name: string): HTMLElement => screen.getByRole('region', { name })
+    expect(within(section(en.groupApiKeys)).getByText('openai')).toBeTruthy()
+    expect(within(section(en.groupApiKeys)).getByRole('button', { name: en.add })).toBeTruthy()
+    expect(within(section(en.groupPlans)).getByText('Zombie')).toBeTruthy()
+    // Plans have no add control of their own: the section seat is where a sign-in plugin puts one.
+    expect(within(section(en.groupPlans)).queryByRole('button', { name: en.add })).toBeNull()
+    expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.models.section-actions').map(call => call[2]?.entryKey))
+      .toEqual(['apiKeys', 'plans', 'local'])
+    // Local opens the custom card alone, under its own title.
+    fireEvent.click(within(section(en.groupLocal)).getByRole('button', { name: en.addLocal }))
+    expect(within(section(en.groupLocal)).getByText(en.addLocalTitle)).toBeTruthy()
+    expect(within(section(en.groupLocal)).queryByRole('tab')).toBeNull()
+    expect(within(section(en.groupApiKeys)).getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
   it('labels plan ids readably', () => {
     expect(['claude_max', 'claude_team', 'plus', 'claude-pro', 'enterprise_pro'].map(planLabel)).toEqual(['Max', 'Team', 'Plus', 'Pro', 'Enterprise Pro'])
   })

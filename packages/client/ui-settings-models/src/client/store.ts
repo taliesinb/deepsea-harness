@@ -32,6 +32,8 @@ export interface ProviderDirectoryEntry {
   readonly declared?: boolean
   /** A browser sign-in route: its card shows the account instead of a key field. */
   readonly signIn?: LlmSignInRoute
+  /** How the route is paid for, as its adapter reports it (or its profile declares it). */
+  readonly auth?: 'subscription' | 'api-key' | 'local'
   readonly error?: string
 }
 
@@ -46,6 +48,7 @@ export function joinProviderDirectory(
   directory: readonly LlmConfigurableProvider[],
 ): ProviderDirectoryEntry[] {
   const active = new Set(registered.map(provider => provider.id))
+  const auths = new Map(registered.flatMap(provider => provider.auth === undefined ? [] : [[provider.id, provider.auth] as const]))
   const declared = new Set(directory.map(entry => entry.provider))
   const rows: ProviderDirectoryEntry[] = directory.map(entry => ({
     provider: entry.provider,
@@ -55,6 +58,7 @@ export function joinProviderDirectory(
     active: active.has(entry.provider),
     ...entry.declared === undefined ? {} : { declared: entry.declared },
     ...entry.signIn === undefined ? {} : { signIn: { ...entry.signIn } },
+    ...(auth => auth === undefined ? {} : { auth })(auths.get(entry.provider)),
     ...entry.error === undefined ? {} : { error: entry.error },
   }))
   for (const provider of registered) {
@@ -70,6 +74,41 @@ export function joinProviderDirectory(
   return rows.toSorted((left, right) =>
     (left.provider === 'deepseek-account' ? 0 : left.provider === 'deepseek-official' ? 1 : 2)
       - (right.provider === 'deepseek-account' ? 0 : right.provider === 'deepseek-official' ? 1 : 2))
+}
+
+/** The page's three sections: keyed providers, sign-in plans, servers on this machine. */
+export type ModelsGroup = 'apiKeys' | 'plans' | 'local'
+
+/**
+ * The section a provider belongs to: a subscription sign-in is a plan, a route
+ * its adapter (or profile) calls local is local, everything else takes a key.
+ * @param entry - the row's directory entry.
+ * @returns its section.
+ */
+export function modelsGroupOf(entry: ProviderDirectoryEntry): ModelsGroup {
+  if (entry.signIn?.kind === 'subscription' || entry.auth === 'subscription') return 'plans'
+  return entry.auth === 'local' ? 'local' : 'apiKeys'
+}
+
+/** Whether a base URL names this machine. */
+function loopbackUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname
+    return host === 'localhost' || host === '[::1]' || host === '::1' || /^127(?:\.\d{1,3}){3}$/u.test(host)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The auth an unregistered route's profile implies, as llm-pi-ai would infer
+ * it: a declared `auth`, else local for a hand-declared route on this machine.
+ */
+function profileAuth(entry: ProviderDirectoryEntry, profile: unknown): ProviderDirectoryEntry['auth'] {
+  if (typeof profile !== 'object' || profile === null) return undefined
+  const { auth, baseURL } = profile as { auth?: unknown; baseURL?: unknown }
+  if (auth === 'subscription' || auth === 'api-key' || auth === 'local') return auth
+  return entry.declared === true && typeof baseURL === 'string' && loopbackUrl(baseURL) ? 'local' : undefined
 }
 
 /** One provider row the page renders. */
@@ -216,8 +255,12 @@ export class ModelsSettingsStore {
         && entry.settingsPath.length > 0
         && this.schema.hasPath(namespace.user, entry.settingsPath)
         && !this.schema.hasPath(namespace.base, entry.settingsPath)
+      // A configured route that failed to register still belongs in its section.
+      const inferred = entry.auth === undefined && namespace !== undefined && entry.settingsPath.length > 0
+        ? profileAuth(entry, this.schema.getPath(namespace.value, entry.settingsPath))
+        : undefined
       return {
-        entry,
+        entry: inferred === undefined ? entry : { ...entry, auth: inferred },
         configured,
         removable,
         apiKeyEnv: entry.provider === 'deepseek-account' || entry.signIn !== undefined ? undefined : apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
