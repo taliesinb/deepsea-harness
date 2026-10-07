@@ -394,6 +394,20 @@ describe('ModelsSection', () => {
     expect(screen.getByRole('button', { name: providerCopy(en.removeProvider, { provider: 'zombie', displayName: 'Zombie Plan' }) })).toBeTruthy()
   })
 
+  it('does not offer a dormant sign-in route in the add card', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+      { provider: 'xai-oauth', displayName: 'xAI Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai-oauth'],
+        signIn: { kind: 'subscription', vendor: 'xAI' } },
+    ]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const options = [...document.querySelectorAll('option')].map(option => option.value)
+    expect(options).toContain('anthropic')
+    expect(options).not.toContain('xai-oauth')
+  })
+
   it('labels plan ids readably', () => {
     expect(['claude_max', 'claude_team', 'plus', 'claude-pro', 'enterprise_pro'].map(planLabel)).toEqual(['Max', 'Team', 'Plus', 'Pro', 'Enterprise Pro'])
   })

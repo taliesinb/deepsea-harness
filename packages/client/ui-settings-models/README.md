@@ -45,7 +45,7 @@ The primary field on an editor card is a single **API key** input — the page n
 
 ### Sign-in routes
 
-A route the adapter marks `signIn` (llm-pi-ai's `<provider>-oauth` routes) signs in through a browser, not with a key. Its card shows the plain vendor name with a **Plan** tag for a subscription sign-in or an **OAuth** tag for a flow that issues a pay-per-use key, the status dot as signed in / not signed in, and the account's **Account** (email, else name), **Organization** and **Plan** from `llm.describeSignIn` (plan ids such as `claude_max` read as `Max`). It has no API-key field, no endpoint, no model editor and so no Edit button; Delete removes the route as for any removable row. Signing in and out happens through a sign-in command or flow, not on this page.
+A route the adapter marks `signIn` (llm-pi-ai's `<provider>-oauth` routes) signs in through a browser, not with a key. Its card shows the plain vendor name with a **Plan** tag for a subscription sign-in or an **OAuth** tag for a flow that issues a pay-per-use key, the status dot as signed in / not signed in, and the account's **Account** (email, else name), **Organization** and **Plan** from `llm.describeSignIn` (plan ids such as `claude_max` read as `Max`). It has no API-key field, no endpoint, no model editor and so no Edit button; Delete removes the route as for any removable row. Signing in and out happens through a sign-in command or flow, not on this page, and the add card does not offer dormant sign-in routes: signing in creates the route.
 
 ### Editing a provider
 
