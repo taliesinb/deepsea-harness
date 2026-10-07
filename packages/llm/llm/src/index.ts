@@ -23,6 +23,7 @@ import type {
   LlmModelPricing,
   LlmModelTokenRates,
   LlmResponseCost,
+  LlmSignInState,
   LlmSubscriptionAccount,
   LlmSubscriptionUsage,
   LlmSubscriptionWindow,
@@ -47,6 +48,27 @@ import {
   contentHasFile, contentHasImage, fileHandleText, projectFilesToText, projectImagesForTextModel, projectToolUpdates,
 } from './content.ts'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
+
+/** Display fields an adapter may report for a signed-in account. */
+const ACCOUNT_FIELDS = ['id', 'email', 'name', 'organization', 'plan'] as const
+
+/**
+ * Validate and detach an adapter-reported account.
+ * @param value - what the adapter published.
+ * @returns the account (empty when absent), or null when it is malformed.
+ */
+function accountOf(value: unknown): LlmSubscriptionAccount | null {
+  if (value === undefined) return {}
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const identity: LlmSubscriptionAccount = {}
+  for (const key of ACCOUNT_FIELDS) {
+    const field: unknown = (value as Record<string, unknown>)[key]
+    if (field === undefined) continue
+    if (typeof field !== 'string' || field.length === 0 || field.length > 256) return null
+    identity[key] = field
+  }
+  return identity
+}
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -294,6 +316,19 @@ export abstract class LlmAdapter {
    * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
    */
   subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
+   * Describe whether one owned browser sign-in route holds a usable grant
+   * and, when the provider identifies it, the signed-in account. The default
+   * supports none. Implementations make at most one provider request and must
+   * not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the state, or `undefined` when the route does not sign in through a browser.
+   */
+  signInState(_provider: string, _signal?: AbortSignal): Promise<LlmSignInState | undefined> {
     return Promise.resolve(undefined)
   }
 
@@ -587,11 +622,16 @@ export class LlmRuntime extends TypertRemoteService {
         if (entry.settingsPath.some(segment => segment.length === 0)) {
           throw new LlmError(`configurable provider "${entry.provider}" has an empty settingsPath segment`, 'INVALID_DIRECTORY')
         }
+        if (entry.signIn !== undefined && (!['subscription', 'oauth'].includes(entry.signIn.kind) || entry.signIn.vendor.length === 0)) {
+          throw new LlmError(`configurable provider "${entry.provider}" has an invalid signIn`, 'INVALID_DIRECTORY')
+        }
         if ((this.directory.has(entry.provider) && !own.has(entry.provider))
           || detached.some(seen => seen.provider === entry.provider)) {
           throw new LlmError(`configurable provider "${entry.provider}" is already declared`, 'DUPLICATE_DIRECTORY')
         }
-        detached.push({ ...entry, settingsPath: [...entry.settingsPath] })
+        detached.push({
+          ...entry, settingsPath: [...entry.settingsPath], ...entry.signIn === undefined ? {} : { signIn: { ...entry.signIn } },
+        })
       }
       for (const entry of held) this.directory.delete(entry.provider)
       for (const entry of detached) this.directory.set(entry.provider, entry)
@@ -628,7 +668,9 @@ export class LlmRuntime extends TypertRemoteService {
    */
   @Remote
   listConfigurableProviders(): LlmConfigurableProvider[] {
-    return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
+    return [...this.directory.values()].map(entry => ({
+      ...entry, settingsPath: [...entry.settingsPath], ...entry.signIn === undefined ? {} : { signIn: { ...entry.signIn } },
+    }))
   }
 
   /**
@@ -851,21 +893,10 @@ export class LlmRuntime extends TypertRemoteService {
     const valid = Array.isArray(published) && windows.length <= 16 && windows.every(validWindow)
     const observedAt: unknown = usage.observedAt
     const extra: unknown = usage.extraUsageEnabled
-    const account: unknown = usage.account
-    const accountFields = ['id', 'email', 'name', 'organization', 'plan'] as const
-    const validAccount = account === undefined || (typeof account === 'object' && account !== null && !Array.isArray(account)
-      && accountFields.every((key) => {
-        const value: unknown = (account as Record<string, unknown>)[key]
-        return value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 256)
-      }))
+    const identity = accountOf(usage.account)
     if (!valid || typeof observedAt !== 'string' || !Number.isFinite(Date.parse(observedAt))
-      || (extra !== undefined && typeof extra !== 'boolean') || !validAccount) {
+      || (extra !== undefined && typeof extra !== 'boolean') || identity === null) {
       throw new LlmError(`adapter returned invalid subscription usage for provider "${provider}"`, 'INVALID_MODEL_INFO')
-    }
-    const identity: LlmSubscriptionAccount = {}
-    for (const key of accountFields) {
-      const value = usage.account?.[key]
-      if (value !== undefined) identity[key] = value
     }
     return {
       windows: windows.map(w => ({ label: w.label, usedPercent: w.usedPercent, ...w.resetAt === undefined ? {} : { resetAt: w.resetAt } })),
@@ -873,6 +904,27 @@ export class LlmRuntime extends TypertRemoteService {
       ...Object.keys(identity).length === 0 ? {} : { account: identity },
       observedAt: usage.observedAt,
     }
+  }
+
+  /**
+   * Describe one browser sign-in route for configuration surfaces: whether it
+   * holds a usable grant, and the signed-in account when the provider
+   * identifies it. A route with no registered adapter has nothing to ask.
+   * @param provider - provider route key.
+   * @returns the detached state, or `undefined` when the route is unregistered or not a sign-in route.
+   */
+  @Remote
+  async describeSignIn(provider: string): Promise<LlmSignInState | undefined> {
+    const registration = this.adapters.get(provider)
+    if (registration === undefined) return undefined
+    const state = await registration.adapter.signInState(registration.provider.id)
+    if (state === undefined) return undefined
+    const signedIn: unknown = state.signedIn
+    const account = accountOf(state.account)
+    if (typeof signedIn !== 'boolean' || account === null) {
+      throw new LlmError(`adapter returned an invalid sign-in state for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return { signedIn, ...Object.keys(account).length === 0 ? {} : { account } }
   }
 
   /**

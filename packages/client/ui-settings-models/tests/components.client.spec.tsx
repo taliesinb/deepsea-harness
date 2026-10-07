@@ -10,7 +10,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
+  ModelsSection, needsSetup, planLabel, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
@@ -365,6 +365,37 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     expect(await screen.findByLabelText(en.keyInput)).toBeTruthy()
     expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
+  it('shows a sign-in route by vendor with its kind tag, account facts, and no editor', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listProviders.mockResolvedValue(remoteOk([{ id: 'zombie', name: 'Zombie Plan' }]))
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([{
+      provider: 'zombie', displayName: 'Zombie Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'],
+      signIn: { kind: 'subscription', vendor: 'Zombie' },
+    }]))
+    const describeSignIn = vi.fn(() => Promise.resolve(remoteOk({
+      signedIn: true, account: { email: 'user@example.com', organization: 'Fixture Org', plan: 'claude_max' },
+    })))
+    Object.assign(scripted.face.llm, { describeSignIn })
+    await mountFace(scripted)
+    expect(screen.getByText('Zombie')).toBeTruthy()
+    expect(screen.queryByText('Zombie Plan')).toBeNull()
+    expect(screen.getByText(en.signInPlanTag)).toBeTruthy()
+    expect(screen.getByRole('img', { name: en.signedIn })).toBeTruthy()
+    for (const [label, value] of [[en.signInAccount, 'user@example.com'], [en.signInOrganization, 'Fixture Org'], [en.signInPlan, 'Max']]) {
+      expect(screen.getByText(label!)).toBeTruthy()
+      expect(screen.getByText(value!)).toBeTruthy()
+    }
+    expect(screen.queryByRole('button', { name: /^Edit/u })).toBeNull()
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    expect(describeSignIn).toHaveBeenCalledWith('zombie')
+    // A removable route keeps its Delete.
+    expect(screen.getByRole('button', { name: providerCopy(en.removeProvider, { provider: 'zombie', displayName: 'Zombie Plan' }) })).toBeTruthy()
+  })
+
+  it('labels plan ids readably', () => {
+    expect(['claude_max', 'claude_team', 'plus', 'claude-pro', 'enterprise_pro'].map(planLabel)).toEqual(['Max', 'Team', 'Plus', 'Pro', 'Enterprise Pro'])
   })
 
   it('renders nothing before the slot injects its dependencies', () => {

@@ -203,6 +203,17 @@ function targetOf(row: ProviderRow): EditorTarget {
   }
 }
 
+/**
+ * A provider's plan id as a label: `claude_max` → `Max`, `claude_team` →
+ * `Team`, `plus` → `Plus`. Unknown shapes pass through title-cased.
+ * @param plan - the plan id the provider reported.
+ * @returns the label the card shows.
+ */
+export function planLabel(plan: string): string {
+  const words = plan.replace(/^claude[_-]/u, '').split(/[_-]+/u).filter(Boolean)
+  return words.length === 0 ? plan : words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+}
+
 /** Stable visible and accessible identity for one provider target. */
 export function providerTargetLabel(target: ProviderIdentity): string {
   return target.provider === target.displayName
@@ -427,15 +438,29 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             )
           }
           const open = !addOpen && editing?.provider === row.entry.provider
-          const credentialConfigured = row.credential?.configured === true
-          const credentialMissing = !credentialConfigured
-            && row.apiKeyEnv !== undefined
-            && row.credential?.configured === false
+          // A browser sign-in route: no key, no endpoint, no models to edit — it shows its
+          // account, and the tag (not the name) says whether it is a plan or an OAuth key.
+          const signIn = row.entry.signIn
+          const credentialConfigured = signIn === undefined
+            ? row.credential?.configured === true
+            : row.signInState?.signedIn === true
+          const credentialMissing = !credentialConfigured && (signIn === undefined
+            ? row.apiKeyEnv !== undefined && row.credential?.configured === false
+            : row.signInState?.signedIn === false)
+          const account = row.signInState?.account
+          const facts = signIn === undefined || account === undefined ? [] : [
+            ['signInAccount', account.email ?? account.name],
+            ['signInOrganization', account.organization],
+            ['signInPlan', account.plan === undefined ? undefined : planLabel(account.plan)],
+          ].filter((fact): fact is [keyof typeof en, string] => fact[1] !== undefined)
           return (
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
                 <span className={styles['rowIdentity']}>
-                  <span className={styles['rowName']}>{row.entry.displayName}</span>
+                  <span className={styles['rowName']}>{signIn?.vendor ?? row.entry.displayName}</span>
+                  {signIn === undefined
+                    ? null
+                    : <span className={styles['rowTag']}>{t(signIn.kind === 'subscription' ? 'signInPlanTag' : 'signInOAuthTag')}</span>}
                   {/* Only the adapter can tell a hand-declared route from a
                       shipped one it also has a stored profile for, so the tag
                       follows its answer and stays off when it gives none. */}
@@ -447,8 +472,8 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                       <span
                         className={`${styles['credentialDot']} ${styles['credentialDotConfigured']}`}
                         role="img"
-                        aria-label={t('credentialConfigured')}
-                        title={t('credentialConfigured')}
+                        aria-label={t(signIn === undefined ? 'credentialConfigured' : 'signedIn')}
+                        title={t(signIn === undefined ? 'credentialConfigured' : 'signedIn')}
                       />
                     )
                     : credentialMissing
@@ -456,14 +481,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                         <span
                           className={`${styles['credentialDot']} ${styles['credentialDotMissing']}`}
                           role="img"
-                          aria-label={t('credentialMissing')}
-                          title={t('credentialMissing')}
+                          aria-label={t(signIn === undefined ? 'credentialMissing' : 'signedOut')}
+                          title={t(signIn === undefined ? 'credentialMissing' : 'signedOut')}
                         />
                       )
                       : null}
                 </span>
                 <span className={styles['rowActions']}>
-                  <button
+                  {signIn !== undefined ? null : <button
                     type="button"
                     className={styles['secondaryButton']}
                     aria-label={providerCopy(t('editProvider'), target)}
@@ -477,7 +502,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     }}
                   >
                     {t('edit')}
-                  </button>
+                  </button>}
                   {row.removable
                     ? (
                       <button
@@ -498,6 +523,14 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
               </div>
               {error}
+              {facts.length === 0 ? null : (
+                <dl className={styles['signInFacts']}>
+                  {facts.map(([label, value]) => [
+                    <dt key={`${label}:t`}>{t(label)}</dt>,
+                    <dd key={`${label}:d`} title={value}>{value}</dd>,
+                  ])}
+                </dl>
+              )}
               {renderSlot(
                 'settings.models.provider-card',
                 { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },

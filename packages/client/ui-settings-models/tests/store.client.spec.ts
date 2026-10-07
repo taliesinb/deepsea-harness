@@ -87,6 +87,7 @@ function api(overrides: {
   providers?: () => Promise<RpcResponse<{ providers: typeof DIRECTORY }>>
   describeSettings?: () => Promise<RemoteAnswer<{ writable: boolean; hasDocument: boolean; namespaces: typeof NAMESPACES }>>
   describeCredentials?: (refs: readonly string[]) => Promise<RemoteAnswer<Record<string, unknown>>>
+  signIns?: Record<string, unknown>
 } = {}) {
   const seenRefs: string[][] = []
   const providers = overrides.providers ?? (() => Promise.resolve(ok({ providers: DIRECTORY })))
@@ -118,6 +119,7 @@ function api(overrides: {
         .filter(row => row.settingsNs !== '')
         .map(({ active: _active, ...row }) => row)),
       discoverModels: () => Promise.resolve(remoteOk([])),
+      describeSignIn: (provider: string) => Promise.resolve(remoteOk(overrides.signIns?.[provider])),
     },
     settings: {
       describe: overrides.describeSettings
@@ -139,6 +141,26 @@ function api(overrides: {
   const ctx = { remote: face } as never
   return { ctx, face, mirror: new SettingsDescribeMirror(ctx), seenRefs }
 }
+
+describe('sign-in routes', () => {
+  it('carry their sign-in kind and account, and ask for no API key', async () => {
+    const signInRow = {
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'anthropic-oauth'], active: true, signIn: { kind: 'subscription' as const, vendor: 'Anthropic' },
+    }
+    const { ctx, mirror, seenRefs } = api({
+      providers: () => Promise.resolve(ok({ providers: [...DIRECTORY, signInRow] as typeof DIRECTORY })),
+      signIns: { 'anthropic-oauth': { signedIn: true, account: { email: 'user@example.com', organization: 'Fixture Org', plan: 'claude_max' } } },
+    })
+    const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+    await store.load()
+    const row = store.store.getSnapshot().rows.find(candidate => candidate.entry.provider === 'anthropic-oauth')
+    expect(row?.entry.signIn).toEqual({ kind: 'subscription', vendor: 'Anthropic' })
+    expect(row?.signInState).toEqual({ signedIn: true, account: { email: 'user@example.com', organization: 'Fixture Org', plan: 'claude_max' } })
+    expect(row?.apiKeyEnv).toBeUndefined()
+    expect(seenRefs.flat()).not.toContain('ANTHROPIC_OAUTH_API_KEY')
+  })
+})
 
 describe('ModelsSettingsStore', () => {
   it('joins rows with configured, removable, and credential state', async () => {
