@@ -5,6 +5,7 @@
  */
 
 import { basename, dirname } from 'node:path'
+import { DEFAULT_DSH_HOME_DISPLAY } from '@deepseek-ai/dsh-home-paths'
 import type { InstructionFile, LoadedInstructionFile } from './files.ts'
 
 const SYSTEM_REMINDER_OPEN = '<system-reminder>'
@@ -103,7 +104,7 @@ export const USER_GLOBAL_FILE = 'AGENTS.md'
  * @returns `user-global`, `.`, or the containing project-relative directory.
  */
 export function scopeForDisplayPath(displayPath: string): string {
-  if (displayPath === '~/.dsh/AGENTS.md' || displayPath === '$DSH_HOME/AGENTS.md') return USER_GLOBAL_DIRECTORY
+  if (displayPath === `${DEFAULT_DSH_HOME_DISPLAY}/AGENTS.md` || displayPath === '$DSH_HOME/AGENTS.md') return USER_GLOBAL_DIRECTORY
   return dirname(displayPath)
 }
 
