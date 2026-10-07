@@ -100,7 +100,7 @@ kind: "package-reference"
 
 该路由从不提供提供方的 OAuth 登录。每个支持 OAuth 的已安装 pi-ai 提供方都有专用路由 `<provider id>-oauth`，并以其为键注册一个 `ctx.authorization` 流程：例如 `anthropic-oauth`，其 grant 存入 `llm-pi-ai/anthropic-oauth`。运行该流程的界面负责把 `anthropic-oauth` 路由加入配置并发起授权。每个 OAuth 提供方都遵循这一规则，包括 `openai-codex` 等仅支持 OAuth 的提供方，因此同一提供方的订阅与 API key 可以并存，互不覆盖。
 
-OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；退出登录仅删除该记录，不移除路由。旧版本存于不带后缀路由下的 grant 既不会被移动也不会被删除；经 `-oauth` 流程登录即授权专用路由。
+OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。与浏览器回调竞争的问题（手动输入授权码的后备方式）带有一个信号，在回调胜出或尝试被取消时触发，因此被取消的回环登录会关闭其回调服务器。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；退出登录仅删除该记录，不移除路由。旧版本存于不带后缀路由下的 grant 既不会被移动也不会被删除；经 `-oauth` 流程登录即授权专用路由。
 
 `-oauth` 后缀表示登录方式，而不是路由的计费方式。`oauthRouteAuth(route)` 读取 pi-ai 在提供方 OAuth 认证上声明的 `isSubscription`：订阅计划登录（Claude Pro/Max、经 `openai` 与旧版 `openai-codex` 流程的 ChatGPT、GitHub Copilot、Kimi Code、Muse、SuperGrok）为 `subscription`，pi-ai 未标为订阅、签发普通按量计费密钥的流程（OpenRouter、Radius）为 `api-key`。显示名称随之确定——`Anthropic Plan`，但 `OpenRouter OAuth`——用于路由目录、Settings 表单和授权流程；路由 ID 与凭据键保留 `-oauth` 写法。
 
