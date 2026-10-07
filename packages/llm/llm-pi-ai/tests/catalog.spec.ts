@@ -46,7 +46,7 @@ describe('OAuth catalog routes', () => {
     expect(oauth?.auth.oauth).toBeDefined()
     expect(oauth?.auth.apiKey).toBeUndefined()
     expect(api?.auth.apiKey).toBeDefined()
-    expect(profiles.get('anthropic-oauth')?.displayName).toBe('Anthropic OAuth')
+    expect(profiles.get('anthropic-oauth')?.displayName).toBe('Anthropic Plan')
     expect(() => resolveProfiles({ 'anthropic-oauth': { apiKeyEnv: 'ANTHROPIC_API_KEY' } })).toThrow(/OAuth grant/)
   })
 })

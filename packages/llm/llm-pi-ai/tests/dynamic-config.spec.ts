@@ -62,12 +62,12 @@ describe('OAuth flows in a real composition', () => {
       .toEqual(['oauth'])
     expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('anthropic'))).toBeUndefined()
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
-      provider: 'anthropic-oauth', displayName: 'Anthropic OAuth', settingsNs: 'llm-pi-ai',
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'anthropic-oauth'], declared: false,
     })
     await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic OAuth' },
+      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic Plan' },
     ])
     expect((await ctx.llm.listModels('anthropic-oauth')).map(model => model.id))
       .toEqual((await ctx.llm.listModels('anthropic')).map(model => model.id))

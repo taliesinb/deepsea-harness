@@ -9,7 +9,7 @@ import * as LlmPiAi from '../src/index.ts'
 import { PiAiAdapter } from '../src/adapter.ts'
 import type { PiAiAuthInjection } from '../src/adapter.ts'
 import { credentialStoreFrom, recordKeyFor } from '../src/auth.ts'
-import { catalogProvider, oauthCatalogProvider, oauthProviderIds } from '../src/catalog.ts'
+import { catalogProvider, oauthCatalogProvider, oauthProviderIds, oauthRouteAuth, oauthRouteDisplayName } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { assemble } from './assemble.ts'
@@ -131,7 +131,7 @@ describe('every installed OAuth catalog route', () => {
     for (const { id, route } of flows) {
       expect(directory.filter(entry => entry.provider === route)).toEqual([{
         provider: route,
-        displayName: `${catalogProvider(id)!.name} OAuth`,
+        displayName: oauthRouteDisplayName(route),
         settingsNs: 'llm-pi-ai', settingsPath: ['providers', route], declared: false,
       }])
       expect(directory.some(entry => entry.provider === id)).toBe(true)
@@ -266,5 +266,19 @@ describe.each(flows)('$route credential isolation and dispatch', ({ id, route })
     expect(first.message).toEqual(saved)
     expect(degrade).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('OAuth route classification', () => {
+  it("follows pi-ai's isSubscription: plans are subscriptions, OpenRouter's issued key is pay-per-use", () => {
+    for (const id of oauthProviderIds()) {
+      const oauth = oauthCatalogProvider(id)!.auth.oauth!
+      expect(oauthRouteAuth(id)).toBe(oauth.isSubscription === true ? 'subscription' : 'api-key')
+      expect(oauthRouteDisplayName(id)).toBe(`${oauthCatalogProvider(id)!.name} ${oauth.isSubscription === true ? 'Plan' : 'OAuth'}`)
+    }
+    expect(oauthRouteAuth('anthropic-oauth')).toBe('subscription')
+    expect(oauthRouteAuth('openai-codex-oauth')).toBe('subscription')
+    expect(oauthRouteAuth('openrouter-oauth')).toBe('api-key')
+    expect(oauthRouteAuth('anthropic')).toBeUndefined()
   })
 })

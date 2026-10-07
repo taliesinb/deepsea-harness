@@ -197,6 +197,33 @@ export function oauthCatalogProvider(route: string): Provider | undefined {
 }
 
 /**
+ * How a dedicated OAuth route is paid for, from pi-ai's own `isSubscription` on
+ * the provider's OAuth auth: a plan (Claude Pro/Max, ChatGPT, Copilot, Kimi
+ * Code, Muse, SuperGrok) or an ordinary pay-per-use key the flow issues
+ * (OpenRouter). This is the one classification every surface reads; the
+ * `-oauth` route id only names the sign-in mechanism.
+ * @param route - provider route id.
+ * @returns `subscription` or `api-key` for a dedicated OAuth route, otherwise undefined.
+ */
+export function oauthRouteAuth(route: string): 'subscription' | 'api-key' | undefined {
+  const provider = oauthCatalogProvider(route)
+  if (provider === undefined) return undefined
+  return provider.auth.oauth?.isSubscription === true ? 'subscription' : 'api-key'
+}
+
+/**
+ * Display name of a dedicated OAuth route: "<Provider> Plan" for a
+ * subscription plan, "<Provider> OAuth" for a flow that issues a pay-per-use key.
+ * @param route - provider route id.
+ * @returns the name, or undefined for a route that is not a dedicated OAuth route.
+ */
+export function oauthRouteDisplayName(route: string): string | undefined {
+  const provider = oauthCatalogProvider(route)
+  if (provider === undefined) return undefined
+  return `${provider.name} ${oauthRouteAuth(route) === 'subscription' ? 'Plan' : 'OAuth'}`
+}
+
+/**
  * Dedicated route ids for every OAuth flow shipped by the installed catalog.
  * @returns OAuth-only provider route ids, distinct from native catalog ids.
  */

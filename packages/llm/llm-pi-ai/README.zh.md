@@ -92,9 +92,11 @@ kind: "package-reference"
 
 ### 登录提供方
 
-每个支持 OAuth 的已安装 pi-ai 提供方都会以其专用路由为键注册一个 `ctx.authorization` 流程，例如 `anthropic-oauth`，其 grant 存入 `llm-pi-ai/anthropic-oauth`。运行该流程的界面（例如一个 `/oauth` 命令插件）负责把 `anthropic-oauth` 路由加入配置并发起授权。所有受支持的流程都使用相同的 `<provider>-oauth` 路由与凭据隔离规则，包括 `openai-codex` 等仅支持 OAuth 的提供方。
+每个支持 OAuth 的已安装 pi-ai 提供方都会以其专用路由为键注册一个 `ctx.authorization` 流程，例如 `anthropic-oauth`，其 grant 存入 `llm-pi-ai/anthropic-oauth`。运行该流程的界面（例如一个 `/login` 命令插件）负责把 `anthropic-oauth` 路由加入配置并发起授权。所有受支持的流程都使用相同的 `<provider>-oauth` 路由与凭据隔离规则，包括 `openai-codex` 等仅支持 OAuth 的提供方。
 
-OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；停用仅删除该记录，不移除路由。已有的不带后缀的 grant 不会被自动移动或删除：使用简短流程名称激活独立路由。API 密钥在 Settings 中配置，而非通过 `/oauth`。
+OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；停用仅删除该记录，不移除路由。已有的不带后缀的 grant 不会被自动移动或删除：使用简短流程名称激活独立路由。API 密钥在 Settings 中配置，而非通过登录流程。
+
+`-oauth` 后缀表示登录方式，而不是路由的计费方式。`oauthRouteAuth(route)` 读取 pi-ai 在提供方 OAuth 认证上声明的 `isSubscription`：订阅计划登录（Claude Pro/Max、ChatGPT、GitHub Copilot、Kimi Code、Muse、SuperGrok）为 `subscription`，签发普通按量计费密钥的流程（OpenRouter）为 `api-key`。显示名称随之确定——`Anthropic Plan`，但 `OpenRouter OAuth`——用于路由目录、Settings 表单和授权流程；路由 ID 与凭据键保留 `-oauth` 写法。
 
 传输分派会恢复 pi-ai 用于提供方专属标头与重放的原生提供方 id。持久化重放仍标识已配置的路由，使 OAuth 与 API 密钥历史保持独立。
 
