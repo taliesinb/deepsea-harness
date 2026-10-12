@@ -74,9 +74,10 @@ export interface SessionOptions {
   /** Whether the exact direct parent Agent is available in Host summaries; absent until known. */
   parentAvailable?: boolean
   /**
-   * Publish each accepted prompt to the Manager, including after this Session
-   * object is replaced. Acceptance converts display state, but does not
-   * establish that a turn started or reached durable history.
+   * Publish each accepted prompt, and each {@link Session.engage} call, to the
+   * Manager, including after this Session object is replaced. Acceptance
+   * converts display state, but does not establish that a turn started or
+   * reached durable history.
    */
   onEngaged?(session: Session): void
   /**
@@ -122,6 +123,8 @@ export class Session implements SessionFace {
   private promptAttempted = false
   /** A first accepted prompt stays in the engaging phase until its turn is observable. */
   private firstPromptPendingTurn = false
+  /** Sticky {@link Session.engage} marker; like a send attempt, it prevents re-blanking. */
+  private engaged = false
   /** New Session display state; unknown bare sessions begin conservatively blank. */
   private blankBit = true
   private removed = false
@@ -312,6 +315,20 @@ export class Session implements SessionFace {
     }
     this.options.onEngaged?.(this)
     return result
+  }
+
+  /**
+   * End the New Session display state without a prompt (see ISession.engage):
+   * the same conversion and Manager publication as an accepted prompt, sticky
+   * on this object; no Host call, and the Host blank bit is unchanged.
+   */
+  engage(): void {
+    this.engaged = true
+    if (this.blankBit) {
+      this.blankBit = false
+      this.notifier.markDirty()
+    }
+    this.options.onEngaged?.(this)
   }
 
   /**
@@ -563,8 +580,9 @@ export class Session implements SessionFace {
 
   /**
    * Apply the Manager's effective display blank, further reconciled with the
-   * current `sessionListMetadata` projection. Local send attempts and current
-   * running state prevent re-blanking; an earlier false summary alone does not.
+   * current `sessionListMetadata` projection. Local send attempts, engagement,
+   * and current running state prevent re-blanking; an earlier false summary
+   * alone does not.
    * The Manager retains acceptance and earlier running observations across
    * Session-object replacement.
    * @param blank - New Session display state after Manager reconciliation.
@@ -572,7 +590,7 @@ export class Session implements SessionFace {
   handleBlank(blank: boolean): void {
     blank = blank && this.projections.values().sessionListMetadata?.blank !== false
     if (blank === this.blankBit) return
-    if (blank && (this.promptAttempted || this.running)) return
+    if (blank && (this.promptAttempted || this.engaged || this.running)) return
     this.blankBit = blank
     this.notifier.markDirty()
   }
