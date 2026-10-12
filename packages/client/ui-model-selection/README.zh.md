@@ -47,6 +47,10 @@ composer 菜单中的模型名称和推理等级均使用 400（regular）字重
 
 展开的控件无法排在同一行时，composer 将模型与推理强度文字替换为模型图标；空间足够后恢复文字。触发器的无障碍名称、提示和菜单仍提供完整选择。
 
+### 最近的选择
+
+composer 菜单在 Model 与 Effort 行下方、分隔线之后，按从新到旧列出最多四组最近选择的模型与推理强度组合。每行显示路由图标与模型名称，推理强度不同于模型默认值时在后面加上 ` - <推理强度>`；点击即选择该组合，方向键与上方单元格一起在这些行间移动。正在使用的组合以及目录中已不再列出其模型的组合不显示。任一入口的每次成功选择都会连同被替换的组合一起记录，省略的推理强度按模型默认值记录。该列表由所有会话共享，保存在当前浏览器配置的 localStorage（`dsh.model-selection.recent.v1`）中，因此每个浏览器或应用窗口配置各有一份。
+
 ### 不可路由的会话
 
 目录可用性不会阻止使用已保存选择发送消息；请求执行负责报告凭据缺失或模型不可用。刷新及刷新失败期间保留上次显示的选择和分组。Host 重置时清空这些显示。退登后选择器隐藏账号提供方，同时保留已保存的提供方／模型 ID 和推理强度。再次登录且该模型可用时恢复目录名称。既有会话日志保持不变。
@@ -65,7 +69,7 @@ composer 菜单中的模型名称和推理等级均使用 400（regular）字重
 <details>
 <summary>实现细节——点击展开</summary>
 
-composer 的 `ModelSelect` 与 `/model` 选项构建器共用[提供方排序](src/client/provider-order.ts)，两个搜索框均在每个提供方内使用 `rankByName`。路由类型、能力筛选与旧版模型的版本系列位于 [route-sections.ts](src/client/route-sections.ts)；路由图标是 `ModelSelect.tsx` 中的 `RouteIcon`，每种类型一行，因为 DeepSea billing 插件绘制相同的套餐、OpenRouter 与 API 图标，其测试逐行比对。类型标题是插在各提供方 `MenuGroup` 之间的普通行，因此吸顶观察器仍将各分组视为列表的直接子元素。命令通过 [popupSelect API](../ui-commands/README.zh.md#use-this-package) 提供可选分组与 `searchMode: 'fuzzy-label'`；两个入口均使用 `MenuGroup`，并在渲染分组变化时重建其吸顶观察器。命令弹窗撑满 composer 浮层，按钮则保留紧凑菜单。
+composer 的 `ModelSelect` 与 `/model` 选项构建器共用[提供方排序](src/client/provider-order.ts)，两个搜索框均在每个提供方内使用 `rankByName`。路由类型、能力筛选与旧版模型的版本系列位于 [route-sections.ts](src/client/route-sections.ts)；路由图标是 `ModelSelect.tsx` 中的 `RouteIcon`，每种类型一行，因为 DeepSea billing 插件绘制相同的套餐、OpenRouter 与 API 图标，其测试逐行比对。类型标题是插在各提供方 `MenuGroup` 之间的普通行，因此吸顶观察器仍将各分组视为列表的直接子元素。最近列表（[recent.ts](src/client/recent.ts)）是由 `ModelDirectoryResolver` 持有的单个 `RecentModels` store，并同步到每个目录的 `recent`；`ModelDirectory.select` 在 Host 接受选择后写入。命令通过 [popupSelect API](../ui-commands/README.zh.md#use-this-package) 提供可选分组与 `searchMode: 'fuzzy-label'`；两个入口均使用 `MenuGroup`，并在渲染分组变化时重建其吸顶观察器。命令弹窗撑满 composer 浮层，按钮则保留紧凑菜单。
 
 两个入口共用一份由 `ModelDirectoryResolver`（`ctx.modelDirectories`）持有的会话级目录：`/model` popupSelect 贡献项（经 `ctx.commandUi` 注册）与 composer 的具名 `conversation.input.model` 位都经 `session.models` 加载会话的可用目录、经 `session.selectModel` 通过同一个 `ModelDirectory` 实例提交，因此任一入口所做的切换正是另一个入口接下来显示的。目录加载与选择共享一个代次计数器，旧响应不会覆盖新结果。目录把最近一次提交的选择发布为 `pending`，直到它完成或被连接重置作废；连接重置丢弃所有常驻投影，并在显示前重新拉取 Host 恢复的选择。目录按会话惰性解析，随会话作用域一并 dispose（资源释放）；已寻址 subagent 会话不公开任一入口。每份常驻目录都会直接在转发的 `llm/adapters-updated`、`settings/document-updated` 与凭据更新事件上重拉。
 

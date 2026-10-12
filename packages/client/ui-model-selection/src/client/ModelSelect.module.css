@@ -397,6 +397,24 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.recentDivider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--dsw-alias-border-l1);
+}
+
+/* Recent rows: the route glyph, then the model (and a non-default effort). */
+.recent {
+  padding: 5px 8px;
+}
+
+.recentRoute {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .cellRoute {
   display: inline-block;
   width: 14px;
