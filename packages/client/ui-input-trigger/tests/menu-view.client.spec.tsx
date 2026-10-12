@@ -5,7 +5,8 @@
  * (unknown sources fall back to the raw name) with pending rows as skeleton
  * placeholders, pointer picks route (source, index) back without stealing
  * focus, the highlight is exposed through aria-activedescendant +
- * aria-selected, and the list height clamps to the space above the composer.
+ * aria-selected, label segments replace the title with dim pieces in quiet
+ * ink, and the list height clamps to the space above the composer.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -132,6 +133,36 @@ describe('MenuView', () => {
     // A label that is the name in another letter case renders no alias.
     expect(options[1]?.querySelectorAll('span')).toHaveLength(1)
     expect(screen.getAllByText('添加')).toHaveLength(1)
+  })
+
+  it('renders label segments in place of the title, dim segments in quiet ink, the alias still following label', () => {
+    mount(openState({
+      groups: [{
+        source: 'reference',
+        status: 'ready',
+        items: [
+          {
+            name: 'docs/Research',
+            labelSegments: [{ text: 'docs' }, { text: ' / ', dim: true }, { text: 'Research' }],
+            description: '2h',
+          },
+          {
+            name: 'plan',
+            label: '计划',
+            labelSegments: [{ text: '计划', dim: false }, { text: ' · ', dim: true }, { text: '模式' }],
+          },
+        ],
+      }],
+      highlight: null,
+    }))
+    const options = screen.getAllByRole('option')
+    expect(options.map(o => o.textContent)).toEqual(['docs / Research2h', '计划 · 模式plan'])
+    const segments = [...options[0]!.querySelectorAll('span > span')]
+    expect(segments.map(s => s.textContent)).toEqual(['docs', ' / ', 'Research'])
+    expect(segments.map(s => s.className.includes('itemNameDim'))).toEqual([false, true, false])
+    // Without a label there is no alias; with one, the alias rule is unchanged.
+    expect(screen.queryByText('docs/Research')).toBeNull()
+    expect(screen.getByText('plan')).toBeTruthy()
   })
 
   it('keeps an opted-out source title hidden while its candidates are pending', () => {
