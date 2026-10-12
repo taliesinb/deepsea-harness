@@ -41,6 +41,8 @@ export const zh = {
   'filter.tools': '工具',
   'filter.free': '免费',
   'filter.historical': '旧版模型',
+  'recent.aria': '最近使用的模型',
+  'recent.label': '{model} - {effort}',
   'empty.models': '暂无可用模型',
   'empty.efforts': '当前模型未提供推理等级。',
 } satisfies Record<string, string>
@@ -81,6 +83,8 @@ export const en = {
   'filter.tools': 'Tools',
   'filter.free': 'Free',
   'filter.historical': 'Older models',
+  'recent.aria': 'Recent models',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'No models available.',
   'empty.efforts': 'This model provides no reasoning effort levels.',
 } satisfies Record<ModelKey, string>
@@ -118,6 +122,8 @@ export const ja = {
   'filter.tools': 'ツール',
   'filter.free': '無料',
   'filter.historical': '旧モデル',
+  'recent.aria': '最近使用したモデル',
+  'recent.label': '{model} - {effort}',
   'empty.models': '利用可能なモデルがありません。',
   'empty.efforts': 'このモデルには推論強度の設定がありません。',
 } satisfies Record<keyof typeof en, string>
@@ -155,6 +161,8 @@ export const es = {
   'filter.tools': 'Herramientas',
   'filter.free': 'Gratis',
   'filter.historical': 'Modelos anteriores',
+  'recent.aria': 'Modelos recientes',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'No hay modelos disponibles.',
   'empty.efforts': 'Este modelo no proporciona niveles de esfuerzo de razonamiento.',
 } satisfies Record<keyof typeof en, string>
@@ -192,6 +200,8 @@ export const fr = {
   'filter.tools': 'Outils',
   'filter.free': 'Gratuit',
   'filter.historical': 'Modèles antérieurs',
+  'recent.aria': 'Modèles récents',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'Aucun modèle disponible.',
   'empty.efforts': 'Ce modèle ne fournit aucun niveau d’effort de raisonnement.',
 } satisfies Record<keyof typeof en, string>
@@ -229,6 +239,8 @@ export const de = {
   'filter.tools': 'Werkzeuge',
   'filter.free': 'Kostenlos',
   'filter.historical': 'Ältere Modelle',
+  'recent.aria': 'Zuletzt verwendete Modelle',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'Keine Modelle verfügbar.',
   'empty.efforts': 'Dieses Modell liefert keine Argumentationsaufwandsstufen.',
 } satisfies Record<keyof typeof en, string>
@@ -266,6 +278,8 @@ export const ru = {
   'filter.tools': 'Инструменты',
   'filter.free': 'Бесплатные',
   'filter.historical': 'Старые модели',
+  'recent.aria': 'Недавние модели',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'Нет доступных моделей.',
   'empty.efforts': 'Эта модель не обеспечивает обоснования уровней усилий.',
 } satisfies Record<keyof typeof en, string>
@@ -303,6 +317,8 @@ export const pt = {
   'filter.tools': 'Ferramentas',
   'filter.free': 'Grátis',
   'filter.historical': 'Modelos anteriores',
+  'recent.aria': 'Modelos recentes',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'Nenhum modelo disponível.',
   'empty.efforts': 'Este modelo não fornece níveis de esforço de raciocínio.',
 } satisfies Record<keyof typeof en, string>
