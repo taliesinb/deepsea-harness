@@ -147,6 +147,14 @@ export class FixtureSession implements SessionFace {
   }
 
   /**
+   * Fail-loud stub; supply `engage` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  engage(): never {
+    throw new Error(`test session "${this.sessionId}": engage is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
    * Fail-loud stub; supply `command` on the fixture's session face to exercise it.
    * @returns never — always throws.
    */
