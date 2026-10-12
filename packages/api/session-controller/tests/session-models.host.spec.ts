@@ -12,7 +12,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import AttachmentStore from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
-  GenerateOptions, LlmCallConfig, LlmCallConfigAdapterDefaults, LlmModelInfo,
+  GenerateOptions, LlmCallConfig, LlmCallConfigAdapterDefaults, LlmModelInfo, LlmModelPricing,
   LlmModelReasoningInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -419,15 +419,17 @@ describe('Web session model selection', () => {
       model: 'private-preview',
       reasoningEffort: 'max',
     })
+    const capabilities = { images: false, reasoning: true, tools: true, free: false }
     expect(catalog.groups).toEqual([{
       id: 'deepseek-official',
       name: 'DeepSeek',
       models: [
-        { id: 'deepseek-chat', name: 'DeepSeek Chat', reasoning: REASONING },
+        { id: 'deepseek-chat', name: 'DeepSeek Chat', capabilities, reasoning: REASONING },
         {
           id: 'deepseek-reasoner',
           name: 'DeepSeek Reasoner',
           description: 'Reasoning model',
+          capabilities,
           reasoning: REASONING,
         },
       ],
@@ -467,13 +469,22 @@ describe('Web session model selection', () => {
 
     const catalog = await buildModelCatalog(ctx)
     expect(catalog.groups).toEqual(expect.arrayContaining([
-      { id: 'plain', name: 'Plain', models: [{ id: 'plain-model', name: 'Plain Model' }] },
+      {
+        id: 'plain',
+        name: 'Plain',
+        models: [{
+          id: 'plain-model',
+          name: 'Plain Model',
+          capabilities: { images: false, reasoning: false, tools: true, free: false },
+        }],
+      },
       {
         id: 'described-reasoning',
         name: 'Described Reasoning',
         models: [{
           id: 'reasoning-model',
           name: 'Reasoning Model',
+          capabilities: { images: false, reasoning: true, tools: true, free: false },
           reasoning: {
             efforts: [{ id: 'high', name: 'High', description: 'More thinking' }],
           },
@@ -483,6 +494,65 @@ describe('Web session model selection', () => {
     expect(catalog.failures).toContainEqual({
       id: 'string-failure', name: 'String Failure', message: 'string catalog failure',
     })
+    await ctx.fiber.dispose()
+  })
+
+  it('publishes route billing kinds and per-model capabilities for catalog filters', async () => {
+    const { ctx } = await harness()
+    const pricing = (rate: string): LlmModelPricing => ({
+      currency: 'USD', inputPerMillion: rate, outputPerMillion: rate, source: 'fixture',
+    })
+    class RouteAdapter extends CatalogAdapter {
+      constructor(
+        name: string,
+        models: readonly LlmModelInfo[],
+        private readonly route: Omit<LlmProviderInfo, 'id' | 'name'>,
+        private readonly resolved: Partial<LlmResolvedModelInfo> = {},
+      ) { super(name, models) }
+
+      override providerInfo(provider: string): LlmProviderInfo {
+        return { ...super.providerInfo(provider), ...this.route }
+      }
+
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, ...this.resolved })
+      }
+    }
+    ctx.llm.registerAdapter(['vendor-oauth'], new RouteAdapter('Vendor Plan', [
+      { provider: 'vendor-oauth', id: 'seeing', name: 'Seeing', inputModalities: ['text', 'image'] },
+    ], { catalogProvider: 'vendor', vendor: 'Vendor', auth: 'subscription' }))
+    ctx.llm.registerAdapter(['router'], new RouteAdapter('Router', [
+      { provider: 'router', id: 'zero', name: 'Zero' },
+    ], { catalogProvider: 'router', auth: 'api-key' }, {
+      inputModalities: ['text'], pricing: pricing('0'), reasoning: REASONING,
+    }))
+    ctx.llm.registerAdapter(['paid'], new RouteAdapter('Paid', [
+      { provider: 'paid', id: 'priced', name: 'Priced' },
+    ], { auth: 'api-key' }, { pricing: pricing('0.5') }))
+    ctx.llm.registerAdapter(['on-device'], new RouteAdapter('On Device', [
+      { provider: 'on-device', id: 'small', name: 'Small' },
+    ], { auth: 'local' }))
+
+    const catalog = await buildModelCatalog(ctx, { provider: 'deepseek-official', model: 'deepseek-chat' })
+    const group = (id: string) => catalog.groups.find(entry => entry.id === id)
+    expect(group('vendor-oauth')).toEqual({
+      id: 'vendor-oauth',
+      name: 'Vendor Plan',
+      catalogProvider: 'vendor',
+      vendor: 'Vendor',
+      auth: 'subscription',
+      models: [{
+        id: 'seeing', name: 'Seeing', capabilities: { images: true, reasoning: false, tools: true, free: false },
+      }],
+    })
+    expect(group('router')).toMatchObject({ catalogProvider: 'router', auth: 'api-key' })
+    expect(group('router')?.models[0]?.capabilities)
+      .toEqual({ images: false, reasoning: true, tools: true, free: true })
+    expect(group('paid')?.models[0]?.capabilities?.free).toBe(false)
+    expect(group('on-device')).toMatchObject({ auth: 'local', models: [{ capabilities: { free: true } }] })
+    expect(group('on-device')).not.toHaveProperty('catalogProvider')
+    expect(group('router')).not.toHaveProperty('vendor')
+    expect(group('deepseek-official')).not.toHaveProperty('auth')
     await ctx.fiber.dispose()
   })
 

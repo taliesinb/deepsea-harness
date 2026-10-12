@@ -1329,6 +1329,7 @@ describe('LlmRuntime', () => {
     [{ id: 'route', name: 1 }, 'non-string name'],
     [{ id: 'route', name: '' }, 'empty name'],
     [{ id: 'route', name: 'Name', catalogProvider: '' }, 'empty catalog provider'],
+    [{ id: 'route', name: 'Name', vendor: '' }, 'empty vendor'],
     [{ id: 'route', name: 'Name', auth: 'password' }, 'unknown auth kind'],
   ] as const)('rejects invalid provider metadata atomically (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
@@ -1338,12 +1339,12 @@ describe('LlmRuntime', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
-  it('keeps a route\'s catalog provider and auth kind, dropping undeclared metadata', async () => {
+  it('keeps a route\'s catalog provider, vendor and auth kind, dropping undeclared metadata', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
-    const metadata = { id: 'route', name: 'Name', catalogProvider: 'vendor', auth: 'subscription', extra: 'dropped' }
+    const metadata = { id: 'route', name: 'Name', catalogProvider: 'vendor', vendor: 'Vendor', auth: 'subscription', extra: 'dropped' }
     ctx.llm.registerAdapter(['route'], new CatalogAdapter(metadata as unknown as LlmProviderInfo, []))
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'route', name: 'Name', catalogProvider: 'vendor', auth: 'subscription' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'route', name: 'Name', catalogProvider: 'vendor', vendor: 'Vendor', auth: 'subscription' }])
   })
 
   it.each([

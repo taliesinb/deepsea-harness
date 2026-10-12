@@ -485,8 +485,8 @@ describe('provider profile lifecycle', () => {
       },
     })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'openai', name: 'openai', catalogProvider: 'openai', auth: 'api-key' },
-      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' },
+      { id: 'openai', name: 'openai', catalogProvider: 'openai', vendor: 'OpenAI', auth: 'api-key' },
+      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', vendor: 'Anthropic', auth: 'api-key' },
     ])
     expect(ctx.llm.providerRetryPolicy('openai')).toEqual({
       mode: 'always',
@@ -541,9 +541,9 @@ describe('provider profile lifecycle', () => {
     expect(codexInfo.pricing).toBeUndefined()
     expect(codexInfo.listPricing).toMatchObject({ currency: 'USD', inputPerMillion: String(codex.cost.input) })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' },
-      { id: 'anthropic-oauth', name: 'Anthropic Plan', catalogProvider: 'anthropic', auth: 'subscription' },
-      { id: 'openai-codex', name: 'openai-codex', catalogProvider: 'openai-codex', auth: 'subscription' },
+      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', vendor: 'Anthropic', auth: 'api-key' },
+      { id: 'anthropic-oauth', name: 'Anthropic Plan', catalogProvider: 'anthropic', vendor: 'Anthropic', auth: 'subscription' },
+      { id: 'openai-codex', name: 'openai-codex', catalogProvider: 'openai-codex', vendor: 'OpenAI Codex', auth: 'subscription' },
     ])
   })
 
@@ -552,7 +552,7 @@ describe('provider profile lifecycle', () => {
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(LlmPiAi, { providers: { 'openrouter-oauth': {} } })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'openrouter-oauth', name: 'OpenRouter OAuth', catalogProvider: 'openrouter', auth: 'api-key' },
+      { id: 'openrouter-oauth', name: 'OpenRouter OAuth', catalogProvider: 'openrouter', vendor: 'OpenRouter', auth: 'api-key' },
     ])
     const priced = getBuiltinModels('openrouter').find(model => model.cost.input > 0)!
     const info = await ctx.llm.resolveModelInfo('openrouter-oauth', priced.id)
