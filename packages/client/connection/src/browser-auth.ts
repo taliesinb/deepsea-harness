@@ -49,10 +49,21 @@ function decodeBase64Url(value: string): Buffer | undefined {
   return encodeBase64Url(decoded) === value ? decoded : undefined
 }
 
+/**
+ * A launch token chosen by whoever starts the process: `DSH_LAUNCH_TOKEN`,
+ * when it is at least 32 base64url characters (a launcher that keeps one
+ * stable token for its clients, such as a relay that starts the server on
+ * demand). Anything else is ignored and a random token is made.
+ */
+function configuredLaunchToken(): string | undefined {
+  const value = process.env.DSH_LAUNCH_TOKEN
+  return value !== undefined && /^[A-Za-z0-9_-]{32,}$/u.test(value) ? value : undefined
+}
+
 function processLaunchToken(owner: object): string {
   const existing = PROCESS_LAUNCH_TOKENS.get(owner)
   if (existing !== undefined) return existing
-  const created = encodeBase64Url(randomBytes(SECRET_BYTES))
+  const created = configuredLaunchToken() ?? encodeBase64Url(randomBytes(SECRET_BYTES))
   PROCESS_LAUNCH_TOKENS.set(owner, created)
   return created
 }
