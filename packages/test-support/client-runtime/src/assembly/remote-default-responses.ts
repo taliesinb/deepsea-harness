@@ -40,6 +40,9 @@ export const remoteDefaultResponses: RemoteTable = {
     // ui-settings-account bonus notice read and acknowledgement at signing in.
     'account/getUnnotifiedBonuses': ok(null),
     'account/ackBonusNotified': ok(true),
+    // ui-settings-models first-run credential step: the provider directory when it mounts and again on `connection/reset`.
+    'llm/listProviders': ok([]),
+    'llm/listConfigurableProviders': ok([]),
   },
   // Stream endpoints the roster opens later than boot; declared so a spec that forgets the script gets a stream miss.
   streams: [

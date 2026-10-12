@@ -6,11 +6,14 @@ import z from '@deepseek-ai/schemastery'
 export interface Config {
   /** Offer the browser API-key step when no native shell owns credential onboarding. */
   credentialOnboarding: boolean
+  /** Show the upstream preview notice before onboarding until it is acknowledged (DeepSea: off). */
+  previewNotice: boolean
 }
 
 /** Validate Host configuration and its public page-bootstrap payload. */
 export const Config: z<Partial<Config>, Config> = z.object({
   credentialOnboarding: z.boolean().default(true),
+  previewNotice: z.boolean().default(false),
 })
 
 /** Page-global key carrying only the public onboarding options. */
