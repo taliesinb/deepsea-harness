@@ -154,6 +154,26 @@ describe('pi-ai OAuth flows', () => {
     ])
   })
 
+  it('sends people to the provider simulator\'s pages while simulating', async () => {
+    vi.stubEnv('DSH_PROVIDER_SIMULATOR', 'http://127.0.0.1:4100')
+    try {
+      const ctx = await harness()
+      const ui = await attempt(ctx, (interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://claude.ai/oauth/authorize?code=true' })
+        interaction.notify({ type: 'device_code', userCode: 'AB-12', verificationUri: 'https://auth.x.ai/device' })
+        interaction.notify({ type: 'info', message: 'Docs', links: [{ url: 'https://docs.example/page' }] })
+        return Promise.resolve()
+      })
+      expect(ui.notices.slice(0, 3)).toEqual([
+        { message: 'Open this page to continue signing in.', url: 'http://127.0.0.1:4100/claude.ai/oauth/authorize?code=true' },
+        { message: 'Enter this code on the verification page to finish signing in.', url: 'http://127.0.0.1:4100/auth.x.ai/device', code: 'AB-12' },
+        { message: 'Docs', url: 'https://docs.example/page' },
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('restates every pi-ai prompt, carrying the per-prompt withdrawal signal', async () => {
     const ctx = await harness()
     const withdraw = new AbortController()

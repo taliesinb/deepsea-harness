@@ -11,6 +11,7 @@ import type { AuthEvent, AuthPrompt } from '@earendil-works/pi-ai'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthorizationPrompt, AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { isCredentialKeySegment } from '@deepseek-ai/dsh-credentials'
+import { simulatedUrl } from '@deepseek-ai/dsh-llm'
 import { oauthCatalogProvider, oauthProviderIds, oauthRouteDisplayName } from './catalog.ts'
 import { buildProvider } from './provider.ts'
 import { recordKeyFor } from './auth.ts'
@@ -23,6 +24,8 @@ import { createModels } from './models.ts'
  * A device-code grant is the one event carrying two things the human needs at
  * once — where to go and what to type there — which is why the neutral notice
  * has a `code` beside its `url` rather than folding the code into the message.
+ * Under provider simulation (`DSH_PROVIDER_SIMULATOR`) every page a person
+ * is sent to is the simulator's, like every request the flow makes.
  * @param event - what pi-ai reported.
  * @param session - the attempt to report it to.
  */
@@ -30,19 +33,19 @@ function relay(event: AuthEvent, session: AuthorizationSession): void {
   switch (event.type) {
     case 'info': {
       const link = event.links?.[0]
-      session.notify({ message: event.message, ...link === undefined ? {} : { url: link.url } })
+      session.notify({ message: event.message, ...link === undefined ? {} : { url: simulatedUrl(link.url) } })
       return
     }
     case 'auth_url':
       session.notify({
         message: event.instructions ?? 'Open this page to continue signing in.',
-        url: event.url,
+        url: simulatedUrl(event.url),
       })
       return
     case 'device_code':
       session.notify({
         message: 'Enter this code on the verification page to finish signing in.',
-        url: event.verificationUri,
+        url: simulatedUrl(event.verificationUri),
         code: event.userCode,
       })
       return
