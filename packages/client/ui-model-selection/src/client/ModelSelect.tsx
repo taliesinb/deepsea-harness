@@ -24,23 +24,39 @@
  * selection is unsettled, the trigger shows a spinner in place of its
  * chevron, and each row whose value that selection carries shows one in place
  * of its check mark.
+ *
+ * The model list has one section per provider and access kind (a plan
+ * sign-in, a first-party API key, each upstream vendor of an OpenRouter
+ * route, a server on this machine), each headed by its kind's glyph and the
+ * provider's name; the same glyph marks the current route on the trigger and
+ * the Model cell. Under search, a filter bar offers the access kinds the
+ * catalog has as radio toggles (none pressed shows every kind), the
+ * capability filters that split the catalog, and a toggle for older models:
+ * a model a newer version of its line supersedes is hidden until the toggle
+ * is on, unless it is the current model. Each filter names itself in an
+ * immediate tooltip.
  */
 import { MenuGroup, MenuSurface, observeStickyMenuGroups } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
-  type CSSProperties, type KeyboardEvent, type FocusEvent,
+  type CSSProperties, type KeyboardEvent, type FocusEvent, type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseFillRegular,
-  IconDataOutlineRegular, IconWarningOutlineRegular, Input, rankByName, StateDot, Toast,
+  IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconClockOutlineRegular,
+  IconCloseFillRegular, IconDataOutlineRegular, IconThinkOutlineRegular, IconWarningOutlineRegular, Input, rankByName,
+  StateDot, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
-import { orderModelProviders } from './provider-order.ts'
+import type { ModelKey } from './locales.ts'
+import {
+  hasCapability, MODEL_ROUTES, modelSections, routeTitle, splittingFilters, supersededModels,
+  type ModelFilter, type ModelRoute, type ModelSection,
+} from './route-sections.ts'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'model' | 'effort'
@@ -52,8 +68,75 @@ interface EffortChoice {
   label: string
 }
 
+/** Label of each access-kind filter. */
+const ROUTE_LABEL: Readonly<Record<ModelRoute, ModelKey>> = {
+  plan: 'kind.plan', api: 'kind.api', openrouter: 'kind.openrouter', local: 'kind.local',
+}
+
+/** Label of each capability filter. */
+const FILTER_LABEL: Readonly<Record<ModelFilter, ModelKey>> = {
+  images: 'filter.images', reasoning: 'filter.reasoning', tools: 'filter.tools', free: 'filter.free',
+}
+
+/**
+ * One filter toggle, named by an immediate tooltip (the native title waits
+ * about a second) and by its accessible label.
+ * @param props - label, pressed state, the toggle action and the glyph.
+ * @returns the anchored toggle.
+ */
+function FilterToggle({ label, pressed, disabled, className, onToggle, children }: {
+  label: string
+  pressed: boolean
+  disabled: boolean
+  className?: string | undefined
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <Tooltip portal label={label} side="top" gap={6}>
+      <button
+        type="button"
+        className={clsx(css.filter, className)}
+        aria-pressed={pressed}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onToggle}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
+}
+
 /** Unplaced portal card: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real (Menu primitive's measure pass). */
 const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
+
+/**
+ * The glyph of a route kind: a laptop for a local server, a shield for a plan,
+ * a fork for OpenRouter, a code frame for an API key. The billing plugin draws
+ * the same plan, OpenRouter and API glyphs, and its tests compare them with
+ * these lines, so keep each glyph on the one line of its branch.
+ * @param props - the route kind and the glyph's class.
+ * @returns the decorative glyph.
+ */
+function RouteIcon({ route, className }: { route: ModelRoute; className?: string | undefined }) {
+  if (route === 'local') return <svg className={className} viewBox="0 0 20 20" aria-hidden="true"><rect x="3.5" y="4" width="13" height="9" rx="1.6" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M1.8 16h16.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+  if (route === 'plan') return <svg className={className} viewBox="0 0 20 20" aria-hidden="true"><path d="M10 1.8 17 4.4v4.7c0 4.2-2.7 7.3-7 9.1-4.3-1.8-7-4.9-7-9.1V4.4l7-2.6Z" fill="none" stroke="currentColor" strokeWidth="1.55" /><circle cx="10" cy="7.2" r="2" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M6.8 13.5c.5-2.1 1.6-3.2 3.2-3.2s2.8 1.1 3.2 3.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
+  if (route === 'openrouter') return <svg className={className} viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h4M6 10c2.5 0 3-4 5.5-4H17M6 10c2.5 0 3 4 5.5 4H17M14.5 3.5 17 6l-2.5 2.5M14.5 11.5 17 14l-2.5 2.5" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  return <svg className={className} viewBox="0 0 20 20" aria-hidden="true"><rect x="1.8" y="3" width="16.4" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="m7 7-3 3 3 3m6-6 3 3-3 3m-2.2-7.2-1.6 8.4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+}
+
+/**
+ * The glyph of one capability filter.
+ * @param props - the filter.
+ * @returns the decorative glyph.
+ */
+function FilterIcon({ filter }: { filter: ModelFilter }) {
+  if (filter === 'reasoning') return <IconThinkOutlineRegular size={14} />
+  if (filter === 'images') return <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" /><circle cx="5.6" cy="6.3" r="1.2" fill="currentColor" /><path d="m2.5 11.6 3.6-3.4 2.4 2.2 2-1.7 3 2.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
+  if (filter === 'tools') return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M14 3.3a3.8 3.8 0 0 1-4.8 4.8l-5.1 5.1a1.6 1.6 0 1 1-2.3-2.3l5.1-5.1A3.8 3.8 0 0 1 11.7 1l-2.3 2.3 2.3 2.3L14 3.3Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /></svg>
+  return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.6 1.75h5.65v5.65L7.4 14.25 1.75 8.6 8.6 1.75Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" /><circle cx="11.1" cy="4.9" r="1.1" fill="currentColor" /></svg>
+}
 
 /**
  * Render the composer model seat.
@@ -73,6 +156,9 @@ export function ModelSelect(
   const [pane, setPane] = useState<Pane>('root')
   const [query, setQuery] = useState('')
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
+  const [filters, setFilters] = useState<ReadonlySet<ModelFilter>>(() => new Set())
+  const [historical, setHistorical] = useState(false)
+  const [kind, setKind] = useState<ModelRoute | null>(null)
   const [selectionFocus, setSelectionFocus] = useState(false)
   // The in-menu error strip serves catalog loads (its Retry re-runs the
   // load); a rejected SELECTION announces through the transient toast
@@ -90,26 +176,45 @@ export function ModelSelect(
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
 
-  const groups = useMemo(() => orderModelProviders(state.groups), [state.groups])
-  const choices = useMemo(() => groups.flatMap(group =>
-    group.models.map(model => ({
-      group,
+  const sections = useMemo(() => modelSections(state.groups, group =>
+    group.id === 'deepseek-account' ? t('provider.account') : routeTitle(group)), [state.groups, t])
+  const choices = useMemo(() => sections.flatMap(section =>
+    section.models.map(model => ({
+      section,
       model,
       selection: {
-        provider: group.id,
+        provider: section.provider,
         model: model.id,
         ...model.reasoning?.defaultEffort === undefined
           ? {}
           : { reasoningEffort: model.reasoning.defaultEffort },
       } satisfies ModelSelection,
-    }))), [groups])
+    }))), [sections])
   const showSearch = choices.length > 4
-  const filteredGroups = useMemo(() => groups.map(group => ({
-    ...group, models: rankByName(group.models, showSearch ? query.trim() : ''),
-  })).filter(group => group.models.length > 0), [groups, query, showSearch])
-  const visibleModels = useMemo(() => filteredGroups.flatMap(group => group.models.map(model => ({
-    provider: group.id, model: model.id,
-  }))), [filteredGroups])
+  // The filter bar rides with search: a catalog small enough to show whole is
+  // shown whole. Only kinds the catalog has, and filters that split it, are
+  // offered or applied.
+  const offeredKinds = useMemo(() => {
+    const kinds = MODEL_ROUTES.filter(route => sections.some(section => section.route === route))
+    return showSearch && kinds.length > 1 ? kinds : []
+  }, [sections, showSearch])
+  const offeredFilters = useMemo(() => showSearch ? splittingFilters(sections) : [], [sections, showSearch])
+  const superseded = useMemo(() => new Map(sections.map(section => [section.key, supersededModels(section.models)])), [sections])
+  const offersHistorical = showSearch && [...superseded.values()].some(ids => ids.size > 0)
+  const filteredSections = useMemo(() => sections
+    .filter(section => kind === null || !offeredKinds.includes(kind) || section.route === kind)
+    .map((section): ModelSection => ({
+      ...section,
+      models: rankByName(section.models.filter(model => (
+        historical || !offersHistorical || superseded.get(section.key)?.has(model.id) !== true
+          || (state.current?.provider === section.provider && state.current.model === model.id)
+      ) && offeredFilters.every(filter => !filters.has(filter) || hasCapability(model, filter))), showSearch ? query.trim() : ''),
+    })).filter(section => section.models.length > 0), [
+    sections, kind, offeredKinds, query, showSearch, offeredFilters, filters, historical, offersHistorical, superseded, state.current,
+  ])
+  const visibleModels = useMemo(() => filteredSections.flatMap(section => section.models.map(model => ({
+    provider: section.provider, model: model.id,
+  }))), [filteredSections])
   const currentVisibleIndex = visibleModels.findIndex(model =>
     model.provider === state.current?.provider && model.model === state.current.model)
   const activeModelIndex = Math.min(highlightedIndex ?? Math.max(0, currentVisibleIndex), visibleModels.length - 1)
@@ -117,6 +222,7 @@ export function ModelSelect(
     ? -1
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
   const currentChoice = choices[selectedIndex]
+  const currentRoute = currentChoice?.section.route
   const reasoning = currentChoice?.model.reasoning
   const effectiveEffort = state.current?.reasoningEffort ?? reasoning?.defaultEffort
   const effortLabel = reasoning === undefined
@@ -195,7 +301,7 @@ export function ModelSelect(
     const viewport = groupsRef.current
     if (viewport === null) return
     return observeStickyMenuGroups(viewport)
-  }, [available, open, pane, filteredGroups])
+  }, [available, open, pane, filteredSections])
 
   useLayoutEffect(() => {
     if (open && pane === 'model' && activeModelIndex >= 0) {
@@ -248,6 +354,22 @@ export function ModelSelect(
     setPane(state.current === null ? 'model' : 'root')
     setOpen(true)
     reload()
+  }
+
+  /** Show only one access kind, or every kind again when it is the one shown. */
+  const toggleKind = (next: ModelRoute): void => {
+    setKind(shown => shown === next ? null : next)
+    setHighlightedIndex(null)
+  }
+
+  /** Toggle one capability filter; the highlight returns to the current model or the first row. */
+  const toggleFilter = (filter: ModelFilter): void => {
+    setFilters((current) => {
+      const next = new Set(current)
+      if (!next.delete(filter)) next.add(filter)
+      return next
+    })
+    setHighlightedIndex(null)
   }
 
   const changeQuery = (next: string): void => {
@@ -465,6 +587,7 @@ export function ModelSelect(
         }}
       >
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
+        {currentRoute !== undefined && <RouteIcon route={currentRoute} className={css.triggerRoute} />}
         <span className={css.triggerLabel}>{modelLabel}</span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
         {busy
@@ -489,7 +612,10 @@ export function ModelSelect(
             <>
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('model') }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
-                <span className={css.cellValue}>{modelLabel}</span>
+                <span className={css.cellValue}>
+                  {currentRoute !== undefined && <RouteIcon route={currentRoute} className={css.cellRoute} />}
+                  {modelLabel}
+                </span>
                 <IconChevronRightOutlineRegular className={css.cellChevron} />
               </button>
               {reasoning !== undefined && (
@@ -533,6 +659,47 @@ export function ModelSelect(
                   </button>
                 )}
               </div>}
+              {(offeredKinds.length > 0 || offeredFilters.length > 0 || offersHistorical) && (
+                <div className={css.filters} role="toolbar" aria-label={t('filter.aria')}>
+                  {offeredKinds.map(route => (
+                    <FilterToggle
+                      key={route}
+                      label={t(ROUTE_LABEL[route])}
+                      pressed={kind === route}
+                      disabled={busy}
+                      onToggle={() => { toggleKind(route) }}
+                    >
+                      <RouteIcon route={route} />
+                    </FilterToggle>
+                  ))}
+                  {offeredKinds.length > 0 && offeredFilters.length > 0 && <span className={css.filterGap} aria-hidden="true" />}
+                  {offeredFilters.map(filter => (
+                    <FilterToggle
+                      key={filter}
+                      label={t(FILTER_LABEL[filter])}
+                      pressed={filters.has(filter)}
+                      disabled={busy}
+                      onToggle={() => { toggleFilter(filter) }}
+                    >
+                      <FilterIcon filter={filter} />
+                    </FilterToggle>
+                  ))}
+                  {offersHistorical && (
+                    <FilterToggle
+                      label={t('filter.historical')}
+                      pressed={historical}
+                      disabled={busy}
+                      className={css.historical}
+                      onToggle={() => {
+                        setHistorical(shown => !shown)
+                        setHighlightedIndex(null)
+                      }}
+                    >
+                      <IconClockOutlineRegular size={14} />
+                    </FilterToggle>
+                  )}
+                </div>
+              )}
               {state.status === 'loading' && (
                 <div className={css.status}>{t('status.loading')}</div>
               )}
@@ -554,52 +721,50 @@ export function ModelSelect(
                 className={clsx(css.groups, 'scrollable')}
                 role="menu"
                 aria-label={t('menu.model')}
-                hidden={filteredGroups.length === 0}
+                hidden={filteredSections.length === 0}
               >
-                {filteredGroups.map((group) => {
-                  return (
-                    <MenuGroup key={group.id} label={group.id === 'deepseek-account' ? t('provider.account') : group.name}>
-                      {group.models.map((model) => {
-                        const index = modelIndex++
-                        const selected = state.current?.provider === group.id && state.current.model === model.id
-                        return (
-                          <button
-                            ref={itemRef()}
-                            type="button"
-                            role="menuitemradio"
-                            aria-checked={selected}
-                            id={`${id}-model-${index}`}
-                            tabIndex={showSearch ? -1 : 0}
-                            onFocus={() => { setHighlightedIndex(index) }}
-                            data-highlighted={index === activeModelIndex ? '' : undefined}
-                            className={clsx(
-                              css.option, css.modelOption, selected && css.selected, index === activeModelIndex && css.optionActive,
-                            )}
-                            onMouseMove={busy || index === activeModelIndex ? undefined : () => {
-                              if (showSearch) setHighlightedIndex(index)
-                              else itemRefs.current[index]?.focus()
-                            }}
-                            key={model.id}
-                            title={model.name}
-                            disabled={busy}
-                            onClick={() => { choose({ provider: group.id, model: model.id }) }}
-                          >
-                            <span className={css.optionCopy}>
-                              <span className={css.modelName}>{model.name}</span>
-                            </span>
-                            <span className={css.check}>
-                              {pending?.provider === group.id && pending.model === model.id
-                                ? <StateDot state="ongoing" />
-                                : selected ? <IconCheckOutlineRegular /> : null}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </MenuGroup>
-                  )
-                })}
+                {filteredSections.map(section => (
+                  <MenuGroup key={section.key} label={section.title} icon={<RouteIcon route={section.route} className={css.sectionIcon} />}>
+                    {section.models.map((model) => {
+                      const index = modelIndex++
+                      const selected = state.current?.provider === section.provider && state.current.model === model.id
+                      return (
+                        <button
+                          ref={itemRef()}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={selected}
+                          id={`${id}-model-${index}`}
+                          tabIndex={showSearch ? -1 : 0}
+                          onFocus={() => { setHighlightedIndex(index) }}
+                          data-highlighted={index === activeModelIndex ? '' : undefined}
+                          className={clsx(
+                            css.option, css.modelOption, selected && css.selected, index === activeModelIndex && css.optionActive,
+                          )}
+                          onMouseMove={busy || index === activeModelIndex ? undefined : () => {
+                            if (showSearch) setHighlightedIndex(index)
+                            else itemRefs.current[index]?.focus()
+                          }}
+                          key={model.id}
+                          title={model.name}
+                          disabled={busy}
+                          onClick={() => { choose({ provider: section.provider, model: model.id }) }}
+                        >
+                          <span className={css.optionCopy}>
+                            <span className={css.modelName}>{model.name}</span>
+                          </span>
+                          <span className={css.check}>
+                            {pending?.provider === section.provider && pending.model === model.id
+                              ? <StateDot state="ongoing" />
+                              : selected ? <IconCheckOutlineRegular /> : null}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </MenuGroup>
+                ))}
               </div>
-              {state.status === 'ready' && filteredGroups.length === 0 && (
+              {state.status === 'ready' && filteredSections.length === 0 && (
                 <div className={css.empty} role="status">{t(choices.length === 0 ? 'empty.models' : 'search.empty')}</div>
               )}
             </>
