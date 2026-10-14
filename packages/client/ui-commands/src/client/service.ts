@@ -383,7 +383,20 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
       token,
       ...(desc.input !== undefined ? { hint: desc.input.hint } : {}),
       ...(desc.input?.attachments === true ? { attachments: true } : {}),
-      submit: (args, _actx, attachments) => this.execute(session, line + args, attachments),
+      submit: (args, _actx, attachments) => {
+        // A claimed command submitted with nothing after it is the bare form
+        // by another route (`/reboot ` + Enter): a decoration owns the bare
+        // form, so it opens here too instead of the host running the
+        // command with empty arguments.
+        if (args.trim() === '' && attachments.length === 0) {
+          const decoration = this.live.decorations.get(desc.name)
+          if (decoration !== undefined && decoration.available(session)) {
+            this.invoke(desc.name, decoration.ui, session, { via: 'enter', token })
+            return Promise.resolve({ kind: 'success' })
+          }
+        }
+        return this.execute(session, line + args, attachments)
+      },
     }
   }
 
