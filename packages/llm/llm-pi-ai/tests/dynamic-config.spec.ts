@@ -67,12 +67,13 @@ describe('OAuth flows in a real composition', () => {
     })
     await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic Plan' },
+      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' },
+      { id: 'anthropic-oauth', name: 'Anthropic Plan', catalogProvider: 'anthropic', auth: 'subscription' },
     ])
     expect((await ctx.llm.listModels('anthropic-oauth')).map(model => model.id))
       .toEqual((await ctx.llm.listModels('anthropic')).map(model => model.id))
     await configurations.get(ctx)!.replace({ providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'anthropic', name: 'anthropic' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' }])
   })
   it('offers a sign-in for a provider no route names, once the seam is mounted', async () => {
     const ctx = await boot(await home(), {}, { authorization: true })
@@ -108,7 +109,7 @@ describe('request-level dynamic profiles', () => {
     const failure = 'llm-pi-ai: provider "openrouter" model "111" needs an api; '
       + 'the installed catalog does not describe it, so set the route\'s api to the wire protocol its endpoint speaks'
 
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'openrouter', name: 'openrouter' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'openrouter', name: 'openrouter', catalogProvider: 'openrouter', auth: 'api-key' }])
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
       provider: 'openrouter', displayName: 'openrouter', settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openrouter'], declared: false, error: failure,
@@ -132,7 +133,7 @@ describe('request-level dynamic profiles', () => {
     })
     await configurations.get(ctx)!.update({ providers: { openrouter: { api: 'openai-completions' } } })
     expect(diagnostics).toEqual([undefined])
-    expect(ctx.llm.listProviders()[0]).toEqual({ id: 'openrouter', name: 'openrouter' })
+    expect(ctx.llm.listProviders()[0]).toEqual({ id: 'openrouter', name: 'openrouter', catalogProvider: 'openrouter', auth: 'api-key' })
     const repaired = await assemble(ctx, { provider: 'openrouter', model: '111', messages: [] })
     expect(repaired.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(server.requests).toHaveLength(2)
@@ -153,7 +154,7 @@ describe('request-level dynamic profiles', () => {
     await expect(ctx.llm.resolveModelInfo('anthropic', 'removed-model')).rejects.toThrow('modelOverrides names "removed-model"')
     await expect(ctx.llm.resolveModelInfo('retired-route', 'anything')).rejects.toThrow('resolves no models')
     await configurations.get(ctx)!.replace({ providers: { anthropic: {} } })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'anthropic', name: 'anthropic' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' }])
     expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'retired-route')).toBeUndefined()
     expect(ctx.llm.listConfigurableProviders().find(entry => entry.provider === 'anthropic')?.error).toBeUndefined()
   })
