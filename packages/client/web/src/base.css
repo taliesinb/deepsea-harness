@@ -8,6 +8,20 @@ body,
   margin: 0;
 }
 
+/* The shell is one fixed viewport: every scroller lives inside the app, so
+   the document itself must never scroll. Without this, an element overflowing
+   the viewport edge (an edge-hugging menu, a scrollIntoView escalating past
+   the app's inner scrollers) gives the document scrollable overflow; WebKit
+   then scrolls the window — most visibly in a Safari standalone web app
+   ("Add to Dock"), where the shifted viewport sticks and leaves a blank band
+   because no document scrollbar exists to undo it. scroll-pin.ts undoes the
+   programmatic focus-reveal scrolls that bypass overflow clipping. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   font-family: var(
     --dsw-font-family,
