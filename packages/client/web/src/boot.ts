@@ -11,6 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-client-modules/client'
 import { bootClient } from './boot-client.ts'
 import { BootPage } from './boot-page.ts'
+import { applyEmbedPresentation } from './embed.ts'
 import { mountClient } from './mount.ts'
 import { getStaticModules } from './seed.ts'
 import { installWindowDragRecall } from './window-drag/recall.ts'
@@ -79,6 +80,9 @@ export class AppWebEntry {
       })
       this.manifest = this.modules.manifest
 
+      // Page mode precedes plugin activation: persisted stores read their
+      // keys through it, and the frame decides its chrome from it.
+      applyEmbedPresentation(typeof location === 'undefined' ? '' : location.search)
       const prefetching = this.prefetchImmediateTier()
       const ctx = new Context()
       this.ctx = ctx

@@ -29,6 +29,11 @@ export interface ILayout {
   /** Selected central panel from the same root store used by `usePanelInfo`. */
   readonly panelInfo: HostObservable<PanelInfo>
   /**
+   * The Session this page embeds chrome-less (`?embed=<id>`), or undefined
+   * in the ordinary shell. Fixed for the page's lifetime.
+   */
+  readonly embedSessionId: string | undefined
+  /**
    * Select a global central panel without changing the current Session.
    * @param panelId - registered main key, or null to show the Conversation.
    * @throws if the selected main key is not registered; preserves the current selection.
@@ -56,17 +61,22 @@ export interface ILayout {
 /** Cross-plugin panel-action face (ctx.layout). */
 export class LayoutController implements ILayout {
   private navigation = new AbortController()
+  readonly embedSessionId: string | undefined
 
   /**
    * @param panels - actions of the instance shared with the root entry.
    * @param hasMainPanel - checks the live main-slot registry for a panel id.
    * @param panelInfo - root store's shared central-panel selection source.
+   * @param embedSessionId - the embedded page's Session, when the page has one.
    */
   constructor(
     private readonly panels: PanelActions,
     private readonly hasMainPanel: (id: MainPanelId) => boolean,
     readonly panelInfo: HostObservable<PanelInfo>,
-  ) {}
+    embedSessionId?: string,
+  ) {
+    this.embedSessionId = embedSessionId
+  }
 
   /** Select a global panel or return to the Conversation. */
   selectPanel(panelId: MainPanelId | null): void {
