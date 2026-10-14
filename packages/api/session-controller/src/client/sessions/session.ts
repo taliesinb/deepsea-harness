@@ -67,6 +67,34 @@ interface PendingHistory {
   readonly pages: (readonly SessionEventLikeEntry[])[]
 }
 
+/** An opening still without its snapshot after this long is logged as stalled. */
+export const OPEN_STALL_WARN_MS = 15_000
+
+/**
+ * An opening still without its snapshot after this long reissues its follow
+ * once: the opening frame rides one multiplexed socket whose loss the
+ * Connection layer detects only when the carrier closes cleanly, so a
+ * request that vanished in flight would otherwise wait forever behind
+ * "Loading history…".
+ */
+export const OPEN_STALL_RESTART_MS = 30_000
+
+/**
+ * Fold a local (non-Remote) failure of the history source into the Remote
+ * failure shape the snapshot carries, logging the original so a client-side
+ * fault stays diagnosable instead of leaving the window in a silent state.
+ */
+function openFailure(sessionId: SessionId, phase: string, error: unknown): RemoteFailure {
+  if (isRemoteFailure(error)) return error
+  console.error(`[session-controller] ${phase} failed locally for session ${sessionId}:`, error)
+  return new RemoteError(
+    'gateway/internal',
+    error instanceof Error ? error.message : String(error),
+    {},
+    { cause: error },
+  )
+}
+
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
   /** Catalog-discovered address selecting non-activating subagent transport. */
@@ -627,18 +655,53 @@ export class Session implements SessionFace {
       },
     })
     this.events = events
+    const stopWatchdog = this.watchOpening(events, generation)
     try {
       await events.open(HISTORY_PAGE_OPTIONS)
       if (generation !== this.openGeneration || this.events !== events) return
       this.openState = 'open'
     } catch (error) {
       if (generation !== this.openGeneration || this.events !== events) return
-      if (!isRemoteFailure(error)) throw error
+      // Every failure lands in the snapshot: a Remote failure verbatim, a local
+      // fault (a bad opening baseline, a window-install bug) folded and logged.
+      // Rethrowing here left openState at 'loading' with nobody listening —
+      // the retain path swallows the opening rejection.
       this.events = undefined
       this.openState = 'error'
-      this.openError = error
+      this.openError = openFailure(this.sessionId, 'open', error)
+      void events.dispose()
     } finally {
+      stopWatchdog()
       if (generation === this.openGeneration) this.notifier.markDirty()
+    }
+  }
+
+  /**
+   * Stall detection for one opening: the snapshot frame has no deadline of
+   * its own. Logs once, then reissues the follow once; a stall past that is
+   * left visible (still 'loading') rather than looped.
+   * @returns disposer clearing both timers once the opening settles.
+   */
+  private watchOpening(events: SessionEventStream, generation: number): () => void {
+    const live = (): boolean => generation === this.openGeneration
+      && this.events === events
+      && this.openState === 'loading'
+    const warn = setTimeout(() => {
+      if (!live()) return
+      console.warn(
+        `[session-controller] session ${this.sessionId} has not received its opening snapshot after ${String(OPEN_STALL_WARN_MS)}ms`,
+      )
+    }, OPEN_STALL_WARN_MS)
+    const restart = setTimeout(() => {
+      if (!live()) return
+      console.warn(
+        `[session-controller] session ${this.sessionId} still has no opening snapshot after ${String(OPEN_STALL_RESTART_MS)}ms; reissuing its follow`,
+      )
+      events.restart()
+    }, OPEN_STALL_RESTART_MS)
+    return () => {
+      clearTimeout(warn)
+      clearTimeout(restart)
     }
   }
 
@@ -875,12 +938,14 @@ export class Session implements SessionFace {
   /** Publish a terminal background failure only while this stream still owns the Session. */
   private failEventStream(events: SessionEventStream, generation: number, error: unknown): void {
     if (generation !== this.openGeneration || this.events !== events) return
-    if (!isRemoteFailure(error)) throw error
+    // A local fault in the live fold (a frame the client cannot apply) would
+    // otherwise escape into the consumer's catch as an unhandled rejection and
+    // leave a dead window that still reads 'open'.
     this.openGeneration++
     this.events = undefined
     this.openPromise = null
     this.openState = 'error'
-    this.openError = error
+    this.openError = openFailure(this.sessionId, 'follow', error)
     void events.dispose()
     this.notifier.markDirty()
   }
