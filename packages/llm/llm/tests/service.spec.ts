@@ -24,6 +24,7 @@ import type {
   LlmProviderInfo,
   LlmResolvedModelInfo,
   LlmModelPricing,
+  LlmSignInState,
   LlmSubscriptionUsage,
   SystemPromptUpdate,
 } from '@deepseek-ai/dsh-llm'
@@ -757,6 +758,24 @@ describe('LlmRuntime', () => {
     }
     ctx.llm.registerAdapter(['plain'], new ScriptedAdapter(SCRIPT))
     await expect(ctx.llm.subscriptionUsage('plain')).resolves.toBeUndefined()
+  })
+
+  it('describes a sign-in route from its adapter, detached and validated', async () => {
+    const ctx = await (async () => { const c = new Context(); await c.plugin(LlmRuntime); return c })()
+    let published: unknown = { signedIn: true, account: { email: 'user@example.com', plan: 'claude_max', extra: 'dropped' } }
+    ctx.llm.registerAdapter(['route'], new class extends ScriptedAdapter {
+      override signInState(): Promise<LlmSignInState | undefined> { return Promise.resolve(published as LlmSignInState) }
+    }(SCRIPT))
+    await expect(ctx.llm.describeSignIn('route')).resolves.toEqual({ signedIn: true, account: { email: 'user@example.com', plan: 'claude_max' } })
+    published = { signedIn: false, account: {} }
+    await expect(ctx.llm.describeSignIn('route')).resolves.toEqual({ signedIn: false })
+    for (const bad of [{ signedIn: 'yes' }, { signedIn: true, account: { email: 42 } }, { signedIn: true, account: 'user@example.com' }]) {
+      published = bad
+      await expect(ctx.llm.describeSignIn('route')).rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+    }
+    ctx.llm.registerAdapter(['plain'], new ScriptedAdapter(SCRIPT))
+    await expect(ctx.llm.describeSignIn('plain')).resolves.toBeUndefined()
+    await expect(ctx.llm.describeSignIn('unregistered')).resolves.toBeUndefined()
   })
 
   it('detaches adapter-published list prices and rejects malformed ones', async () => {

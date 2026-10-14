@@ -40,6 +40,32 @@
   color: var(--dsw-alias-state-success-primary);
 }
 
+/* One of the page's sections (API keys, Plans, Local): a quiet heading over its cards and add control. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* A section with nothing under its heading (no cards, no add control, an empty
+   section-actions seat) is not shown: Plans without a sign-in plugin, say. */
+.group:not(:has(> :not(.groupTitle, :empty))) {
+  display: none;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.group > .rows {
+  margin: 0;
+}
+
 .rows {
   list-style: none;
   /* Extra air between the title/intro block and the first provider card. */
@@ -111,6 +137,33 @@
 
 .credentialDotMissing {
   background: var(--dsw-alias-state-error-primary);
+}
+
+/* A sign-in route's Details: label/value pairs in the editor's inset box. */
+.signInFacts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 6px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.signInFacts dt {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.signInFacts dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
 }
 
 .rowActions {

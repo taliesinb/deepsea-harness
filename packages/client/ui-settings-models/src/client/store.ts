@@ -9,7 +9,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmConfigurableProvider, LlmProviderInfo, SettingsNamespaceView,
+  CredentialInfo, LlmConfigurableProvider, LlmProviderInfo, LlmSignInRoute, LlmSignInState, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -30,6 +30,10 @@ export interface ProviderDirectoryEntry {
   readonly settingsPath: readonly string[]
   readonly active: boolean
   readonly declared?: boolean
+  /** A browser sign-in route: its card shows the account instead of a key field. */
+  readonly signIn?: LlmSignInRoute
+  /** How the route is paid for, as its adapter reports it (or its profile declares it). */
+  readonly auth?: 'subscription' | 'api-key' | 'local'
   readonly error?: string
 }
 
@@ -44,6 +48,7 @@ export function joinProviderDirectory(
   directory: readonly LlmConfigurableProvider[],
 ): ProviderDirectoryEntry[] {
   const active = new Set(registered.map(provider => provider.id))
+  const auths = new Map(registered.flatMap(provider => provider.auth === undefined ? [] : [[provider.id, provider.auth] as const]))
   const declared = new Set(directory.map(entry => entry.provider))
   const rows: ProviderDirectoryEntry[] = directory.map(entry => ({
     provider: entry.provider,
@@ -52,6 +57,8 @@ export function joinProviderDirectory(
     settingsPath: [...entry.settingsPath],
     active: active.has(entry.provider),
     ...entry.declared === undefined ? {} : { declared: entry.declared },
+    ...entry.signIn === undefined ? {} : { signIn: { ...entry.signIn } },
+    ...(auth => auth === undefined ? {} : { auth })(auths.get(entry.provider)),
     ...entry.error === undefined ? {} : { error: entry.error },
   }))
   for (const provider of registered) {
@@ -67,6 +74,41 @@ export function joinProviderDirectory(
   return rows.toSorted((left, right) =>
     (left.provider === 'deepseek-account' ? 0 : left.provider === 'deepseek-official' ? 1 : 2)
       - (right.provider === 'deepseek-account' ? 0 : right.provider === 'deepseek-official' ? 1 : 2))
+}
+
+/** The page's three sections: keyed providers, sign-in plans, servers on this machine. */
+export type ModelsGroup = 'apiKeys' | 'plans' | 'local'
+
+/**
+ * The section a provider belongs to: a subscription sign-in is a plan, a route
+ * its adapter (or profile) calls local is local, everything else takes a key.
+ * @param entry - the row's directory entry.
+ * @returns its section.
+ */
+export function modelsGroupOf(entry: ProviderDirectoryEntry): ModelsGroup {
+  if (entry.signIn?.kind === 'subscription' || entry.auth === 'subscription') return 'plans'
+  return entry.auth === 'local' ? 'local' : 'apiKeys'
+}
+
+/** Whether a base URL names this machine. */
+function loopbackUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname
+    return host === 'localhost' || host === '[::1]' || host === '::1' || /^127(?:\.\d{1,3}){3}$/u.test(host)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The auth an unregistered route's profile implies, as llm-pi-ai would infer
+ * it: a declared `auth`, else local for a hand-declared route on this machine.
+ */
+function profileAuth(entry: ProviderDirectoryEntry, profile: unknown): ProviderDirectoryEntry['auth'] {
+  if (typeof profile !== 'object' || profile === null) return undefined
+  const { auth, baseURL } = profile as { auth?: unknown; baseURL?: unknown }
+  if (auth === 'subscription' || auth === 'api-key' || auth === 'local') return auth
+  return entry.declared === true && typeof baseURL === 'string' && loopbackUrl(baseURL) ? 'local' : undefined
 }
 
 /** One provider row the page renders. */
@@ -90,6 +132,11 @@ export interface ProviderRow {
    * own derivation rule.
    */
   derivedCredential?: CredentialInfo
+  /**
+   * A sign-in route's state and account, once described; absent while the
+   * route is unregistered (no profile) or the read failed.
+   */
+  signInState?: LlmSignInState
 }
 
 /** Page snapshot. */
@@ -208,11 +255,15 @@ export class ModelsSettingsStore {
         && entry.settingsPath.length > 0
         && this.schema.hasPath(namespace.user, entry.settingsPath)
         && !this.schema.hasPath(namespace.base, entry.settingsPath)
+      // A configured route that failed to register still belongs in its section.
+      const inferred = entry.auth === undefined && namespace !== undefined && entry.settingsPath.length > 0
+        ? profileAuth(entry, this.schema.getPath(namespace.value, entry.settingsPath))
+        : undefined
       return {
-        entry,
+        entry: inferred === undefined ? entry : { ...entry, auth: inferred },
         configured,
         removable,
-        apiKeyEnv: entry.provider === 'deepseek-account' ? undefined : apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
+        apiKeyEnv: entry.provider === 'deepseek-account' || entry.signIn !== undefined ? undefined : apiKeyEnvOf(namespace, entry.settingsPath, this.schema),
         credential: undefined,
       }
     })
@@ -223,7 +274,15 @@ export class ModelsSettingsStore {
           && catalog.value.groups.some(group => group.id === 'deepseek-account' && group.models.length > 0)
       }
     }
-    const refs = [...new Set(rows.filter(row => row.entry.provider !== 'deepseek-account').map(row => row.apiKeyEnv ?? deriveKeyRef(row.entry.provider)))]
+    // A sign-in route keeps its grant in its own credential record, never behind a key reference.
+    const keyed = (row: ProviderRow): boolean => row.entry.provider !== 'deepseek-account' && row.entry.signIn === undefined
+    const refs = [...new Set(rows.filter(keyed).map(row => row.apiKeyEnv ?? deriveKeyRef(row.entry.provider)))]
+    // Sign-in state is display enrichment: one read per registered sign-in route, failures leave it absent.
+    const signIns = new Map<string, LlmSignInState>()
+    await Promise.all(rows.filter(row => row.entry.signIn !== undefined && row.entry.active).map(async (row) => {
+      const response = await this.ctx.remote.llm.describeSignIn(row.entry.provider)
+      if (response.ok && response.value !== undefined) signIns.set(row.entry.provider, response.value)
+    }))
     let credentials: Record<string, CredentialInfo> = {}
     let credentialError: string | null = null
     if (refs.length > 0) {
@@ -242,6 +301,8 @@ export class ModelsSettingsStore {
       s.writable = writable
       s.rows = rows.filter(row => row.entry.provider !== 'deepseek-account' || row.accountAvailable === true).map((row) => {
         if (row.entry.provider === 'deepseek-account') return row
+        const signInState = signIns.get(row.entry.provider)
+        if (row.entry.signIn !== undefined) return signInState === undefined ? row : { ...row, signInState }
         const named = row.apiKeyEnv === undefined ? undefined : credentials[row.apiKeyEnv]
         const derived = row.apiKeyEnv !== undefined ? undefined : credentials[deriveKeyRef(row.entry.provider)]
         return {

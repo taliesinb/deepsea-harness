@@ -4,7 +4,7 @@ import type { RpcResponse } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { settingsSchema } from './settings-schema.client.ts'
-import { joinProviderDirectory, ModelsSettingsStore, providerUsable } from '../src/client/store.ts'
+import { joinProviderDirectory, modelsGroupOf, ModelsSettingsStore, providerUsable } from '../src/client/store.ts'
 
 it.each([false, true])('retains configuration diagnostics when the route is active: %s', (active) => {
   expect(joinProviderDirectory(active ? [{ id: 'openai', name: 'openai' }] : [], [{
@@ -87,6 +87,7 @@ function api(overrides: {
   providers?: () => Promise<RpcResponse<{ providers: typeof DIRECTORY }>>
   describeSettings?: () => Promise<RemoteAnswer<{ writable: boolean; hasDocument: boolean; namespaces: typeof NAMESPACES }>>
   describeCredentials?: (refs: readonly string[]) => Promise<RemoteAnswer<Record<string, unknown>>>
+  signIns?: Record<string, unknown>
 } = {}) {
   const seenRefs: string[][] = []
   const providers = overrides.providers ?? (() => Promise.resolve(ok({ providers: DIRECTORY })))
@@ -118,6 +119,7 @@ function api(overrides: {
         .filter(row => row.settingsNs !== '')
         .map(({ active: _active, ...row }) => row)),
       discoverModels: () => Promise.resolve(remoteOk([])),
+      describeSignIn: (provider: string) => Promise.resolve(remoteOk(overrides.signIns?.[provider])),
     },
     settings: {
       describe: overrides.describeSettings
@@ -139,6 +141,70 @@ function api(overrides: {
   const ctx = { remote: face } as never
   return { ctx, face, mirror: new SettingsDescribeMirror(ctx), seenRefs }
 }
+
+it('sorts rows into API keys, Plans and Local by sign-in kind and route auth', () => {
+  const rows = joinProviderDirectory(
+    [{ id: 'openai', name: 'openai', auth: 'api-key' }, { id: 'lmstudio', name: 'LM Studio', auth: 'local' },
+      { id: 'anthropic-oauth', name: 'Anthropic Plan', auth: 'subscription' }, { id: 'openrouter-oauth', name: 'OpenRouter OAuth', auth: 'api-key' }],
+    [
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+      { provider: 'lmstudio', displayName: 'LM Studio', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'lmstudio'], declared: true },
+      { provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic-oauth'],
+        signIn: { kind: 'subscription', vendor: 'Anthropic' } },
+      { provider: 'openrouter-oauth', displayName: 'OpenRouter OAuth', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openrouter-oauth'],
+        signIn: { kind: 'oauth', vendor: 'OpenRouter' } },
+      { provider: 'xai-oauth', displayName: 'xAI Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai-oauth'],
+        signIn: { kind: 'subscription', vendor: 'xAI' } },
+    ],
+  )
+  expect(Object.fromEntries(rows.map(row => [row.provider, modelsGroupOf(row)]))).toEqual({
+    'openai': 'apiKeys', 'lmstudio': 'local', 'anthropic-oauth': 'plans', 'openrouter-oauth': 'apiKeys', 'xai-oauth': 'plans',
+  })
+  expect(rows.find(row => row.provider === 'lmstudio')?.auth).toBe('local')
+})
+
+describe('sign-in routes', () => {
+  it('carry their sign-in kind and account, and ask for no API key', async () => {
+    const signInRow = {
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'anthropic-oauth'], active: true, signIn: { kind: 'subscription' as const, vendor: 'Anthropic' },
+    }
+    const { ctx, mirror, seenRefs } = api({
+      providers: () => Promise.resolve(ok({ providers: [...DIRECTORY, signInRow] as typeof DIRECTORY })),
+      signIns: { 'anthropic-oauth': { signedIn: true, account: { email: 'user@example.com', organization: 'Fixture Org', plan: 'claude_max' } } },
+    })
+    const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+    await store.load()
+    const row = store.store.getSnapshot().rows.find(candidate => candidate.entry.provider === 'anthropic-oauth')
+    expect(row?.entry.signIn).toEqual({ kind: 'subscription', vendor: 'Anthropic' })
+    expect(row?.signInState).toEqual({ signedIn: true, account: { email: 'user@example.com', organization: 'Fixture Org', plan: 'claude_max' } })
+    expect(row?.apiKeyEnv).toBeUndefined()
+    expect(seenRefs.flat()).not.toContain('ANTHROPIC_OAUTH_API_KEY')
+  })
+
+  it('infers Local for a configured route that failed to register, from its profile', async () => {
+    const declared = (provider: string, displayName: string) => ({
+      provider, displayName, settingsNs: 'llm-pi-ai', settingsPath: ['providers', provider], active: false, declared: true,
+    })
+    const [lmstudio, gateway, pinned] = [declared('lmstudio', 'LM Studio'), declared('gateway', 'Gateway'), declared('pinned', 'Pinned')]
+    const namespaces = NAMESPACES.map(view => view.ns !== 'llm-pi-ai' ? view : {
+      ...view,
+      value: { providers: { ...view.value.providers, lmstudio: { baseURL: 'http://127.0.0.1:1234/v1' },
+        gateway: { baseURL: 'https://gateway.example.com/v1' }, pinned: { baseURL: 'https://gateway.example.com/v1', auth: 'local' } } },
+    })
+    const { ctx, mirror } = api({
+      providers: () => Promise.resolve(ok({ providers: [...DIRECTORY, lmstudio, gateway, pinned] as typeof DIRECTORY })),
+      describeSettings: () => Promise.resolve(remoteOk({
+        writable: true, hasDocument: false, namespaces: namespaces as typeof NAMESPACES,
+      })),
+    })
+    const store = new ModelsSettingsStore(ctx, settingsSchema, mirror)
+    await store.load()
+    const auth = (provider: string): string | undefined =>
+      store.store.getSnapshot().rows.find(row => row.entry.provider === provider)?.entry.auth
+    expect([auth('lmstudio'), auth('gateway'), auth('pinned')]).toEqual(['local', undefined, 'local'])
+  })
+})
 
 describe('ModelsSettingsStore', () => {
   it('joins rows with configured, removable, and credential state', async () => {
