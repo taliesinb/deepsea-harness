@@ -24,6 +24,8 @@ import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-ll
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import {
   CACHE_CONTROL_FORMATS,
+  oauthCatalogProvider,
+  oauthRouteDisplayName,
   CHAT_TEMPLATE_VARS,
   MAX_TOKENS_FIELDS,
   MODALITIES,
@@ -458,7 +460,11 @@ export function resolveProfiles(
     // The route key, not the installed provider's own name: the directory has
     // always shown route keys, and a catalog route must not silently rename
     // itself on every configuration surface just because it gained a profile.
-    const displayName = source.displayName ?? provider
+    const oauthProvider = oauthCatalogProvider(provider)
+    if (oauthProvider !== undefined && (source.apiKeyEnv !== undefined || source.api !== undefined || source.baseURL !== undefined)) {
+      throw new Error(`llm-pi-ai: ${provider} uses its OAuth grant and native catalog; configure API keys and custom endpoints on another route`)
+    }
+    const displayName = source.displayName ?? oauthRouteDisplayName(provider) ?? provider
     let catalog: RouteCatalog | undefined
     let piProvider: Provider | undefined
     let catalogError: string | undefined

@@ -26,6 +26,19 @@ afterEach(async () => {
 })
 
 describe('pi-ai credential store over harness records', () => {
+  it('keeps Anthropic API-key and OAuth records independent across refresh and removal', async () => {
+    const ctx = await stored()
+    const store = credentialStoreFrom(ctx)
+    await store.modify('anthropic', () => Promise.resolve({ type: 'api_key', key: 'api-test-only' }))
+    const grant = { type: 'oauth' as const, access: 'oauth-test-only', refresh: 'refresh-test-only', expires: 123 }
+    await store.modify('anthropic-oauth', () => Promise.resolve(grant))
+    await store.modify('anthropic-oauth', current => Promise.resolve({ ...current, ...grant, access: 'refreshed-test-only' }))
+    expect(await store.read('anthropic')).toEqual({ type: 'api_key', key: 'api-test-only' })
+    expect(await store.read('anthropic-oauth')).toMatchObject({ type: 'oauth', access: 'refreshed-test-only' })
+    await store.delete('anthropic-oauth')
+    expect(await store.read('anthropic')).toEqual({ type: 'api_key', key: 'api-test-only' })
+    expect(await store.read('anthropic-oauth')).toBeUndefined()
+  })
   it('reads nothing for a provider with no record', async () => {
     const store = credentialStoreFrom(await stored())
 

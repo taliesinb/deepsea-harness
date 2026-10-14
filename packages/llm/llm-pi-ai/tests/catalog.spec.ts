@@ -29,6 +29,28 @@ declare module '@deepseek-ai/dsh-llm' {
 // mounted credentials seam.
 const KEY_ENV = 'PI_TEST_KEY'
 
+
+describe('OAuth catalog routes', () => {
+  it('clones catalog models for an OAuth route without changing the API-key route', () => {
+    const profiles = resolveProfiles({ anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' }, 'anthropic-oauth': {} })
+    const api = profiles.get('anthropic')?.piProvider
+    const oauth = profiles.get('anthropic-oauth')?.piProvider
+    expect(api?.getModels().map(model => model.id)).toEqual(oauth?.getModels().map(model => model.id))
+    expect(api?.getModels()[0]?.provider).toBe('anthropic')
+    expect(oauth?.getModels()[0]?.provider).toBe('anthropic-oauth')
+    expect(oauth?.getModels().find(model => model.id === 'claude-opus-5-5')).toMatchObject({
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      thinkingLevelMap: { xhigh: 'xhigh', max: 'max' },
+    })
+    expect(oauth?.auth.oauth).toBeDefined()
+    expect(oauth?.auth.apiKey).toBeUndefined()
+    expect(api?.auth.apiKey).toBeDefined()
+    expect(profiles.get('anthropic-oauth')?.displayName).toBe('Anthropic Plan')
+    expect(() => resolveProfiles({ 'anthropic-oauth': { apiKeyEnv: 'ANTHROPIC_API_KEY' } })).toThrow(/OAuth grant/)
+  })
+})
+
 beforeEach(() => {
   vi.stubEnv(KEY_ENV, 'test-key')
 })

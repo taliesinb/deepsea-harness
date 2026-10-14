@@ -20,9 +20,9 @@ vi.mock('../src/models.ts', async importOriginal => ({
 }))
 
 const { credentialStoreFrom, authContextFrom, recordKeyFor } = await import('../src/auth.ts')
-const { registerPiAiFlows } = await import('../src/login.ts')
+const { registerPiAiOAuthFlows } = await import('../src/oauth.ts')
 
-const CODEX = recordKeyFor('openai-codex')
+const CODEX = recordKeyFor('openai-codex-oauth')
 const dirs: string[] = []
 
 /** A context with the record store, the seam, and every pi-ai login flow. */
@@ -32,7 +32,7 @@ async function harness(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LocalCredentialProvider, { path: join(dir, '.credentials.yaml'), watch: false })
   await ctx.plugin(AuthorizationService)
-  registerPiAiFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
+  registerPiAiOAuthFlows(ctx, { credentials: credentialStoreFrom(ctx), authContext: authContextFrom(ctx) })
   return ctx
 }
 
@@ -80,7 +80,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => rm(dir, { recursive: true, force: true })))
 })
 
-describe('pi-ai login flows', () => {
+describe('pi-ai OAuth flows', () => {
   it('offers one flow per installed provider, with the methods that provider ships', async () => {
     const ctx = await harness()
     const offered = ctx.authorization.list()
@@ -89,23 +89,24 @@ describe('pi-ai login flows', () => {
     // else could ever configure it.
     expect(offered.find(entry => entry.key === CODEX)?.methods)
       .toEqual([{ id: 'oauth', label: expect.stringContaining('ChatGPT') as string }])
-    // A provider offering both keeps both, the subscription login first.
-    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))?.methods.map(one => one.id))
-      .toEqual(['oauth', 'api-key'])
-    // A key-only provider still gets a flow, because pi-ai collects the key
-    // through its own prompt rather than leaving it to the settings form.
-    expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
-      .toEqual(['api-key'])
+    // Anthropic's subscription login owns a separate credential and route.
+    expect(offered.find(entry => entry.key === recordKeyFor('anthropic-oauth'))?.methods.map(one => one.id))
+      .toEqual(['oauth'])
+    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))).toBeUndefined()
+    // OAuth commands never offer key-only providers.
+    expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))).toBeUndefined()
   })
 
   it('runs the pi-ai auth type the chosen method names', async () => {
     const ctx = await harness()
 
     await attempt(ctx, () => Promise.resolve())
-    expect(login).toHaveBeenLastCalledWith('openai-codex', 'oauth', expect.anything())
+    expect(login).toHaveBeenLastCalledWith('openai-codex-oauth', 'oauth', expect.anything())
 
-    await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic'), method: 'api-key' })
-    expect(login).toHaveBeenLastCalledWith('anthropic', 'api_key', expect.anything())
+    await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic-oauth') })
+    expect(login).toHaveBeenLastCalledWith('anthropic-oauth', 'oauth', expect.anything())
+    await expect(ctx.credentials.readRecord(recordKeyFor('anthropic-oauth'))).resolves.toMatchObject({ kind: 'grant' })
+    await expect(ctx.credentials.readRecord(recordKeyFor('anthropic'))).resolves.toBeUndefined()
   })
 
   it('commits what the login produced, where the adapter reads it back', async () => {
@@ -153,6 +154,26 @@ describe('pi-ai login flows', () => {
     ])
   })
 
+  it('sends people to the provider simulator\'s pages while simulating', async () => {
+    vi.stubEnv('DSH_PROVIDER_SIMULATOR', 'http://127.0.0.1:4100')
+    try {
+      const ctx = await harness()
+      const ui = await attempt(ctx, (interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://claude.ai/oauth/authorize?code=true' })
+        interaction.notify({ type: 'device_code', userCode: 'AB-12', verificationUri: 'https://auth.x.ai/device' })
+        interaction.notify({ type: 'info', message: 'Docs', links: [{ url: 'https://docs.example/page' }] })
+        return Promise.resolve()
+      })
+      expect(ui.notices.slice(0, 3)).toEqual([
+        { message: 'Open this page to continue signing in.', url: 'http://127.0.0.1:4100/claude.ai/oauth/authorize?code=true' },
+        { message: 'Enter this code on the verification page to finish signing in.', url: 'http://127.0.0.1:4100/auth.x.ai/device', code: 'AB-12' },
+        { message: 'Docs', url: 'https://docs.example/page' },
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('restates every pi-ai prompt, carrying the per-prompt withdrawal signal', async () => {
     const ctx = await harness()
     const withdraw = new AbortController()
@@ -169,13 +190,45 @@ describe('pi-ai login flows', () => {
       for (const prompt of prompts) await interaction.prompt(prompt)
     })
 
-    expect(ui.prompts).toEqual([
+    const withdrawable = ui.prompts[4]?.signal
+    expect(ui.prompts.map(({ signal: _signal, ...prompt }) => prompt)).toEqual([
       { kind: 'text', message: 'Your workspace', placeholder: 'acme' },
       { kind: 'secret', message: 'Paste the key' },
       { kind: 'secret', message: 'Paste the token', placeholder: 'sk-…' },
       { kind: 'select', message: 'Which account?', options: [{ id: 'a', label: 'Work' }] },
-      { kind: 'text', message: 'Paste the code', signal: withdraw.signal },
+      { kind: 'text', message: 'Paste the code' },
     ])
+    // Only the racing question carries a signal, and pi-ai's withdrawal reaches it.
+    expect(ui.prompts.slice(0, 4).every(prompt => prompt.signal === undefined)).toBe(true)
+    expect(withdrawable?.aborted).toBe(false)
+    withdraw.abort()
+    expect(withdrawable?.aborted).toBe(true)
+  })
+
+  it('withdraws a racing question when the attempt is cancelled, so the flow can close its callback server', async () => {
+    const ctx = await harness()
+    const controller = new AbortController()
+    let questionSignal: AbortSignal | undefined
+    const asked = Promise.withResolvers<undefined>()
+    login.mockImplementation(async (_id: string, _type: AuthType, interaction: AuthInteraction) => {
+      // pi-ai's loopback shape: its own signal for the manual question, aborted only after the await.
+      const manual = new AbortController()
+      try { await interaction.prompt({ type: 'manual_code', message: 'Paste the code', signal: manual.signal }) }
+      finally { manual.abort() }
+      return new Promise(() => {})
+    })
+    const ui = surface()
+    ui.prompt = (prompt) => {
+      questionSignal = prompt.signal
+      asked.resolve(undefined)
+      return new Promise((_resolve, reject) => { prompt.signal?.addEventListener('abort', () => { reject(new Error('withdrawn')) }, { once: true }) })
+    }
+    const outcome = ctx.authorization.begin({ key: CODEX, interaction: ui, signal: controller.signal })
+    await asked.promise
+    expect(questionSignal?.aborted).toBe(false)
+    controller.abort()
+    await expect(outcome).resolves.toEqual({ status: 'cancelled' })
+    expect(questionSignal?.aborted).toBe(true)
   })
 
   it('hands the flow the attempt-wide cancellation signal', async () => {
