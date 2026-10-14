@@ -136,6 +136,8 @@ describe('LlmRuntime', () => {
       'account balance depleted',
       'usage-limit-exceeded',
       'out of credits',
+      // Gemini's 402 on an account without prepaid credit.
+      'Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.',
       'OpenAI API error (429): You exceeded your current quota, please check your plan and billing details.',
     ]) expect(isQuotaExceededError(detail)).toBe(true)
     expect(isQuotaExceededError('HTTP 429: rate limit reached')).toBe(false)

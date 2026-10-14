@@ -41,8 +41,18 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // us capture the cause ourselves), classify on `code`/`cause` instead of text.
 function classifyPiAiError(message: string): string {
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
+  // Google rejects a bad or expired key with 400 INVALID_ARGUMENT, naming it
+  // only in the error's reason and wording.
+  if (/\bAPI_KEY_(?:INVALID|EXPIRED)\b|\bAPI key (?:not valid|expired)\b/i.test(message)) return 'AUTH'
+  // Z.ai sends an empty balance as HTTP 429 with business code 1113, worded per
+  // host (English on api.z.ai, Chinese on open.bigmodel.cn): the code decides.
+  if (/"code"\s*:\s*"?1113\b/.test(message)) return QUOTA_EXCEEDED_CODE
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
-  if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
+  // pi-ai rewrites the ChatGPT Plan's 429 `usage_limit_reached` into its own
+  // sentence without the status ("You have hit your ChatGPT usage limit (plus
+  // plan). Try again in ~60 min."); a Plan's usage window is a rate limit, as
+  // Anthropic's Plan 429 is.
+  if (/\b429\b|rate.?limit|\bhit your (?:[\w-]+\s+)?usage limit\b/i.test(message)) return 'RATE_LIMIT'
   // A rejected request body (gateway or provider size cap): resending the
   // same request cannot succeed, so it is invalid, not transient.
   if (/\b413\b|failed to buffer the request body:\s*length limit exceeded|payload too large|request body too large/i.test(message)) return 'INVALID_REQUEST'
