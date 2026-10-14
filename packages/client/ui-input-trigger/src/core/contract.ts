@@ -22,12 +22,17 @@ export interface TriggerHit {
 
 /**
  * Detect a trigger token at the caret under the given guard tier.
- * `@` uses the shared file-reference start/whitespace grammar; `/` accepts
- * punctuation boundaries with URL carve-outs. `user@host` and URL `/` do not
- * trigger.
+ * `@` uses the shared file-reference start/whitespace grammar; every other
+ * registered punctuation trigger accepts punctuation boundaries, while `/`
+ * retains URL carve-outs. `user@host` and URL `/` do not trigger.
  * Returns null when no trigger is live at the caret.
  */
-export type DetectTrigger = (draft: string, caret: number, guard: TriggerGuard) => TriggerHit | null
+export type DetectTrigger = (
+  draft: string,
+  caret: number,
+  guard: TriggerGuard,
+  triggers?: ReadonlySet<TriggerChar>,
+) => TriggerHit | null
 
 /** Menu state: one group per source; empty ready groups auto-close the menu. */
 export interface MenuState {

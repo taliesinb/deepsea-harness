@@ -60,6 +60,29 @@ describe('detectTrigger word boundaries', () => {
   })
 })
 
+describe('detectTrigger registered plugin characters', () => {
+  const percent = new Set(['/', '@', '%'])
+
+  it('detects a registered punctuation trigger and preserves slash text in its query', () => {
+    expect(detectTrigger('%foo/bar', 8, plain, percent)).toMatchObject({
+      trigger: '%', query: 'foo/bar', quoted: false, position: 'leading',
+      span: { start: 0, end: 8, draftRev: 0 },
+    })
+    expect(detectTrigger('see (%foo', 9, plain, percent)).toMatchObject({ trigger: '%', query: 'foo' })
+  })
+
+  it('ignores unregistered, word-adjacent, and whitespace-completed plugin tokens', () => {
+    expect(detectTrigger('%foo', 4, plain)).toBeNull()
+    expect(detectTrigger('rate%foo', 8, plain, percent)).toBeNull()
+    expect(detectTrigger('%foo done', 9, plain, percent)).toBeNull()
+  })
+
+  it('keeps plugin triggers live in claimed mode and suppresses all triggers when frozen', () => {
+    expect(detectTrigger('%foo', 4, claimed, percent)).toMatchObject({ trigger: '%', query: 'foo' })
+    expect(detectTrigger('%foo', 4, frozen, percent)).toBeNull()
+  })
+})
+
 describe('detectTrigger position', () => {
   it('treats a draft whose leading trim (incl. newlines) starts at the token as leading', () => {
     expect(atEnd('\n\n/goal')).toMatchObject({ position: 'leading' })

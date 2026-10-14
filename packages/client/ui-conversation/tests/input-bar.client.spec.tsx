@@ -63,7 +63,7 @@ interface BenchOptions {
   modelEntry?: React.ReactNode
   permissionEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
-  lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
+  lexicon?: ReadonlyMap<string, readonly string[]>
   /** The `imageLimits` projection value (absent = no attachment service). */
   imageLimits?: {
     maxImageBytes: number

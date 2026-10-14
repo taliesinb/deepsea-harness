@@ -17,11 +17,11 @@
 export interface TextRefRange {
   readonly start: number
   readonly end: number
-  readonly trigger: '/' | '@'
+  readonly trigger: string
 }
 
-/** Token matcher: a trigger char at line start or after whitespace, then a word-ish name (never crosses \n). */
-const TEXT_REF_RE = /(^|\s)([/@])([\w-]+)/g
+/** Editable token name following a registered punctuation trigger. */
+const TEXT_REF_NAME_RE = /^[\w-]+/
 const FOLDER_REF_RE = /(^|\s)(@(?:"[^"\n]*\/|[^\s"]+\/))/g
 /**
  * What may follow a `/name` token: whitespace or the draft end, the boundary
@@ -41,19 +41,19 @@ const SLASH_TOKEN_END_RE = /^(?:\s|$)/
  * @returns matched ranges in draft order.
  */
 export function scanTextRefs(
-  draft: string, lexicon: ReadonlyMap<'/' | '@', readonly string[]>,
+  draft: string, lexicon: ReadonlyMap<string, readonly string[]>,
 ): TextRefRange[] {
   if (draft === '') return []
   const out: TextRefRange[] = []
-  TEXT_REF_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = TEXT_REF_RE.exec(draft)) !== null) {
-    const trigger = m[2] as '/' | '@'
-    const name = m[3] ?? ''
-    if (trigger === '/' && !SLASH_TOKEN_END_RE.test(draft.slice(m.index + m[0].length))) continue
-    if (lexicon.get(trigger)?.includes(name)) {
-      const start = m.index + (m[1]?.length ?? 0)
-      out.push({ start, end: start + 1 + name.length, trigger })
+  for (const [trigger, names] of lexicon) {
+    if (trigger.length !== 1 || names.length === 0) continue
+    for (let start = 0; start < draft.length; start++) {
+      if (draft.charAt(start) !== trigger || (start > 0 && !/\s/u.test(draft.charAt(start - 1)))) continue
+      const name = TEXT_REF_NAME_RE.exec(draft.slice(start + 1))?.[0] ?? ''
+      if (name === '' || !names.includes(name)) continue
+      const end = start + 1 + name.length
+      if (trigger === '/' && !SLASH_TOKEN_END_RE.test(draft.slice(end))) continue
+      out.push({ start, end, trigger })
     }
   }
   FOLDER_REF_RE.lastIndex = 0
