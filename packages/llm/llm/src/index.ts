@@ -546,10 +546,12 @@ export class LlmRuntime extends TypertRemoteService {
         throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
       }
       const catalogProvider: unknown = info.catalogProvider
+      const vendor: unknown = info.vendor
       const auth: unknown = info.auth
       if ((catalogProvider !== undefined && (typeof catalogProvider !== 'string' || catalogProvider.length === 0))
+        || (vendor !== undefined && (typeof vendor !== 'string' || vendor.length === 0))
         || (auth !== undefined && auth !== 'subscription' && auth !== 'api-key' && auth !== 'local')) {
-        throw new LlmError(`adapter metadata for provider "${provider}" has an invalid catalog provider or auth kind`, 'INVALID_ADAPTER')
+        throw new LlmError(`adapter metadata for provider "${provider}" has an invalid catalog provider, vendor or auth kind`, 'INVALID_ADAPTER')
       }
       unique.add(provider)
       const retryPolicy = adapter.providerRetryPolicy(provider)
@@ -560,6 +562,7 @@ export class LlmRuntime extends TypertRemoteService {
           id: info.id,
           name: info.name,
           ...info.catalogProvider === undefined ? {} : { catalogProvider: info.catalogProvider },
+          ...info.vendor === undefined ? {} : { vendor: info.vendor },
           ...info.auth === undefined ? {} : { auth: info.auth },
         },
         retryPolicy,
