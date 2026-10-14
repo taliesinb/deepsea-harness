@@ -36,6 +36,7 @@ import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.
 import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
 import { normalizeApiKey } from './api-key.ts'
+import { installProviderSimulation } from './provider-simulation.ts'
 import {
   contentHasFile, contentHasImage, fileHandleText, projectFilesToText, projectImagesForTextModel, projectToolUpdates,
 } from './content.ts'
@@ -50,6 +51,7 @@ export * from './content.ts'
 export * from './assistant-stream.ts'
 export * from './message.ts'
 export * from './retry-policy.ts'
+export * from './provider-simulation.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
@@ -349,6 +351,9 @@ export class LlmRuntime extends TypertRemoteService {
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
+    // Every adapter's provider traffic flows through this process after boot:
+    // under DSH_PROVIDER_SIMULATOR it goes to the loopback simulator instead.
+    ctx.effect(() => installProviderSimulation() ?? (() => {}), 'llm: provider simulation')
   }
 
   /** Notify topology observers without letting one broken listener veto the commit. */

@@ -73,6 +73,10 @@ After a successful mount, `ctx.llm.listProviders()` reports the registered route
 
 Every stream ends in exactly one terminal `finish` chunk: `{ kind: 'error', failure }` on failure, `{ kind: 'aborted', failure }` on cancellation. Failures carry stable codes such as `NO_ADAPTER`, `MISSING_CREDENTIAL`, `AUTH`, `RATE_LIMIT`, and `CONTEXT_WINDOW_EXCEEDED`; consumers route on the code, never on message text. `QUOTA` is provider-neutral exhaustion, while `ACCOUNT_QUOTA` is reserved for a first-party account balance that the current product can replenish. A request naming an unregistered provider fails with `NO_ADAPTER`, and a malformed credential fails with `INVALID_CREDENTIAL` instead of surfacing as an opaque fetch error. This service never re-runs a request: retrying is the job of `dsh-llm-retry` at the agent's failed-step extension point.
 
+### Provider simulation
+
+With `DSH_PROVIDER_SIMULATOR` set to a loopback `http:` URL, the runtime wraps `globalThis.fetch` and `globalThis.WebSocket` for as long as it is mounted: every request or socket to a model provider's host (`provider-simulation.ts` lists them by domain, such as `anthropic.com`, `openrouter.ai` and `deepseek.com`) goes to that server instead, the provider's host leading the path (`https://openrouter.ai/api/v1/models` becomes `<simulator>/openrouter.ai/api/v1/models`). The simulator answers in each provider's own protocol, so adapters, sign-in flows and account reads run unchanged against test accounts. Redirection is all or nothing: a provider the simulator does not offer fails there instead of reaching the real service. `simulatedUrl()` applies the same rewrite to a link a person opens, such as a sign-in page; any other value of the variable fails the boot.
+
 -----
 
 <a id="understand-the-implementation"></a>

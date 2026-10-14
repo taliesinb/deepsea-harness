@@ -73,6 +73,10 @@ for await (const chunk of ctx.llm.stream({
 
 每个流都恰好以一个终止 `finish` 分片结束：失败为 `{ kind: 'error', failure }`，取消为 `{ kind: 'aborted', failure }`。失败携带稳定 code，如 `NO_ADAPTER`、`MISSING_CREDENTIAL`、`AUTH`、`RATE_LIMIT` 与 `CONTEXT_WINDOW_EXCEEDED`；消费方依据 code 路由，绝不解析消息文本。`QUOTA` 表示提供方中立的额度耗尽，`ACCOUNT_QUOTA` 专用于当前产品能够充值的第一方账号余额不足。点名未注册提供方的请求会以 `NO_ADAPTER` 失败，格式错误的凭据会以 `INVALID_CREDENTIAL` 失败，而不是表现为不透明的 fetch 错误。本服务从不自行重跑请求：重试是 `dsh-llm-retry` 在 agent 失败步骤扩展点上的职责。
 
+### 提供方模拟
+
+`DSH_PROVIDER_SIMULATOR` 设为回环 `http:` URL 时，运行时在挂载期间包装 `globalThis.fetch` 与 `globalThis.WebSocket`：所有发往模型提供方主机的请求或套接字（`provider-simulation.ts` 按域名列出，如 `anthropic.com`、`openrouter.ai` 与 `deepseek.com`）改发到该服务器，路径以提供方主机开头（`https://openrouter.ai/api/v1/models` 变为 `<simulator>/openrouter.ai/api/v1/models`）。模拟器以各提供方自己的协议应答，因此适配器、登录流程与账号读取对测试账号原样运行。重定向是全有或全无的：模拟器不提供的提供方在那里失败，而不会访问真实服务。`simulatedUrl()` 对人要打开的链接（如登录页）做同样的改写；该变量的其他取值会使启动失败。
+
 -----
 
 <a id="understand-the-implementation"></a>
