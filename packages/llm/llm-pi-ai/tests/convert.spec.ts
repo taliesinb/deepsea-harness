@@ -939,6 +939,19 @@ describe('mapStopReason / mapUsage', () => {
   })
 
   it.each([
+    // pi-ai's own sentence for the ChatGPT Plan's 429 usage_limit_reached.
+    ['the Codex Plan usage limit', 'You have hit your ChatGPT usage limit (plus plan). Try again in ~60 min.', 'RATE_LIMIT'],
+    ['Gemini without prepaid credit (402)', '{"error":{"code":402,"message":"Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.","status":"RESOURCE_EXHAUSTED"}}', 'QUOTA'],
+    ['a bad Gemini key (400 API_KEY_INVALID)', '{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_INVALID","domain":"googleapis.com","metadata":{"service":"generativelanguage.googleapis.com"}}]}}', 'AUTH'],
+    ['an empty Z.ai balance (429 code 1113)', '429: {"code":"1113","message":"Insufficient balance or no resource package. Please recharge."}', 'QUOTA'],
+    ['an empty Z.ai balance on open.bigmodel.cn', '429: {"code":"1113","message":"余额不足或无可用资源包,请充值。"}', 'QUOTA'],
+    ['a Z.ai rate limit (429 code 1302)', '429: {"code":"1302","message":"Rate limit reached for requests"}', 'RATE_LIMIT'],
+  ] as const)('maps %s to its stable code', (_case, errorMessage, code) => {
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage })))
+      .toMatchObject({ kind: 'error', failure: { code } })
+  })
+
+  it.each([
     'other side closed',
     'HTTP2 request did not get a response',
     'WebSocket closed unexpectedly',

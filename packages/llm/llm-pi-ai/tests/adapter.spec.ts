@@ -389,6 +389,29 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
+  it.each([
+    ['zai', 'glm-4.7', 429, { error: { code: '1113', message: 'Insufficient balance or no resource package. Please recharge.' } }, 'QUOTA'],
+    ['google', 'gemini-2.5-flash', 402, { error: { code: 402, message: 'Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.', status: 'RESOURCE_EXHAUSTED' } }, 'QUOTA'],
+    ['google', 'gemini-2.5-flash', 400, {
+      error: {
+        code: 400,
+        message: 'API key not valid. Please pass a valid API key.',
+        status: 'INVALID_ARGUMENT',
+        details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'API_KEY_INVALID', domain: 'googleapis.com', metadata: { service: 'generativelanguage.googleapis.com' } }],
+      },
+    }, 'AUTH'],
+  ] as const)('maps %s/%s HTTP %i through its provider path', async (route, model, status, body, code) => {
+    const server = await mockServer([{ status, body: JSON.stringify(body) }])
+    const chunks: unknown[] = []
+    for await (const chunk of adapterOf({ [route]: { baseURL: server.url } }).stream({
+      provider: route,
+      model,
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })],
+    })) chunks.push(chunk)
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', reason: { kind: 'error', failure: { code } } })
+    expect(server.paths).toHaveLength(1)
+  })
+
   it('uses the resolved catalog context window for usage-based overflow detection', async () => {
     const model = getBuiltinModels('deepseek').find(candidate => candidate.id === 'deepseek-flash')
     if (model === undefined) throw new Error('deepseek-flash missing from pi-ai test catalog')
