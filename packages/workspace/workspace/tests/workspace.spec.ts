@@ -791,6 +791,26 @@ describe('header-validated membership projection', () => {
     expect(workspace.sessionIds).not.toContain('cwd-only')
   })
 
+  it('re-reads a forgotten header so a relocated session moves between accounts', async () => {
+    const from = await makeDir('relocate-from')
+    const to = await makeDir('relocate-to')
+    const result = await harness({ sessions: [header('moved', from)] })
+    const source = await result.registry.create(from)
+    const destination = await result.registry.create(to)
+    await source.attachSession(SessionId('moved'))
+    expect(source.sessionIds).toEqual(['moved'])
+
+    result.setSessions([header('moved', to)])
+    // The indexed header still names the old directory until it is forgotten.
+    await expect(destination.attachSession(SessionId('moved'))).rejects.toThrow(/resolves to/)
+    result.registry.forgetSessionHeader(SessionId('moved'))
+    expect(source.sessionIds).toEqual([])
+    await source.detachSession(SessionId('moved'))
+    await destination.attachSession(SessionId('moved'))
+    expect(destination.sessionIds).toEqual(['moved'])
+    expect(source.sessionIds).toEqual([])
+  })
+
   it('rejects duplicate candidate ownership, duplicate paths, and initialized order drift', async () => {
     const first = await makeDir('corrupt-first')
     const second = await makeDir('corrupt-second')

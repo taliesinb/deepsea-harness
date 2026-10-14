@@ -14,6 +14,9 @@ import {
 import { SessionCommandController } from '../src/commands.ts'
 import { installSessionReadTestServices, testSessionPersistence } from './test-remote.ts'
 
+/** The fork records its child's handle so a later move can retire the child's Agent. */
+const adopt = (handle: AgentHandle): Agent => handle.agent
+
 async function expectFailure(operation: Promise<unknown>, code: string): Promise<void> {
   await expect(operation).rejects.toMatchObject({ code })
 }
@@ -262,7 +265,7 @@ describe('Session fork failures', () => {
     const create = vi.spyOn(ctx.agents, 'create').mockImplementation(
       (options: CreateAgentOptions) => Promise.resolve(resolvedHandle(ctx, options.sessionId)),
     )
-    const controller = new SessionCommandController(ctx, controllerAgents(), '/default')
+    const controller = new SessionCommandController(ctx, controllerAgents({ adopt }), '/default')
 
     await expectFailure(controller.fork({ sessionId: source.id }), 'session/workspace-attach-failed')
     const options = create.mock.calls[0]?.[0]
@@ -281,6 +284,7 @@ describe('Session fork failures', () => {
     )
     const controller = new SessionCommandController(ctx, controllerAgents({
       composeAgent: () => Promise.resolve({ agentPreset: 'minimal', setup: () => {} }),
+      adopt,
     }), '/default')
 
     const forked = await controller.fork({ sessionId: source.id })

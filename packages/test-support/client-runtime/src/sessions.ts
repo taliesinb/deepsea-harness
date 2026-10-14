@@ -11,7 +11,7 @@ import type {
   SessionSnapshot, SessionSummary, SessionTarget, SubmissionHandle,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import { scopeIdentityOf } from '@deepseek-ai/dsh-api-session-controller/src/client/scope.ts'
-import type { SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionMoveValue, SessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -311,7 +311,7 @@ export class TestSessions implements ISessions {
 
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
-    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork'
+    method: 'create' | 'refreshProjections' | 'refresh' | 'search' | 'fork' | 'move' | 'moveMany' | 'copy'
     args: unknown[]
   }[] = []
 
@@ -680,6 +680,44 @@ export class TestSessions implements ISessions {
   fork(opts: Parameters<ISessions['fork']>[0]): Promise<SessionId> {
     this.calls.push({ method: 'fork', args: [opts] })
     return Promise.resolve(opts.sessionId)
+  }
+
+  /**
+   * Recorded move stub: reports the session as moved without relocating any
+   * fixture (benches asserting relocation drive the production service).
+   * @param opts - session, destination, and live policy.
+   * @returns a successful result naming the destination Workspace when the request did.
+   */
+  move(opts: Parameters<ISessions['move']>[0]): ReturnType<ISessions['move']> {
+    this.calls.push({ method: 'move', args: [opts] })
+    const workspaceId = 'workspaceId' in opts.destination ? opts.destination.workspaceId : opts.destination.path as SessionMoveValue['workspaceId']
+    return Promise.resolve({ ok: true, value: { sessionId: opts.sessionId, workspaceId, moved: [opts.sessionId] } })
+  }
+
+  /**
+   * Recorded batch-move stub: every id reports as moved.
+   * @param opts - sessions, destination, and live policy.
+   * @returns a successful result with no skips.
+   */
+  moveMany(opts: Parameters<ISessions['moveMany']>[0]): ReturnType<ISessions['moveMany']> {
+    this.calls.push({ method: 'moveMany', args: [opts] })
+    const workspaceId = 'workspaceId' in opts.destination ? opts.destination.workspaceId : opts.destination.path as SessionMoveValue['workspaceId']
+    return Promise.resolve({ ok: true, value: { workspaceId, moved: [...opts.sessionIds], skipped: [] } })
+  }
+
+  /**
+   * Recorded copy stub: reports a copy under a synthetic id with nothing stored.
+   * @param opts - source, destination, mid-turn policy, and optional title.
+   * @returns a successful result naming `<source>-copy`.
+   */
+  copy(opts: Parameters<ISessions['copy']>[0]): ReturnType<ISessions['copy']> {
+    this.calls.push({ method: 'copy', args: [opts] })
+    const workspaceId = 'workspaceId' in opts.destination ? opts.destination.workspaceId : opts.destination.path as SessionMoveValue['workspaceId']
+    const sessionId = `${opts.sessionId}-copy` as typeof opts.sessionId
+    return Promise.resolve({
+      ok: true,
+      value: { sessionId, sourceSessionId: opts.sessionId, workspaceId, copied: [sessionId], truncated: false },
+    })
   }
 
   /**

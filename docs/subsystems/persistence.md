@@ -408,9 +408,50 @@ abstract stat(id: SessionId, options?: SessionPersistenceStatOptions): Promise<S
  * @returns one snapshot per stored session.
  */
 abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+/**
+ * Optional: move one cold stored session to another working directory. The
+ * header's `cwd` is the session's Workspace membership, so this is the
+ * storage half of moving a session between Workspaces. A backend that
+ * implements it rewrites the header, appends the requested events, and
+ * publishes the result where the new cwd places it as one durable operation,
+ * then retires the old artifact. The session id, creation time, lineage, and
+ * inherited cut are unchanged. A session open for writing, in this or another
+ * process, is refused; the caller decides whether to stop its writer first.
+ * Backends that cannot relocate leave this undefined.
+ * @param request - the session, its destination cwd, and events to append.
+ * @returns the stored header afterwards and whether anything moved.
+ * @throws {SessionPersistenceNotFoundError} when the session does not exist.
+ * @throws {SessionAlreadyOwnedError} when a writer holds the session.
+ */
+relocate?(request: SessionRelocateRequest): Promise<SessionRelocateResult>
 ```
 
 Types: [SessionId](core.md)
+
+Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="session-persistence-events"></a>
+
+### `session-persistence/*` events
+
+<a id="session-persistencestored--emit"></a>
+
+#### `session-persistence/stored` — emit
+
+A stored session appeared or changed identity outside the live store — created cold by an import, or relocated to another cwd — so list owners refresh their row for it. The writer emits it after the change is durable. Carries the header now stored.
+
+```ts cordis-catalog
+/**
+ * A stored session appeared or changed identity outside the live store —
+ * created cold by an import, or relocated to another cwd — so list owners
+ * refresh their row for it. The writer emits it after the change is
+ * durable. Carries the header now stored.
+ * @param header - the stored header after the change.
+ * @mode emit
+ */
+'session-persistence/stored'(header: SessionHeader): void
+```
 
 Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

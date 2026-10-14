@@ -885,6 +885,57 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 @Remote('fork') fork(request: SessionForkRequest): Promise<SessionForkValue>
 
 /**
+ * Move one Session, with its same-cwd subagent descendants, to another
+ * Workspace: relocate the stored log under the new cwd, re-account it in
+ * the Workspace registry, and leave its Agent a notice for the next step.
+ * A resident Agent is retired first; one running a turn is refused unless
+ * `stopLive` interrupts it.
+ * @param request - Session, destination Workspace or directory, and live policy.
+ * @returns the destination Workspace and every Session that moved.
+ */
+@Remote('move') move(request: SessionMoveRequest): Promise<SessionMoveValue>
+
+/**
+ * Move several Sessions to one Workspace, reporting skips per Session
+ * instead of failing the batch.
+ * @param request - Sessions, destination, and live policy.
+ * @returns moved ids and skipped Sessions with reasons.
+ */
+@Remote('moveMany') moveMany(request: SessionMoveManyRequest): Promise<SessionMoveManyValue>
+
+/**
+ * Copy one Session, with its subagent descendants, into a Workspace as a new
+ * Session: the source's durable log is read and stored again under the
+ * destination cwd with fresh ids; the source, running or not, is untouched.
+ * A source running a turn is refused until the caller decides whether to
+ * drop the turn in progress (`truncate`) or keep it closed as interrupted.
+ * @param request - source, destination Workspace or directory, mid-turn policy, optional title.
+ * @returns the new root id, every stored id, and whether a turn was dropped.
+ */
+@Remote('copy') copy(request: SessionCopyRequest): Promise<SessionCopyValue>
+
+/**
+ * Store parsed Session logs, one root and its subagent descendants, as
+ * Sessions of this Host under a Workspace, and attach the root to it.
+ * Exported ids are kept when free; taken ones are replaced and the family
+ * re-identified. Attachments the logs reference must already be stored.
+ * @param logs - the root log and every descendant log, in any order.
+ * @param target - destination Workspace, origin label, and id and notice policy.
+ * @returns the stored root id and every stored Session.
+ */
+storeSessionLogs(logs: SessionLogFamily, target: SessionImportTarget): Promise<SessionImportResult>
+
+/**
+ * Import the entries of one `session.export` archive into a Workspace:
+ * decode and validate every log (migrating historical generations), save
+ * its attachments, and store the logs as {@link storeSessionLogs} does.
+ * @param entries - archive path to entry bytes.
+ * @param target - destination Workspace, origin label, and id and notice policy.
+ * @returns the stored root id and every stored Session.
+ */
+importSessionArchive( entries: Readonly<Record<string, Uint8Array>>, target: SessionImportTarget, ): Promise<SessionImportResult>
+
+/**
  * Admit one prompt after explicitly resuming its Session.
  * @param request - Session identity, prompt content, source metadata, and delivery mode.
  * @param signal - caller cancellation before prompt admission begins.

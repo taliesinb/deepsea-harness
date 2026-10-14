@@ -5,6 +5,9 @@ import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import { workspaceTitleOf } from '@deepseek-ai/dsh-util-workspace-path'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { SESSION_SEARCH_RESULT_LIMIT } from '../../types.ts'
+import type {
+  SessionCopyRequest, SessionCopyValue, SessionMoveManyRequest, SessionMoveManyValue, SessionMoveRequest, SessionMoveValue,
+} from '../../types.ts'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import {
   createSnapshotStore, notifySubscribers, type ObservableSnapshot, type SnapshotStore,
@@ -470,6 +473,39 @@ export class ClientSessions implements ISessions {
       if (!renamed.ok) throw new Error(`fork child rename failed: ${renamed.error.code}: ${renamed.error.message}`)
     }
     return childId
+  }
+
+  /**
+   * Move one Session through the Host and refresh the list projection on success.
+   * @param opts - session, destination, and live policy.
+   * @returns the Host result, refusals included.
+   */
+  async move(opts: SessionMoveRequest): Promise<RemoteResult<SessionMoveValue>> {
+    const result = await this.manager.move(opts)
+    if (result.ok) this.projectList()
+    return result
+  }
+
+  /**
+   * Move several Sessions through the Host and refresh the list projection on success.
+   * @param opts - sessions, destination, and live policy.
+   * @returns the Host result with moved ids and per-session skips.
+   */
+  async moveMany(opts: SessionMoveManyRequest): Promise<RemoteResult<SessionMoveManyValue>> {
+    const result = await this.manager.moveMany(opts)
+    if (result.ok) this.projectList()
+    return result
+  }
+
+  /**
+   * Copy one Session through the Host and refresh the list projection on success.
+   * @param opts - source, destination, mid-turn policy, and optional title.
+   * @returns the Host result, refusals included.
+   */
+  async copy(opts: SessionCopyRequest): Promise<RemoteResult<SessionCopyValue>> {
+    const result = await this.manager.copy(opts)
+    if (result.ok) this.projectList()
+    return result
   }
 
   /**

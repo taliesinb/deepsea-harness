@@ -15,6 +15,9 @@ import type { SessionBinding, SessionListState } from '../sessions/service.ts'
 import type { SessionFace } from './session.ts'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionReferenceSource } from '../index.ts'
+import type {
+  SessionCopyRequest, SessionCopyValue, SessionMoveManyRequest, SessionMoveManyValue, SessionMoveRequest, SessionMoveValue,
+} from '../../types.ts'
 
 export type { AgentContext } from '../scope.ts'
 
@@ -135,6 +138,29 @@ export interface ISessions {
     increaseTitle?: boolean
     onCreated?: (childId: SessionId) => void
   }): Promise<SessionId>
+  /**
+   * Move one session, with its same-cwd subagent descendants, to another
+   * Workspace. The Host result is returned, not thrown: `session/move-live` is
+   * an expected outcome a caller answers by offering to interrupt the turn.
+   * @param opts - session, destination (existing Workspace or a directory to register), and live policy.
+   * @returns the Host result: destination Workspace and moved ids, or the refusal.
+   */
+  move(opts: SessionMoveRequest): Promise<RemoteResult<SessionMoveValue>>
+  /**
+   * Move several sessions to one Workspace; per-session skips are reported in the value.
+   * @param opts - sessions, destination, and live policy.
+   * @returns the Host result with moved ids and skips.
+   */
+  moveMany(opts: SessionMoveManyRequest): Promise<RemoteResult<SessionMoveManyValue>>
+  /**
+   * Copy one session, with its subagent descendants, into a Workspace as a new
+   * session with a fresh id; the source is untouched. The Host result is
+   * returned, not thrown: `session/copy-live` is an expected outcome a caller
+   * answers by deciding whether to drop the turn in progress (`truncate`).
+   * @param opts - source, destination, mid-turn policy, and optional title for the copy.
+   * @returns the Host result: the new session, destination Workspace, and stored ids, or the refusal.
+   */
+  copy(opts: SessionCopyRequest): Promise<RemoteResult<SessionCopyValue>>
   /**
    * Borrow an already-retained Agent-scoped Context without extending its lifetime.
    * @param id - session id.

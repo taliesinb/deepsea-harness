@@ -505,6 +505,21 @@ export class WorkspaceRegistry extends Service {
     return undefined
   }
 
+  /**
+   * Forget the indexed header and canonical path of one session so the next
+   * membership check reads its stored header again. Stored headers change
+   * only through a relocation (`sessionPersistence.relocate`); its caller
+   * invokes this before detaching the session from its old Workspace and
+   * attaching it to the new one. Until then the session counts as a member of
+   * no Workspace.
+   * @param id - the relocated session.
+   */
+  forgetSessionHeader(id: SessionId): void {
+    this.headers.delete(id)
+    this.sessionPaths.delete(id)
+    this.invalidSessionPaths.delete(id)
+  }
+
   private async createCanonical(canonical: string, title?: string, firstUse = false): Promise<WorkspaceEntity> {
     for (const entity of this.entities.values()) {
       if (entity.path === canonical) return entity
