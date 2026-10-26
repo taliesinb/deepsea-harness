@@ -341,6 +341,33 @@ describe('pi-ai request context conversion', () => {
     ])
     expect(readImageRequest).toHaveBeenCalledTimes(1)
   })
+  it.each([
+    ['a wide strip under the pixel budget', 4572, 860, { maxPixels: 2048 * 2048 }, { width: 2000, height: 376 }],
+    ['a tall strip under the pixel budget', 860, 4572, { maxPixels: 2048 * 2048 }, { width: 376, height: 2000 }],
+    ['a strip still too long after the pixel budget', 4572, 860, { maxPixels: 1_150_000 }, { width: 2000, height: 376 }],
+    ['an image the pixel budget already brings under the cap', 2400, 1884, { maxPixels: 1_150_000 }, { width: 1210, height: 950 }],
+    ['an image within both limits', 1999, 1999, { maxPixels: 2048 * 2048 }, { width: 1999, height: 1999 }],
+    ['a configured cap', 4572, 860, { maxPixels: 2048 * 2048, maxDimension: 3000 }, { width: 3000, height: 564 }],
+  ] as const)('caps the long edge of %s', async (_name, width, height, policy, expected) => {
+    const readImageRequest = vi.fn((value: ImageAttachmentRef, _target: ImageRequestTarget) => (
+      Promise.resolve(requestImage(value, Uint8Array.of(1)))
+    ))
+    const source: ImageAttachmentRef = { ...ref, width, height }
+    await toPiContext(request([user([{ type: 'image', attachment: source }])]), imageContext(projectionStore(readImageRequest), {
+      requestImagePolicy: { maxDimension: 2000, maxBytes: 1024, ...policy },
+    }))
+    expect(readImageRequest).toHaveBeenCalledWith(source, { ...expected, maxBytes: 1024 }, undefined)
+  })
+
+  it('applies the default long-edge cap when no policy is given', async () => {
+    const readImageRequest = vi.fn((value: ImageAttachmentRef, _target: ImageRequestTarget) => (
+      Promise.resolve(requestImage(value, Uint8Array.of(1)))
+    ))
+    const source: ImageAttachmentRef = { ...ref, width: 4572, height: 860 }
+    await toPiContext(request([user([{ type: 'image', attachment: source }])]), imageContext(projectionStore(readImageRequest)))
+    expect(readImageRequest).toHaveBeenCalledWith(source, { width: 2000, height: 376, maxBytes: 1024 * 1024 }, undefined)
+  })
+
   it('does not prepare a surface-offloaded image', async () => {
     const old = { ...ref, attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`), bytes: 3 }
     const recent = { ...ref, attachmentId: AttachmentId(`sha256:${'d'.repeat(64)}`), bytes: 3 }

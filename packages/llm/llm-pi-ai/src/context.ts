@@ -16,8 +16,12 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
-import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
-import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
+import { longEdgeDimensions, requestImageDimensions } from '@deepseek-ai/dsh-attachment'
+import {
+  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+  DEFAULT_REQUEST_IMAGE_MAX_DIMENSION,
+  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+} from './config.ts'
 
 /** Join the text blocks of a harness message. */
 function flattenText(message: RequestMessage): string {
@@ -241,13 +245,19 @@ export interface PiImageRequestContext {
 export interface PiImageRequestBudget {
   /** Total-pixel budget; larger sources are downscaled proportionally. */
   maxPixels: number
+  /** Long-edge cap applied after the pixel budget; longer results are downscaled proportionally. */
+  maxDimension: number
   /** Encoded-byte target for one request image. */
   maxBytes: number
 }
 
 /** Deterministic request target for one source under the route budgets. */
 function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageRequestBudget): ImageRequestTarget {
-  return { ...requestImageDimensions(ref.width, ref.height, budget.maxPixels), maxBytes: budget.maxBytes }
+  const budgeted = requestImageDimensions(ref.width, ref.height, budget.maxPixels)
+  const dimensions = Math.max(budgeted.width, budgeted.height) > budget.maxDimension
+    ? longEdgeDimensions(ref.width, ref.height, budget.maxDimension)
+    : budgeted
+  return { ...dimensions, maxBytes: budget.maxBytes }
 }
 
 /**
@@ -299,6 +309,7 @@ async function toPiContextWithImages(
   const { attachments, resolveImageAccess, maxRequestImageBytes } = images
   const requestImagePolicy = images.requestImagePolicy ?? {
     maxPixels: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+    maxDimension: DEFAULT_REQUEST_IMAGE_MAX_DIMENSION,
     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
   }
   assertSupportedHistory(options.messages)

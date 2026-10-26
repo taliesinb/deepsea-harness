@@ -374,6 +374,7 @@ export class PiAiAdapter extends LlmAdapter {
           maxRequestImageBytes: profile.maxRequestImageBytes,
           requestImagePolicy: {
             maxPixels: profile.requestImagePixelBudget,
+            maxDimension: profile.requestImageMaxDimension,
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
