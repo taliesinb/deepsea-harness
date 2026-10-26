@@ -159,6 +159,22 @@ cachedSnapshot( meta: SessionHeader, keys?: readonly Extract<keyof SessionProjec
 cachedPredecessorTitle(meta: SessionHeader): ProjectionSnapshot | undefined
 
 /**
+ * Re-bind one stored record to a relocated session's header. A relocation
+ * (`sessionPersistence.relocate`) replaces only the header's `cwd` and
+ * appends events after the stored tail, and no projection unit folds the
+ * cwd, so a record folded from the previous log stays a valid fold of a
+ * prefix of the relocated one once its identity names the new cwd. Without
+ * this the moved session lists without cached values until its next fold.
+ * A current or predecessor record bound to `previous` is re-bound; any other
+ * record is left alone.
+ * @param previous - the header the record was written under.
+ * @param current - the header stored now: the same session in another cwd.
+ * @param inheritedEventCount - exact inherited cut of the lifecycle.
+ * @returns true when a record was re-bound.
+ */
+async rebind(previous: SessionHeader, current: SessionHeader, inheritedEventCount: SessionLogOffset): Promise<boolean>
+
+/**
  * Hydrate projection cells for an already-prepared Session without another
  * persistence read. The cache seeds matching rows; the supplied exact log
  * advances every unit to the observation cut. No checkpoint is written
@@ -194,9 +210,19 @@ async write(session: Session): Promise<void>
  * @returns the projection cut at the log end.
  */
 coldSnapshot( meta: SessionHeader, inheritedEventCount: SessionLogOffset, events: readonly SessionEvent[], ): ProjectionSnapshot
+
+/**
+ * Resolve once every record write started for one session so far has
+ * settled, successfully or not; afterwards `cachedSnapshot` observes the
+ * outcome. A listing that follows a fire-and-forget `coldSnapshot` (an
+ * imported session) awaits this before reading the record back.
+ * @param id - the session whose pending writes to await.
+ * @returns completion; never rejects.
+ */
+settled(id: SessionId): Promise<void>
 ```
 
-Types: [Session](session.zh.md) · [SessionEvent](session.zh.md) · [SessionHeader](persistence.zh.md) · [SessionLogOffset](session.zh.md)
+Types: [Session](session.zh.md) · [SessionEvent](session.zh.md) · [SessionHeader](persistence.zh.md) · [SessionId](core.zh.md) · [SessionLogOffset](session.zh.md)
 
 Source: [`packages/session/session-projection-cache/src/index.ts`](../../packages/session/session-projection-cache/src/index.ts)
 

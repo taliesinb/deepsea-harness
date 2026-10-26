@@ -7,5 +7,8 @@
 /** Absolute registration path for the ZIP download route. */
 export const SESSION_LOG_EXPORT_PATH = '/api/session.export'
 
+/** Absolute registration path for the route receiving one export ZIP into a Workspace. */
+export const SESSION_LOG_IMPORT_PATH = '/api/session.import'
+
 /** Browser-relative form of {@link SESSION_LOG_EXPORT_PATH}. */
 export const SESSION_LOG_EXPORT_ROUTE = SESSION_LOG_EXPORT_PATH.slice(1)

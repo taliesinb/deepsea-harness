@@ -139,6 +139,38 @@ describe('SessionController facade', () => {
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
   })
 
+  it('lists a cold stored session again after session-persistence/stored, once its cache write settles', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, { list: () => Promise.resolve([]) }) as never)
+    let release!: () => void
+    const settled = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    ctx.provide('sessionProjectionCache', {
+      settled,
+      cachedSnapshot: () => ({ asOfSeq: 3, values: { title: 'Imported' } }),
+      cachedPredecessorTitle: () => undefined,
+    } as never)
+    createSessionTestController(ctx, defaults)
+    const added = vi.fn()
+    ctx.on('api-session/added', added)
+    const header: SessionHeader = {
+      version: SESSION_FORMAT_VERSION, id: SessionId('stored-cold'), createdAt: 1, cwd: '/moved', isSeeded: false,
+    }
+    ctx.emit('session-persistence/stored', header)
+    expect(settled).toHaveBeenCalledWith('stored-cold')
+    expect(added).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => { expect(added).toHaveBeenCalledOnce() })
+    expect(added.mock.calls[0]?.[0]).toMatchObject({ sessionId: 'stored-cold', cwd: '/moved' })
+
+    // A Session live in this process lists through its own lifecycle events.
+    ctx.sessions.create(SessionId('stored-live'), { meta: { cwd: '/w' } })
+    ctx.emit('session-persistence/stored', { ...header, id: SessionId('stored-live') })
+    expect(settled).toHaveBeenCalledTimes(1)
+    await ctx.fiber.dispose()
+  })
+
   it.each(['success', 'domain-error', 'throw'] as const)(
     'promotes a prepared follow observation in the background: %s',
     async (outcome) => {
