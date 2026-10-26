@@ -760,7 +760,7 @@ The backends that consume this contract are on [persistence.md](persistence.md).
 
 ## Remote catalog and workspace opening
 
-`ModelCatalog` is the Host-generation model directory returned by `session/modelCatalog`: it carries the deployment default, routable provider ids, successful provider groups, and isolated provider failures. It is not derived from one Session and remains separate from Session projections.
+`ModelCatalog` is the Host-generation model directory returned by `session/modelCatalog`: it carries the deployment default, routable provider ids, successful provider groups, and isolated provider failures. It is not derived from one Session and remains separate from Session projections. A group copies its route's `catalogProvider`, that provider's display name `vendor` and billing `auth` (`subscription`, `api-key`, `local`) from the LLM registry when the adapter reports them; each model carries `capabilities` (`images`, `reasoning`, `tools`, `free`) derived from its resolved metadata — image input modality, reasoning levels, zero list prices or a local route — so a Client can group and filter the catalog without a model vocabulary of its own.
 
 `SessionOpenWorkspacePathRequest` carries an absolute or workspace-resolved `path`; optional `action: "reveal"` selects file-manager navigation instead of default-application opening. `SessionOpenWorkspacePathValue` confirms that the Host accepted the native handoff. A Session-aware Client resolves relative paths against its current Session cwd when known; the controller hands the path to the opener unchanged and reports invalid requests, cancellation, and opener failures through the Session Remote error vocabulary.
 

@@ -132,11 +132,35 @@ export interface ModelReasoning {
   readonly defaultEffort?: string
 }
 
+/**
+ * What one exact model route offers, published so a Client can filter the
+ * catalog without its own model vocabulary. Every flag is display metadata;
+ * request admission does not read it.
+ */
+export interface ModelCapabilities {
+  /** The route accepts image input (its resolved input modalities include `image`). */
+  readonly images: boolean
+  /** The route exposes selectable reasoning levels. */
+  readonly reasoning: boolean
+  /**
+   * The route accepts declared tools. Every current chat adapter does; the flag
+   * keeps the contract open for one that does not.
+   */
+  readonly tools: boolean
+  /**
+   * Using the route costs nothing per token: a route served on this machine
+   * (`auth: local`), or one whose published list prices are zero for input and output.
+   */
+  readonly free: boolean
+}
+
 /** One model displayed inside its provider group. */
 export interface ModelCatalogModel {
   readonly id: string
   readonly name: string
   readonly description?: string
+  /** Filterable capabilities; absent from a Host that does not publish them. */
+  readonly capabilities?: ModelCapabilities
   readonly reasoning?: ModelReasoning
 }
 
@@ -144,6 +168,19 @@ export interface ModelCatalogModel {
 export interface ModelProviderGroup {
   readonly id: string
   readonly name: string
+  /**
+   * Catalog (vendor) provider the route resolves to, when its adapter reports
+   * one, e.g. `anthropic` for `anthropic-oauth` or `openrouter` for `openrouter-oauth`.
+   */
+  readonly catalogProvider?: string
+  /** Display name of that catalog provider, e.g. `Anthropic`, for titling a route whose name is its bare key. */
+  readonly vendor?: string
+  /**
+   * How the route authenticates and is billed, when its adapter reports it: a
+   * subscription sign-in (a plan), a per-token API key, or a model served on
+   * this machine.
+   */
+  readonly auth?: 'subscription' | 'api-key' | 'local'
   readonly models: readonly ModelCatalogModel[]
 }
 
