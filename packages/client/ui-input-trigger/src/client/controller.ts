@@ -127,7 +127,7 @@ export class InputTriggerController {
     if (this.disposed) return
     const launched = this.launcher.getSnapshot() !== null
     this.clearLauncher()
-    const raw = detectTrigger(draft, caret, guard)
+    const raw = detectTrigger(draft, caret, guard, new Set(this.deps.roster.all().map(source => source.trigger)))
     if (raw === null) {
       // A launcher-opened menu is opened by a gesture, not by a typed token:
       // the focus it takes to drive it with the keyboard re-tracks an empty

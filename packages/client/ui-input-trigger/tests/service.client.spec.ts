@@ -783,6 +783,20 @@ describe('header / drilled descent', () => {
   })
 })
 
+describe('plugin trigger registration', () => {
+  it('tracks a registered percent source and routes its query', async () => {
+    const percent = readySource('%', 'session-reference', [{ name: 'workspace/session' }])
+    const { controller } = controllerBench([percent.source])
+    controller.track('%foo/bar', 8, { tier: 'plain' }, 1)
+    await tick()
+    expect(controller.menu.getSnapshot()).toMatchObject({
+      open: true,
+      hit: { trigger: '%', query: 'foo/bar' },
+      groups: [{ source: 'session-reference', status: 'ready' }],
+    })
+  })
+})
+
 describe('lexicon', () => {
   function lexSource(trigger: TriggerChar, name: string, roll?: readonly string[]  , hasHook = true): InputTriggerSource {
     return {
