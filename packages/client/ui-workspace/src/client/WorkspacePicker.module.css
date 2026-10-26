@@ -18,3 +18,11 @@
 .menuStatus {
   color: var(--dsw-alias-label-secondary);
 }
+
+/* Tree mode: a row indented under its group heading, its icon inline. */
+.indentedLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+}

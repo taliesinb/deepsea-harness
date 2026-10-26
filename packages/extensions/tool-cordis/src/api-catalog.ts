@@ -3708,6 +3708,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'signal', description: 'generation cancellation.' }],
         returns: 'baseline followed by ordered Workspace increments.',
       },
+      {
+        signature: '@Remote(\'list\') list(): WorkspaceBaseline',
+        description: 'Read the complete Workspace baseline once, for a caller that cannot hold a stream open (another Host mirroring this one\'s Workspaces). It is the value a `follow` generation opens with.',
+        parameters: [],
+        returns: 'every Workspace in registry order plus the archived and pinned Session ids.',
+      },
     ],
   },
   {

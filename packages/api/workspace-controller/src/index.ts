@@ -10,6 +10,7 @@ import { defaultWorkspaceDirectory, validateDocumentsDirectory } from './default
 import type {
   WorkspaceArchiveSessionRequest,
   WorkspaceArchiveValue,
+  WorkspaceBaseline,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
@@ -194,6 +195,17 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote({ mode: 'stream' })
   follow(signal: AbortSignal): AsyncIterable<WorkspaceFollowFrame> {
     return this.feed.follow(signal)
+  }
+
+  /**
+   * Read the complete Workspace baseline once, for a caller that cannot hold
+   * a stream open (another Host mirroring this one's Workspaces). It is the
+   * value a `follow` generation opens with.
+   * @returns every Workspace in registry order plus the archived and pinned Session ids.
+   */
+  @Remote('list')
+  list(): WorkspaceBaseline {
+    return this.feed.baseline()
   }
 }
 

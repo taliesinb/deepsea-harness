@@ -427,8 +427,9 @@ describe('workspace browser rows', () => {
     expect(screen.getByRole('treeitem').querySelector('[data-state="done"]')).not.toBeNull()
   })
 
-  it('workspace row menu opens on the ellipsis, renames, and shows the danger delete row', () => {
+  it('workspace row menu opens on the ellipsis, renames, rehomes, and shows the danger delete row', () => {
     const onRename = vi.fn()
+    const onRehome = vi.fn()
     const onDelete = vi.fn()
     const onToggle = vi.fn()
     const group: GroupNode = {
@@ -437,7 +438,7 @@ describe('workspace browser rows', () => {
     }
     render(<ProjectRowItem
       group={group} onToggle={onToggle} onCreate={vi.fn()}
-      actions={{ rename: onRename, delete: onDelete }} t={t}
+      actions={{ rename: onRename, rehome: onRehome, delete: onDelete }} t={t}
     />)
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     // Opening the menu neither toggles the group nor renames yet.
@@ -451,6 +452,9 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
     expect(onRename).toHaveBeenCalledOnce()
     expect(onDelete).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '迁移工作区…' }))
+    expect(onRehome).toHaveBeenCalledOnce()
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: '工作区“Project”的操作' }))
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -862,6 +866,24 @@ describe('workspace browser rows', () => {
       expect(screen.getAllByText('已归档')).toHaveLength(1)
     } finally {
       vi.useRealTimers()
+    }
+  })
+
+  it('a blank or archived row refuses a native drag outright', () => {
+    for (const flags of [{ blank: true, archived: false }, { blank: false, archived: true }]) {
+      const node: SessionNode = {
+        id: sid('s1'), title: 'Still', running: false,
+        runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, ...flags,
+      }
+      const drag = dragProps()
+      const { unmount } = render(
+        <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()} drag={drag} t={t} />,
+      )
+      const row = screen.getByRole('treeitem')
+      expect(row.getAttribute('draggable')).toBe('false')
+      expect(fireEvent.dragStart(row, { dataTransfer })).toBe(false)
+      expect(drag.start).not.toHaveBeenCalled()
+      unmount()
     }
   })
 
