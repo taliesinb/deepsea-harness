@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertServiceable, Config, resolveProfiles, type Options } from '../src/config.ts'
+import { assertServiceable, Config, resolveProfiles, type Options, type PiAiProviderProfile } from '../src/config.ts'
 
 /** Validate one hand-declared route, with the caller's fields layered onto it. */
 const routeWith = (profile: Record<string, unknown>): (() => unknown) =>
@@ -89,6 +89,8 @@ describe('request image policy bounds', () => {
   it.each([
     ['requestImagePixelBudget', 0, /requestImagePixelBudget must be a positive safe integer/],
     ['requestImagePixelBudget', Number.MAX_SAFE_INTEGER + 1, /requestImagePixelBudget must be a positive safe integer/],
+    ['requestImageMaxDimension', 0, /requestImageMaxDimension must be a positive safe integer/],
+    ['requestImageMaxDimension', 1.5, /requestImageMaxDimension must be a positive safe integer/],
     ['requestImageMaxBytes', 0, /requestImageMaxBytes must be a positive safe integer/],
     ['requestImageMaxBytes', 1.5, /requestImageMaxBytes must be a positive safe integer/],
   ] as const)('rejects %s=%s at service resolution', (field, value, message) => {
@@ -105,5 +107,15 @@ describe('request image policy bounds', () => {
     expect(() => {
       assertServiceable(programmatic)
     }).toThrow(message)
+  })
+
+  it('defaults the long-edge cap to 2000 pixels and keeps a configured one', () => {
+    const route: PiAiProviderProfile = { api: 'openai-completions', baseURL: 'https://acme.test', models: [{ id: 'm' }] }
+    const resolved = resolveProfiles({
+      'acme-default': route,
+      'acme-wide': { ...route, requestImageMaxDimension: 3000 },
+    }, 'strict')
+    expect(resolved.get('acme-default')?.requestImageMaxDimension).toBe(2000)
+    expect(resolved.get('acme-wide')?.requestImageMaxDimension).toBe(3000)
   })
 })

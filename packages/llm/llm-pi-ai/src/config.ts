@@ -69,8 +69,15 @@ export const DEFAULT_MAX_REQUEST_IMAGES = 50
  * than once per image.
  */
 export const DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM = 10
-/** Default total-pixel budget preserves the complete 2048px normalized attachment. */
+/** Default total-pixel budget preserves the complete 2048px normalized attachment up to the long-edge cap. */
 export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 2048 * 2048
+/**
+ * Default long-edge cap for each request image. Anthropic rejects every image
+ * longer than 2000 pixels on either side once a request carries more than 20
+ * images, including images resent from earlier turns, so a pixel budget alone
+ * lets one wide or tall image fail every later request of a session.
+ */
+export const DEFAULT_REQUEST_IMAGE_MAX_DIMENSION = 2000
 /** Default raw encoded-byte target before inline base64 expansion; the smallest quality-ladder output is used when no quality fits. */
 export const DEFAULT_REQUEST_IMAGE_MAX_BYTES = 1024 * 1024
 
@@ -198,6 +205,8 @@ export interface PiAiProviderProfile {
   imageOffloadCountQuantum?: number
   /** Total-pixel budget for each deterministic inline request version. */
   requestImagePixelBudget?: number
+  /** Long-edge cap in pixels for each deterministic inline request version, applied after the pixel budget. */
+  requestImageMaxDimension?: number
   /**
    * Raw encoded-byte target for each deterministic inline request version;
    * the smallest quality-ladder output is used when no quality fits.
@@ -226,6 +235,8 @@ export interface ResolvedPiAiProviderProfile
   imageOffloadCountQuantum: number
   /** Positive total-pixel request-version budget after defaulting. */
   requestImagePixelBudget: number
+  /** Positive request-version long-edge cap after defaulting. */
+  requestImageMaxDimension: number
   /** Positive raw request-version byte target after defaulting; the smallest quality-ladder output is used when no quality fits. */
   requestImageMaxBytes: number
   /** Immutable retry policy captured with this provider route. */
@@ -375,6 +386,7 @@ const profile = z.object({
   maxRequestImages: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGES),
   imageOffloadCountQuantum: z.number().step(1).min(1),
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
+  requestImageMaxDimension: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_DIMENSION),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
   retryPolicy: RetryPolicySchema,
 })
@@ -481,6 +493,10 @@ export function resolveProfiles(
     if (!Number.isSafeInteger(requestImagePixelBudget) || requestImagePixelBudget <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" requestImagePixelBudget must be a positive safe integer`)
     }
+    const requestImageMaxDimension = source.requestImageMaxDimension ?? DEFAULT_REQUEST_IMAGE_MAX_DIMENSION
+    if (!Number.isSafeInteger(requestImageMaxDimension) || requestImageMaxDimension <= 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" requestImageMaxDimension must be a positive safe integer`)
+    }
     const requestImageMaxBytes = source.requestImageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES
     if (!Number.isSafeInteger(requestImageMaxBytes) || requestImageMaxBytes <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" requestImageMaxBytes must be a positive safe integer`)
@@ -537,6 +553,7 @@ export function resolveProfiles(
       maxRequestImages,
       imageOffloadCountQuantum,
       requestImagePixelBudget,
+      requestImageMaxDimension,
       requestImageMaxBytes,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
