@@ -10,7 +10,7 @@ import type {
   SessionTarget,
   SessionListState,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { createSnapshotStore, embedPresentation } from '@deepseek-ai/dsh-client-store'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -137,6 +137,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     {}, { persist: { name: 'dsh.sessions.current' } },
   )
   private mainReference: SessionReference | undefined
+  /**
+   * Embedded presentation pin (`?embed=<id>`): the one root Session this page
+   * shows. While set, it is the initial selection and {@link replaceMain}
+   * accepts only that Session and the subagent children reached from it, so
+   * an embedded shell cannot wander to another root. (The persisted selection
+   * cell is namespaced per embedded Session, so it starts empty.)
+   */
+  private readonly pinned = embedPresentation()?.sessionId as SessionId | undefined
 
   /**
    * @param ctx - Client root Context.
@@ -323,6 +331,20 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         initial = 'done'
         return
       }
+      if (this.pinned !== undefined) {
+        // An embedded page never falls back to the recent Workspace: it waits
+        // for its pinned Session to be listed, like a persisted selection.
+        if (sessions.byId[this.pinned] === undefined) return
+        initial = 'connecting'
+        try {
+          this.openSession(this.pinned)
+          initial = 'done'
+        } catch (reason: unknown) {
+          initial = 'waiting'
+          console.warn('embedded Session selection failed:', reason)
+        }
+        return
+      }
       initial = 'connecting'
       void this.restoreSelection(workspace, sessions).then(
         () => { initial = 'done' },
@@ -408,6 +430,11 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     beforeOpen?: (sessionId: SessionId) => void,
   ): void {
     signal.throwIfAborted()
+    if (this.pinned !== undefined && typeof target === 'string' && target !== this.pinned
+      && this.sessions.subagentAddress(target) === undefined) {
+      console.warn(`[uiWorkspace] embedded page is pinned to ${this.pinned}; ignoring openSession(${target})`)
+      return
+    }
     const reference = this.sessions.retain(target, { source: 'mainView' })
     try {
       signal.throwIfAborted()

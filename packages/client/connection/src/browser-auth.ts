@@ -251,6 +251,12 @@ export class BrowserAuth {
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const tokens = url.searchParams.getAll(TOKEN_QUERY)
     if (tokens.length > 0) {
+      // The redirect drops the token but keeps every other query parameter
+      // (`?token=…&embed=<id>` lands on `./?embed=<id>`): presentation
+      // selectors belong to the page, the token to this exchange only.
+      const rest = new URLSearchParams(url.searchParams)
+      rest.delete(TOKEN_QUERY)
+      const cleanLocation = rest.size === 0 ? './' : `./?${rest.toString()}`
       const authority = requestAuthority(req.headers)
       if (req.method === 'GET' && url.pathname === '/' && tokens.length === 1
         && authority !== undefined && tokenMatches(tokens.join(''), this.launchToken)) {
@@ -264,7 +270,9 @@ export class BrowserAuth {
         }, this.secret)
         res.writeHead(303, {
           'cache-control': 'no-store',
-          'location': './',
+          // Relative: the browser resolves it against the URL it requested, so a
+          // path-mounted shell (`/deepsea/?token=…`) lands on `/deepsea/`, the root on `/`.
+          'location': cleanLocation,
           'referrer-policy': 'no-referrer',
           'set-cookie': sessionCookie(
             cookieName(authority), value, expiresAt, Math.floor(this.maxAgeMilliseconds / 1000),
@@ -276,7 +284,9 @@ export class BrowserAuth {
       if (req.method === 'GET' && url.pathname === '/' && this.isAuthenticated(req)) {
         res.writeHead(303, {
           'cache-control': 'no-store',
-          'location': './',
+          // Relative: the browser resolves it against the URL it requested, so a
+          // path-mounted shell (`/deepsea/?token=…`) lands on `/deepsea/`, the root on `/`.
+          'location': cleanLocation,
           'referrer-policy': 'no-referrer',
         })
         res.end()
