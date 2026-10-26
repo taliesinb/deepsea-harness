@@ -225,6 +225,13 @@ export interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+  /** Catalog (vendor) provider the route resolves to, when the adapter knows it, e.g. `anthropic` for `anthropic-oauth`. */
+  catalogProvider?: string
+  /**
+   * How the route authenticates and is billed: a subscription sign-in, a per-token API key, or a
+   * model served on this machine (no charge); absent when unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
 }
 
 /** Merge-extensible provider model modality vocabulary. */
@@ -406,8 +413,94 @@ export type SystemPromptUpdate = 'in-history'
  */
 export type ToolUpdate = 'in-history' | 'addition-only'
 
+/** List-price rates per million tokens, as decimal strings. */
+export interface LlmModelTokenRates {
+  /** Uncached input tokens. */
+  inputPerMillion: string
+  /** Output tokens, including reasoning. */
+  outputPerMillion: string
+  /** Cache-read input tokens; absent when the source publishes no rate. */
+  cacheReadPerMillion?: string
+  /** Cache-write input tokens; absent when the source publishes no rate. */
+  cacheWritePerMillion?: string
+}
+
+/**
+ * Published list prices for one exact model route. These are catalog rates,
+ * not a provider receipt: a consumer that multiplies them by usage produces an
+ * estimate. Adapters omit pricing for subscription routes and for models whose
+ * catalog carries no rates.
+ */
+export interface LlmModelPricing extends LlmModelTokenRates {
+  /** ISO 4217 currency of every rate. */
+  currency: string
+  /**
+   * Rates that replace the base rates when a request's total input (uncached +
+   * cache read + cache write) exceeds the threshold; the highest exceeded
+   * threshold applies.
+   */
+  tiers?: readonly (LlmModelTokenRates & { inputTokensAbove: number })[]
+  /** Where the rates come from, for display, e.g. `pi-ai catalog 2026-09-28`. */
+  source: string
+}
+
+/** The provider's own recorded charge for one past response. */
+export interface LlmResponseCost {
+  /** Charged amount as a plain decimal string. */
+  amount: string
+  /** ISO 4217 currency of the amount. */
+  currency: string
+}
+
+/** One subscription rate-limit window. */
+export interface LlmSubscriptionWindow {
+  /** Window duration label, e.g. `5h` or `7d`. */
+  label: string
+  /** Percent of the window used, 0–100. */
+  usedPercent: number
+  /** ISO time the window resets, when reported. */
+  resetAt?: string
+}
+
+/** The signed-in account a subscription reading belongs to; every field is optional and display-only. */
+export interface LlmSubscriptionAccount {
+  /** The provider's stable identifier of the signed-in account (and its organization), suitable as a key. */
+  id?: string
+  /** Account email address. */
+  email?: string
+  /** Account holder's name. */
+  name?: string
+  /** Organization or workspace the subscription belongs to. */
+  organization?: string
+  /** Provider plan label, e.g. `plus` or `claude_team`. */
+  plan?: string
+}
+
+/**
+ * Current subscription usage for one route's signed-in account, read from the
+ * provider's usage endpoint. Account-wide, not per session; not a bill.
+ */
+export interface LlmSubscriptionUsage {
+  /** Rate-limit windows in provider order. */
+  windows: readonly LlmSubscriptionWindow[]
+  /** Whether paid usage beyond the plan is enabled, when reported. */
+  extraUsageEnabled?: boolean
+  /** The signed-in account, when the provider identifies it. */
+  account?: LlmSubscriptionAccount
+  /** ISO time of the reading. */
+  observedAt: string
+}
+
 /** Exact-route model metadata resolved by its owning adapter. */
 export interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Adapter-published list prices when known. */
+  pricing?: LlmModelPricing
+  /**
+   * List prices of the same model on the provider's per-token API, published
+   * for subscription routes that publish no `pricing` because the route does
+   * not charge per token. An API-price equivalent, not a charge.
+   */
+  listPricing?: LlmModelPricing
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
   /** Adapter-configured per-request output cap materialized when callers omit one. */

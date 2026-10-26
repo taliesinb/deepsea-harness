@@ -20,6 +20,12 @@ import type {
   LlmModelDiscoveryRequest,
   LlmModelInfo,
   LlmResolvedModelInfo,
+  LlmModelPricing,
+  LlmModelTokenRates,
+  LlmResponseCost,
+  LlmSubscriptionAccount,
+  LlmSubscriptionUsage,
+  LlmSubscriptionWindow,
   LlmProviderInfo,
   ModelModality,
   StreamChunk,
@@ -55,6 +61,46 @@ export * from './provider-simulation.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
+
+const DECIMAL_RATE = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,18})?$/
+
+/**
+ * Validate and copy one set of per-million rates.
+ * @param rates - adapter-returned rates.
+ * @returns detached rates, or `null` when any rate is not a plain decimal string.
+ */
+function detachedRates(rates: LlmModelTokenRates): LlmModelTokenRates | null {
+  const valid = (rate: unknown): boolean => typeof rate === 'string' && DECIMAL_RATE.test(rate)
+  if (!valid(rates.inputPerMillion) || !valid(rates.outputPerMillion)
+    || [rates.cacheReadPerMillion, rates.cacheWritePerMillion].some(rate => rate !== undefined && !valid(rate))) return null
+  return {
+    inputPerMillion: rates.inputPerMillion,
+    outputPerMillion: rates.outputPerMillion,
+    ...rates.cacheReadPerMillion === undefined ? {} : { cacheReadPerMillion: rates.cacheReadPerMillion },
+    ...rates.cacheWritePerMillion === undefined ? {} : { cacheWritePerMillion: rates.cacheWritePerMillion },
+  }
+}
+
+/**
+ * Validate and copy adapter-published list prices.
+ * @param pricing - adapter-returned pricing.
+ * @returns detached pricing, or `null` when any field is malformed.
+ */
+function detachedPricing(pricing: LlmModelPricing): LlmModelPricing | null {
+  const base = detachedRates(pricing)
+  if (base === null || typeof pricing.currency !== 'string' || !/^[A-Z]{3}$/.test(pricing.currency)
+    || typeof pricing.source !== 'string' || pricing.source.length === 0 || pricing.source.length > 200) return null
+  if (pricing.tiers === undefined) return { ...base, currency: pricing.currency, source: pricing.source }
+  const published: unknown = pricing.tiers
+  if (!Array.isArray(published) || published.length > 16) return null
+  const tiers: (LlmModelTokenRates & { inputTokensAbove: number })[] = []
+  for (const tier of published as readonly (LlmModelTokenRates & { inputTokensAbove: number })[]) {
+    const rates = detachedRates(tier)
+    if (rates === null || !Number.isSafeInteger(tier.inputTokensAbove) || tier.inputTokensAbove < 0) return null
+    tiers.push({ ...rates, inputTokensAbove: tier.inputTokensAbove })
+  }
+  return { ...base, currency: pricing.currency, tiers, source: pricing.source }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -237,6 +283,31 @@ export abstract class LlmAdapter {
    */
   imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined {
     return undefined
+  }
+
+  /**
+   * Read current subscription usage for one owned route's signed-in account.
+   * The default supports none. Implementations make at most one provider
+   * request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
+   */
+  subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
+   * Look up the provider's recorded charge for one past response by its
+   * response id. The default supports none. Implementations make at most one
+   * provider request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _responseId - provider response id carried in replay state.
+   * @param _signal - cancellation for the lookup.
+   * @returns the charge, or `undefined` when the route cannot look one up.
+   */
+  responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    return Promise.resolve(undefined)
   }
 
   /**
@@ -439,12 +510,23 @@ export class LlmRuntime extends TypertRemoteService {
       if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
         throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
       }
+      const catalogProvider: unknown = info.catalogProvider
+      const auth: unknown = info.auth
+      if ((catalogProvider !== undefined && (typeof catalogProvider !== 'string' || catalogProvider.length === 0))
+        || (auth !== undefined && auth !== 'subscription' && auth !== 'api-key' && auth !== 'local')) {
+        throw new LlmError(`adapter metadata for provider "${provider}" has an invalid catalog provider or auth kind`, 'INVALID_ADAPTER')
+      }
       unique.add(provider)
       const retryPolicy = adapter.providerRetryPolicy(provider)
         ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
       registrations.push({
         adapter,
-        provider: { id: info.id, name: info.name },
+        provider: {
+          id: info.id,
+          name: info.name,
+          ...info.catalogProvider === undefined ? {} : { catalogProvider: info.catalogProvider },
+          ...info.auth === undefined ? {} : { auth: info.auth },
+        },
         retryPolicy,
       })
     }
@@ -727,6 +809,73 @@ export class LlmRuntime extends TypertRemoteService {
   }
 
   /**
+   * Look up and validate the provider's recorded charge for one past response.
+   * @param provider - registered provider route.
+   * @param responseId - provider response id.
+   * @param signal - optional cancellation for the lookup.
+   * @returns the detached charge, or `undefined` when the route cannot look one up.
+   */
+  async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    const registration = this.registration(provider)
+    const cost = await registration.adapter.responseCost(registration.provider.id, responseId, signal)
+    if (cost === undefined) return undefined
+    const amount: unknown = cost.amount
+    const currency: unknown = cost.currency
+    if (typeof amount !== 'string' || !DECIMAL_RATE.test(amount) || typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+      throw new LlmError(`adapter returned an invalid response cost for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return { amount, currency }
+  }
+
+  /**
+   * Read and validate the current subscription usage of one route's signed-in
+   * account from its owning adapter.
+   * @param provider - registered provider route.
+   * @param signal - optional cancellation for the lookup.
+   * @returns detached usage windows, or `undefined` when the route exposes none.
+   */
+  async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    const registration = this.registration(provider)
+    const usage = await registration.adapter.subscriptionUsage(registration.provider.id, signal)
+    if (usage === undefined) return undefined
+    const published: unknown = usage.windows
+    const windows: readonly LlmSubscriptionWindow[] = Array.isArray(published) ? published as LlmSubscriptionWindow[] : []
+    const validWindow = (w: LlmSubscriptionWindow): boolean => {
+      const label: unknown = w.label
+      const used: unknown = w.usedPercent
+      const resetAt: unknown = w.resetAt
+      return typeof label === 'string' && label.length > 0 && label.length <= 32
+        && typeof used === 'number' && Number.isFinite(used) && used >= 0 && used <= 100
+        && (resetAt === undefined || (typeof resetAt === 'string' && Number.isFinite(Date.parse(resetAt))))
+    }
+    const valid = Array.isArray(published) && windows.length <= 16 && windows.every(validWindow)
+    const observedAt: unknown = usage.observedAt
+    const extra: unknown = usage.extraUsageEnabled
+    const account: unknown = usage.account
+    const accountFields = ['id', 'email', 'name', 'organization', 'plan'] as const
+    const validAccount = account === undefined || (typeof account === 'object' && account !== null && !Array.isArray(account)
+      && accountFields.every((key) => {
+        const value: unknown = (account as Record<string, unknown>)[key]
+        return value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 256)
+      }))
+    if (!valid || typeof observedAt !== 'string' || !Number.isFinite(Date.parse(observedAt))
+      || (extra !== undefined && typeof extra !== 'boolean') || !validAccount) {
+      throw new LlmError(`adapter returned invalid subscription usage for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    const identity: LlmSubscriptionAccount = {}
+    for (const key of accountFields) {
+      const value = usage.account?.[key]
+      if (value !== undefined) identity[key] = value
+    }
+    return {
+      windows: windows.map(w => ({ label: w.label, usedPercent: w.usedPercent, ...w.resetAt === undefined ? {} : { resetAt: w.resetAt } })),
+      ...usage.extraUsageEnabled === undefined ? {} : { extraUsageEnabled: usage.extraUsageEnabled },
+      ...Object.keys(identity).length === 0 ? {} : { account: identity },
+      observedAt: usage.observedAt,
+    }
+  }
+
+  /**
    * Resolve and validate all metadata from the adapter that owns one exact
    * route. The result is detached from adapter-owned objects; catalog
    * membership remains advisory and does not control request routing.
@@ -807,10 +956,20 @@ export class LlmRuntime extends TypertRemoteService {
         'INVALID_MODEL_MAX_TOKENS',
       )
     }
+    const pricing = resolved.pricing === undefined ? undefined : detachedPricing(resolved.pricing)
+    const listPricing = resolved.listPricing === undefined ? undefined : detachedPricing(resolved.listPricing)
+    if (pricing === null || listPricing === null) {
+      throw new LlmError(
+        `adapter returned invalid pricing metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
+      ...pricing === undefined ? {} : { pricing },
+      ...listPricing === undefined ? {} : { listPricing },
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },

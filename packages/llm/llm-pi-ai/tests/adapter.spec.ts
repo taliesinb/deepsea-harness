@@ -11,7 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { loopbackUrl, PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
@@ -211,6 +211,24 @@ describe('PiAiAdapter provider routing', () => {
     // has already moved on, so a selector may ask about a route the current
     // profiles no longer describe. It gets the key rather than nothing.
     expect(adapter.providerInfo('departed')).toEqual({ id: 'departed', name: 'departed' })
+  })
+
+  it('marks a custom route served on this machine as local; a catalog vendor behind a local proxy stays api-key', () => {
+    const custom = (baseURL: string, extra: Record<string, unknown> = {}) => ({ api: 'openai-completions', baseURL, models: [{ id: 'm' }], ...extra })
+    const adapter = adapterOf({
+      lmstudio: custom('http://127.0.0.1:1234/v1'),
+      ollama: custom('http://localhost:11434/v1'),
+      v6: custom('http://[::1]:8080/v1'),
+      tunnel: custom('http://127.0.0.1:9000/v1', { auth: 'api-key' }),
+      remote: custom('https://gpu.example.com/v1', { auth: 'local' }),
+      gateway: custom('https://acme.test/v1'),
+      openai: { baseURL: 'http://127.0.0.1:4000/v1' },
+    })
+    expect(['lmstudio', 'ollama', 'v6', 'tunnel', 'remote', 'gateway', 'openai'].map(id => adapter.providerInfo(id).auth))
+      .toEqual(['local', 'local', 'local', 'api-key', 'local', undefined, 'api-key'])
+    expect(loopbackUrl('http://127.255.0.9/')).toBe(true)
+    expect(loopbackUrl('http://127.example.com/')).toBe(false)
+    expect(loopbackUrl('not a url')).toBe(false)
   })
 
   it('reports unsupported stop sequences rather than silently ignoring them', async () => {
@@ -490,8 +508,8 @@ describe('provider profile lifecycle', () => {
       },
     })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'openai', name: 'openai' },
-      { id: 'anthropic', name: 'anthropic' },
+      { id: 'openai', name: 'openai', catalogProvider: 'openai', auth: 'api-key' },
+      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' },
     ])
     expect(ctx.llm.providerRetryPolicy('openai')).toEqual({
       mode: 'always',
@@ -519,6 +537,50 @@ describe('provider profile lifecycle', () => {
     expect(models.every(model => model.provider === 'openai')).toBe(true)
     const info = await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')
     expect(typeof info.context?.contextWindow).toBe('number')
+  })
+
+  it('publishes installed catalog list prices on exact model metadata, except for subscription routes', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: { anthropic: {}, 'anthropic-oauth': {}, 'openai-codex': {} } })
+    const catalog = getBuiltinModels('anthropic').find(model => model.cost.input > 0)!
+    const info = await ctx.llm.resolveModelInfo('anthropic', catalog.id)
+    expect(info.pricing).toMatchObject({
+      currency: 'USD',
+      inputPerMillion: String(catalog.cost.input),
+      outputPerMillion: String(catalog.cost.output),
+      cacheReadPerMillion: String(catalog.cost.cacheRead),
+      cacheWritePerMillion: String(catalog.cost.cacheWrite),
+    })
+    expect(info.pricing?.source).toMatch(/^pi-ai catalog/)
+    // The same model through the subscription sign-in is not billed per token.
+    const subscription = await ctx.llm.resolveModelInfo('anthropic-oauth', catalog.id)
+    expect(subscription.pricing).toBeUndefined()
+    // Its API-price equivalent is the per-token list price of the same model.
+    expect(subscription.listPricing).toEqual(info.pricing)
+    expect(info.listPricing).toBeUndefined()
+    const codex = getBuiltinModels('openai-codex').find(model => model.cost.input > 0)!
+    const codexInfo = await ctx.llm.resolveModelInfo('openai-codex', codex.id)
+    expect(codexInfo.pricing).toBeUndefined()
+    expect(codexInfo.listPricing).toMatchObject({ currency: 'USD', inputPerMillion: String(codex.cost.input) })
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'anthropic', name: 'anthropic', catalogProvider: 'anthropic', auth: 'api-key' },
+      { id: 'anthropic-oauth', name: 'Anthropic Plan', catalogProvider: 'anthropic', auth: 'subscription' },
+      { id: 'openai-codex', name: 'openai-codex', catalogProvider: 'openai-codex', auth: 'subscription' },
+    ])
+  })
+
+  it("bills OpenRouter's OAuth route per token: its sign-in issues an ordinary key, not a plan", async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, { providers: { 'openrouter-oauth': {} } })
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'openrouter-oauth', name: 'OpenRouter OAuth', catalogProvider: 'openrouter', auth: 'api-key' },
+    ])
+    const priced = getBuiltinModels('openrouter').find(model => model.cost.input > 0)!
+    const info = await ctx.llm.resolveModelInfo('openrouter-oauth', priced.id)
+    expect(info.pricing).toMatchObject({ currency: 'USD', inputPerMillion: String(priced.cost.input) })
+    expect(info.listPricing).toBeUndefined()
   })
 
   it('exposes pi-ai model thinking levels verbatim without inventing a provider default', async () => {
