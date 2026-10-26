@@ -20,6 +20,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import { ModelCatalogDirectory } from './catalog.ts'
 import { ModelDirectory } from './directory.ts'
+import { RecentModels } from './recent.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -39,6 +40,8 @@ export class ModelDirectoryResolver extends Service {
 
   private readonly live: LiveState = { directories: new WeakMapWithValues() }
   private readonly catalog: ModelCatalogDirectory
+  /** Recent selections, shared by every Session's directory and kept in this browser profile. */
+  private readonly recent = new RecentModels()
 
   /**
    * @param ctx - owning root context (the service registers itself as `models`).
@@ -78,6 +81,7 @@ export class ModelDirectoryResolver extends Service {
       () => sessions.subagentAddress(sessionId) === undefined,
       this.catalog,
       binding.session.projections.faceOf('modelSelection'),
+      this.recent,
       () => binding.session.getSnapshot().blank,
       (name, attributes) => this.ctx.get('productAnalytics')?.track(name, attributes),
     )

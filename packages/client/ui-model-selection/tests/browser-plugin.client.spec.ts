@@ -332,6 +332,32 @@ describe('ui-model-selection dual entry', () => {
     }
   })
 
+  it('records accepted selections in one recent list every session reads, behind them the selection they replaced', async () => {
+    const b = await bench()
+    b.mint('a')
+    b.mint('b')
+    const faceA = b.seat().inject!(sid('a'))
+    const faceB = b.seat().inject!(sid('b'))
+    await b.ctx.modelDirectories.directoryFor(sid('a')).load()
+    await faceA.select({ provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' })
+    // The replaced default named no effort; the catalog default stands in for it.
+    const afterA = [
+      { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' },
+    ]
+    expect(faceA.directory.getSnapshot().recent).toEqual(afterA)
+    expect(faceB.directory.getSnapshot().recent).toEqual(afterA)
+
+    // The popup records too.
+    const options = await b.popup().options(projection('b'), new AbortController().signal)
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Flash')!, projection('b'))
+    expect(faceA.directory.getSnapshot().recent).toEqual([afterA[1], afterA[0]])
+
+    b.rejectSelection()
+    await faceB.select({ provider: 'external', model: 'deepseek-v4-flash' })
+    expect(faceB.directory.getSnapshot().recent).toEqual([afterA[1], afterA[0]])
+  })
+
   it('both entries share one directory instance per session, isolated across sessions', async () => {
     const b = await bench()
     b.mint('a')
