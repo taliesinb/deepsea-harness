@@ -1065,6 +1065,22 @@ describe('blank mirror', () => {
     expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: true })
   })
 
+  it('flips blank=false on engage without a prompt: listed, and no longer New Session reuse', async ({ bench }) => {
+    const b = bench()
+    await feedList(b, [{ id: 's1', blank: true, cwd: '/w/a' }])
+    using reference = b.svc.retain(sid('s1'), { source: 'controllerOperation' })
+    await reference.ready
+    const session = reference.binding.session
+    session.engage()
+    expect(session.getSnapshot().blank).toBe(false)
+    await Promise.resolve()
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: false })
+    expect(b.mock.remote.session.prompt).not.toHaveBeenCalled()
+    // The Host still lists it blank (no turn yet); the Client keeps the conversion.
+    await feedList(b, [{ id: 's1', blank: true, cwd: '/w/a' }])
+    expect(b.svc.list.getSnapshot().byId[sid('s1')]).toMatchObject({ blank: false })
+  })
+
   it('takes session-added blank=true as the hidden birth and list blank as reconnect authority', async ({ bench }) => {
     const b = bench()
     await feedList(b, [])
