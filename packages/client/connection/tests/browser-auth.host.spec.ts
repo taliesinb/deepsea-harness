@@ -140,6 +140,21 @@ describe('BrowserAuth', () => {
     })
   })
 
+  it('takes the launch token from DSH_LAUNCH_TOKEN when it is long enough, else makes one', async () => {
+    const chosen = 'A'.repeat(20) + 'b-c_d'.repeat(4)
+    vi.stubEnv('DSH_LAUNCH_TOKEN', chosen)
+    try {
+      const auth = await createAuth(new RecordCredentials())
+      expect(new URL(auth.authenticatedUrl('http://127.0.0.1:3080')).searchParams.get('token')).toBe(chosen)
+      expect(exchange(auth).state.status).toBe(303)
+      vi.stubEnv('DSH_LAUNCH_TOKEN', 'too-short')
+      const random = await createAuth(new RecordCredentials())
+      expect(new URL(random.authenticatedUrl('http://127.0.0.1:3080')).searchParams.get('token')).not.toBe('too-short')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('preserves the caller authority and mount while adding only this process token', async () => {
     const auth = await createAuth(new RecordCredentials())
     const mounted = new URL(auth.authenticatedUrl('https://gateway.example/tools/dsh/'))
