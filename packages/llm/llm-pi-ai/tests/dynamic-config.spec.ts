@@ -64,6 +64,7 @@ describe('OAuth flows in a real composition', () => {
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
       provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'anthropic-oauth'], declared: false,
+      signIn: { kind: 'subscription', vendor: 'Anthropic' },
     })
     await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
     expect(ctx.llm.listProviders()).toEqual([

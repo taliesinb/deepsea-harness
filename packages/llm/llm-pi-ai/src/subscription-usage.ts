@@ -3,9 +3,9 @@
  * endpoint with the route's own (refreshed) sign-in token. No model inference.
  */
 
-import type { Models } from '@earendil-works/pi-ai'
+import type { ModelAuth, Models } from '@earendil-works/pi-ai'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { LlmResponseCost, LlmSubscriptionAccount, LlmSubscriptionUsage, LlmSubscriptionWindow } from '@deepseek-ai/dsh-llm'
+import type { LlmResponseCost, LlmSignInState, LlmSubscriptionAccount, LlmSubscriptionUsage, LlmSubscriptionWindow } from '@deepseek-ai/dsh-llm'
 import { catalogProvider, oauthCatalogProvider } from './catalog.ts'
 
 /** Anthropic's account usage endpoint (the data behind Claude Code's `/usage`). */
@@ -158,6 +158,40 @@ function codexAccount(claims: Record<string, unknown> | undefined): LlmSubscript
     organization: undefined,
     plan: label(auth?.chatgpt_plan_type),
   })
+}
+
+/**
+ * Whether a sign-in route holds a usable grant, and the signed-in account where
+ * the provider identifies one: Anthropic through `/api/oauth/profile` (one
+ * request, cached per access token), Codex from the token's claims (none).
+ * A grant that reaches requests as headers alone (Kimi Code) is signed in, with
+ * no account.
+ * Resolving the grant may refresh it, as any request on the route would.
+ * @param models - the adapter's current model collection (holding the grant).
+ * @param provider - provider route key.
+ * @param signal - cancellation for the profile read.
+ * @returns the state, or `undefined` when the route is not a sign-in route.
+ */
+export async function readSignInState(models: Models, provider: string, signal?: AbortSignal): Promise<LlmSignInState | undefined> {
+  const native = oauthCatalogProvider(provider)?.id
+  if (native === undefined) return undefined
+  let auth: ModelAuth | undefined
+  try {
+    auth = (await models.getAuth(provider))?.auth
+  } catch {
+    // An unusable grant (a refresh the provider refused) is not a sign-in.
+    return { signedIn: false }
+  }
+  // A grant reaches requests as a key (Anthropic, Codex) or as headers alone
+  // (Kimi Code's `Authorization`); either is a sign-in.
+  const token = auth?.apiKey
+  if (token === undefined) {
+    return Object.keys(auth?.headers ?? {}).length === 0 ? { signedIn: false } : { signedIn: true }
+  }
+  const account = native === 'anthropic'
+    ? token.startsWith('sk-ant-oat') ? await anthropicProfile(token, signal) : undefined
+    : native === 'openai-codex' ? codexAccount(codexClaims(token)) : undefined
+  return account === undefined ? { signedIn: true } : { signedIn: true, account }
 }
 
 /** Anthropic profiles by access token; the account behind a token never changes. */

@@ -10,7 +10,7 @@ import type {
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
-  ModelsSection, needsSetup, providerCopy, providerTargetLabel, removeProviderProfile,
+  ModelsSection, needsSetup, planLabel, providerCopy, providerTargetLabel, removeProviderProfile,
 } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ProviderEditor, pathOps } from '../src/client/ProviderEditor.tsx'
@@ -365,6 +365,89 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getByRole('button', { name: openaiCopy(en.editProvider) }))
     expect(await screen.findByLabelText(en.keyInput)).toBeTruthy()
     expect(screen.getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
+  it('shows a sign-in route by vendor with its kind tag, account facts, and no editor', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listProviders.mockResolvedValue(remoteOk([{ id: 'zombie', name: 'Zombie Plan' }]))
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([{
+      provider: 'zombie', displayName: 'Zombie Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'],
+      signIn: { kind: 'subscription', vendor: 'Zombie' },
+    }]))
+    const describeSignIn = vi.fn(() => Promise.resolve(remoteOk({
+      signedIn: true, account: { email: 'user@example.com', organization: 'Fixture Org', plan: 'claude_max' },
+    })))
+    Object.assign(scripted.face.llm, { describeSignIn })
+    await mountFace(scripted)
+    expect(screen.getByText('Zombie')).toBeTruthy()
+    expect(screen.queryByText('Zombie Plan')).toBeNull()
+    expect(screen.getByText(en.signInPlanTag)).toBeTruthy()
+    expect(screen.getByRole('img', { name: en.signedIn })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Edit/u })).toBeNull()
+    // Details, in the editor's place, toggle the account facts; there is no key field.
+    expect(screen.queryByText(en.signInAccount)).toBeNull()
+    const details = screen.getByRole('button', { name: providerCopy(en.detailsProvider, { provider: 'zombie', displayName: 'Zombie Plan' }) })
+    expect(details.textContent).toBe(en.details)
+    fireEvent.click(details)
+    for (const [label, value] of [
+      [en.signInStatus, en.signedIn], [en.signInAccount, 'user@example.com'], [en.signInOrganization, 'Fixture Org'],
+      [en.signInPlan, 'Max'], [en.customRoute, 'zombie'],
+    ]) {
+      expect(screen.getByText(label!, { selector: 'dt' })).toBeTruthy()
+      expect(screen.getByText(value!, { selector: 'dd' })).toBeTruthy()
+    }
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    fireEvent.click(details)
+    expect(screen.queryByText(en.signInAccount)).toBeNull()
+    expect(describeSignIn).toHaveBeenCalledWith('zombie')
+    // A removable route keeps its Delete.
+    expect(screen.getByRole('button', { name: providerCopy(en.removeProvider, { provider: 'zombie', displayName: 'Zombie Plan' }) })).toBeTruthy()
+  })
+
+  it('does not offer a dormant sign-in route in the add card', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+      { provider: 'xai-oauth', displayName: 'xAI Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai-oauth'],
+        signIn: { kind: 'subscription', vendor: 'xAI' } },
+    ]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    const options = [...document.querySelectorAll('option')].map(option => option.value)
+    expect(options).toContain('anthropic')
+    expect(options).not.toContain('xai-oauth')
+  })
+
+  it('groups providers into API keys, Plans and Local, each with its own add action', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listProviders.mockResolvedValue(remoteOk([
+      { id: 'openai', name: 'openai', auth: 'api-key' },
+      { id: 'zombie', name: 'Zombie Plan', auth: 'subscription' },
+    ]))
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+      { provider: 'zombie', displayName: 'Zombie Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'],
+        signIn: { kind: 'subscription', vendor: 'Zombie' } },
+    ]))
+    Object.assign(scripted.face.llm, { describeSignIn: vi.fn(() => Promise.resolve(remoteOk({ signedIn: false }))) })
+    const { renderSlot } = await mountFace(scripted)
+    const section = (name: string): HTMLElement => screen.getByRole('region', { name })
+    expect(within(section(en.groupApiKeys)).getByText('openai')).toBeTruthy()
+    expect(within(section(en.groupApiKeys)).getByRole('button', { name: en.add })).toBeTruthy()
+    expect(within(section(en.groupPlans)).getByText('Zombie')).toBeTruthy()
+    // Plans have no add control of their own: the section seat is where a sign-in plugin puts one.
+    expect(within(section(en.groupPlans)).queryByRole('button', { name: en.add })).toBeNull()
+    expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.models.section-actions').map(call => call[2]?.entryKey))
+      .toEqual(['apiKeys', 'plans', 'local'])
+    // Local opens the custom card alone, under its own title.
+    fireEvent.click(within(section(en.groupLocal)).getByRole('button', { name: en.addLocal }))
+    expect(within(section(en.groupLocal)).getByText(en.addLocalTitle)).toBeTruthy()
+    expect(within(section(en.groupLocal)).queryByRole('tab')).toBeNull()
+    expect(within(section(en.groupApiKeys)).getByRole('button', { name: en.add })).toBeTruthy()
+  })
+
+  it('labels plan ids readably', () => {
+    expect(['claude_max', 'claude_team', 'plus', 'claude-pro', 'enterprise_pro'].map(planLabel)).toEqual(['Max', 'Team', 'Plus', 'Pro', 'Enterprise Pro'])
   })
 
   it('renders nothing before the slot injects its dependencies', () => {
