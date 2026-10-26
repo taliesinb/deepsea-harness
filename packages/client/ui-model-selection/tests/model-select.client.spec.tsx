@@ -58,7 +58,8 @@ function modelGroups(count: number): ModelDirectoryState['groups'] {
   return [{ ...group, models: [
     ...group.models,
     ...Array.from({ length: Math.max(0, count - 1) }, (_, index) => ({
-      id: `model-${index + 2}`, name: `Model ${index + 2}`,
+      // Letters, not numbers: numbered names form one line whose older members are hidden.
+      id: `model-${index + 2}`, name: `Model ${String.fromCharCode(66 + index)}`,
     })),
   ].slice(0, count) }]
 }
@@ -610,7 +611,7 @@ describe('ModelSelect catalog size', () => {
     fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
     const search = screen.getByRole('searchbox')
-    fireEvent.change(search, { target: { value: 'Model 5' } })
+    fireEvent.change(search, { target: { value: 'Model E' } })
     expect(screen.getAllByRole('menuitemradio')).toHaveLength(1)
     expect(screen.getByRole('searchbox')).toBe(search)
     expect(document.activeElement).toBe(search)
@@ -669,7 +670,7 @@ describe('ModelSelect catalog size', () => {
       load={vi.fn()} select={select} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
-    const row = screen.getByRole('menuitemradio', { name: 'Model 3' })
+    const row = screen.getByRole('menuitemradio', { name: 'Model C' })
     fireEvent.mouseMove(row)
     expect(document.activeElement).toBe(row)
     expect(row.hasAttribute('data-highlighted')).toBe(true)
@@ -875,15 +876,15 @@ it('shows the unselected model control with the inherited effort', async () => {
 
 it('places account and official models before third-party models', async () => {
   const groups = ['custom', 'deepseek-official', 'deepseek-account', 'another'].map(id => ({
-    id, name: id, models: [1, 2].map(index => ({ id: `${id}-${index}`, name: `${id}-${index}` })),
+    id, name: id, models: ['a', 'b'].map(index => ({ id: `${id}-${index}`, name: `${id}-${index}` })),
   }))
   const directory = createSnapshotStore<ModelDirectoryState>(state({ current: null, groups }))
   render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={vi.fn()} t={t} />)
   fireEvent.click(screen.getByRole('button', { name: '请选择模型' }))
   const names = screen.getAllByRole('menuitemradio').map(row => row.textContent)
   expect(names).toEqual([
-    'deepseek-account-1', 'deepseek-account-2', 'deepseek-official-1', 'deepseek-official-2',
-    'custom-1', 'custom-2', 'another-1', 'another-2',
+    'deepseek-account-a', 'deepseek-account-b', 'deepseek-official-a', 'deepseek-official-b',
+    'custom-a', 'custom-b', 'another-a', 'another-b',
   ])
   expect(groups.map(group => group.id)).toEqual(['custom', 'deepseek-official', 'deepseek-account', 'another'])
   await expect(`${names.join('\n')}\n`).toMatchFileSnapshot('./expected/account-first.txt')
