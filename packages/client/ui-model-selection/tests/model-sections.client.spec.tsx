@@ -44,7 +44,7 @@ const LOCAL: ModelProviderGroup = {
 const ALL_ROUTES = [LOCAL, ROUTER, API, ANTHROPIC, PLAN]
 
 function state(groups: readonly ModelProviderGroup[], current: ModelDirectoryState['current'] = null): ModelDirectoryState {
-  return { current, routable: current !== null, groups, failures: [], status: 'ready', pending: null, error: null }
+  return { current, routable: current !== null, groups, failures: [], status: 'ready', pending: null, error: null, recent: [] }
 }
 
 function open(groups: readonly ModelProviderGroup[], current: ModelDirectoryState['current'] = null) {

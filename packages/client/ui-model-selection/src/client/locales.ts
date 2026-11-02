@@ -41,6 +41,8 @@ export const zh = {
   'filter.tools': '工具',
   'filter.free': '免费',
   'filter.historical': '旧版模型',
+  'recent.aria': '最近使用的模型',
+  'recent.label': '{model} - {effort}',
   'empty.models': '没有可用的模型。',
   'empty.efforts': '当前模型未提供推理等级。',
 } satisfies Record<string, string>
@@ -81,6 +83,8 @@ export const en = {
   'filter.tools': 'Tools',
   'filter.free': 'Free',
   'filter.historical': 'Older models',
+  'recent.aria': 'Recent models',
+  'recent.label': '{model} - {effort}',
   'empty.models': 'No models available.',
   'empty.efforts': 'This model provides no reasoning effort levels.',
 } satisfies Record<ModelKey, string>

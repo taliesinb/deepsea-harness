@@ -13,6 +13,7 @@ import type { RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-p
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ModelCatalogDirectory } from './catalog.ts'
+import type { RecentModelList, RecentModels } from './recent.ts'
 
 /** Directory snapshot both entries render from. */
 export interface ModelDirectoryState {
@@ -32,13 +33,15 @@ export interface ModelDirectoryState {
   pending: ModelSelection | null
   /** Whole-request or selection failure text; null when none. */
   error: string | null
+  /** Recently chosen selections across every Session, most recent first, with effective efforts. */
+  recent: RecentModelList
 }
 
 /** One session's shared directory controller; disposed with the session scope. */
 export class ModelDirectory {
   /** The shared snapshot both entries render from (uSES-safe store). */
   readonly store: SnapshotStore<ModelDirectoryState> = createSnapshotStore<ModelDirectoryState>({
-    current: null, routable: null, groups: [], failures: [], status: 'idle', pending: null, error: null,
+    current: null, routable: null, groups: [], failures: [], status: 'idle', pending: null, error: null, recent: [],
   })
 
   /** Latest selection operation wins; an older response never overwrites a newer one. */
@@ -46,6 +49,7 @@ export class ModelDirectory {
   private disposed = false
   private readonly unsubscribeCatalog: () => void
   private readonly unsubscribeSelection: () => void
+  private readonly unsubscribeRecent: () => void
 
   /**
    * @param sessions - the session wire face (captured from the plugin's root connection).
@@ -53,6 +57,7 @@ export class ModelDirectory {
    * @param available - whether this session may use Agent-bound model RPCs.
    * @param catalog - Host-generation catalog shared by every Session.
    * @param projected - durable model selection projected from Session history.
+   * @param recent - the recent-selection list shared by every Session.
    * @param isBlank - whether this Session has no first message yet.
    * @param track - desktop-only callback after a successful user selection.
    */
@@ -62,11 +67,15 @@ export class ModelDirectory {
     private readonly available: () => boolean,
     private readonly catalog: ModelCatalogDirectory,
     private readonly projected: ObservableSnapshot<unknown>,
+    private readonly recent: RecentModels,
     private readonly isBlank: () => boolean,
     private readonly track?: TrackProductEvent,
   ) {
     this.unsubscribeCatalog = catalog.store.subscribe(() => { this.syncInputs() })
     this.unsubscribeSelection = projected.subscribe(() => { this.syncInputs() })
+    this.unsubscribeRecent = recent.store.subscribe(() => {
+      if (!this.disposed) this.store.update((state) => { state.recent = recent.store.getSnapshot() })
+    })
     this.syncInputs()
   }
 
@@ -85,6 +94,8 @@ export class ModelDirectory {
    * Select the complete provider/model/reasoning selection. The durable
    * projection frame updates the shared current; failures surface on the store
    * and return with the operation so each entry can present its own failure.
+   * An accepted selection is recorded in the recent list, followed there by
+   * the selection it replaced.
    * @param selection - provider, provider-owned model id, and optional adapter-owned effort.
    * @returns the selection outcome, including the original Remote failure.
    */
@@ -103,6 +114,7 @@ export class ModelDirectory {
         ? {}
         : { reasoningEffort: selection.reasoningEffort },
     })
+    if (result.ok) this.recent.record(this.catalog.store.getSnapshot().value?.groups ?? [], selection, previous)
     if (this.disposed || generation !== this.generation) {
       return result.ok ? { ok: true, value: undefined } : result
     }
@@ -144,6 +156,7 @@ export class ModelDirectory {
   /** Scope teardown: late settlements lose write access to the store. */
   dispose(): void {
     this.disposed = true
+    this.unsubscribeRecent()
     this.unsubscribeSelection()
     this.unsubscribeCatalog()
   }
@@ -173,6 +186,7 @@ export class ModelDirectory {
         status: catalog.status === 'error' ? 'error' : 'loading',
         pending: this.store.getSnapshot().pending,
         error: catalog.error,
+        recent: this.recent.store.getSnapshot(),
       })
       return
     }
@@ -190,6 +204,7 @@ export class ModelDirectory {
         : 'ready',
       pending: this.store.getSnapshot().pending,
       error: null,
+      recent: this.recent.store.getSnapshot(),
     })
   }
 }

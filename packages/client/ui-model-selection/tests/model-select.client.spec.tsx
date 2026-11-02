@@ -49,6 +49,7 @@ function state(overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryStat
     status: 'ready',
     pending: null,
     error: null,
+    recent: [],
     ...overrides,
   }
 }

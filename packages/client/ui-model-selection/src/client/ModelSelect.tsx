@@ -35,6 +35,12 @@
  * a model a newer version of its line supersedes is hidden until the toggle
  * is on, unless it is the current model. Each filter names itself in an
  * immediate tooltip.
+ *
+ * Below a divider under the Model and Effort rows, the root pane lists up to
+ * four recently chosen model/effort pairs (the directory's shared recent list,
+ * skipping the pair in use and models the catalog no longer lists), each
+ * selectable in one click; a row names its effort only when it is not the
+ * model's default.
  */
 import { MenuGroup, MenuSurface, observeStickyMenuGroups } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
@@ -53,10 +59,22 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 import type { ModelKey } from './locales.ts'
+import { sameSelection } from './recent.ts'
 import {
   hasCapability, MODEL_ROUTES, modelSections, routeTitle, splittingFilters, supersededModels,
   type ModelFilter, type ModelRoute, type ModelSection,
 } from './route-sections.ts'
+
+/** Recent selections listed under the root pane's cells. */
+const RECENT_SHOWN = 4
+
+/** One recent-selection row of the root pane. */
+interface RecentChoice {
+  key: string
+  route: ModelRoute
+  label: string
+  selection: ModelSelection
+}
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
 type Pane = 'root' | 'model' | 'effort'
@@ -244,6 +262,39 @@ export function ModelSelect(
     ], [reasoning, t])
   const { pending } = state
   const busy = pending !== null
+  // Recent selections other than the one in use, resolved against the loaded
+  // catalog; entries whose model is no longer listed are skipped. An effort
+  // equal to the model's default is shown as the bare model name.
+  const recentChoices = useMemo<readonly RecentChoice[]>(() => {
+    const current = state.current === null
+      ? undefined
+      : {
+        provider: state.current.provider,
+        model: state.current.model,
+        ...effectiveEffort === undefined ? {} : { reasoningEffort: effectiveEffort },
+      }
+    const rows: RecentChoice[] = []
+    for (const entry of state.recent) {
+      if (rows.length === RECENT_SHOWN) break
+      if (current !== undefined && sameSelection(entry, current)) continue
+      const choice = choices.find(c => c.selection.provider === entry.provider && c.selection.model === entry.model)
+      if (choice === undefined) continue
+      const effort = choice.model.reasoning?.efforts.find(level => level.id === entry.reasoningEffort)
+      const shownEffort = effort !== undefined && effort.id !== choice.model.reasoning?.defaultEffort ? effort : undefined
+      const key = `${entry.provider}/${entry.model}/${effort?.id ?? ''}`
+      // A changed effort list can leave two entries naming the same row.
+      if (rows.some(row => row.key === key)) continue
+      rows.push({
+        key,
+        route: choice.section.route,
+        label: shownEffort === undefined
+          ? choice.model.name
+          : t('recent.label', { model: choice.model.name, effort: shownEffort.name }),
+        selection: { provider: entry.provider, model: entry.model, ...effort === undefined ? {} : { reasoningEffort: effort.id } },
+      })
+    }
+    return rows
+  }, [state.recent, state.current, effectiveEffort, choices, t])
 
   const reload = (): void => {
     lastActionRef.current = 'load'
@@ -624,6 +675,31 @@ export function ModelSelect(
                   <span className={css.cellValue}>{effortLabel}</span>
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
+              )}
+              {recentChoices.length > 0 && (
+                <>
+                  <div className={css.recentDivider} role="separator" />
+                  <div role="group" aria-label={t('recent.aria')}>
+                    {recentChoices.map(row => (
+                      <button
+                        ref={itemRef()}
+                        type="button"
+                        role="menuitem"
+                        className={clsx(css.option, css.recent)}
+                        key={row.key}
+                        title={row.label}
+                        disabled={busy}
+                        onClick={() => { submit(row.selection) }}
+                      >
+                        <RouteIcon route={row.route} className={css.recentRoute} />
+                        <span className={css.optionCopy}><span className={css.modelName}>{row.label}</span></span>
+                        <span className={css.check}>
+                          {pending !== null && sameSelection(pending, row.selection) ? <StateDot state="ongoing" /> : null}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </>
           )}
