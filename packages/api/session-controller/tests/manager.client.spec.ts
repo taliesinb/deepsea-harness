@@ -282,6 +282,28 @@ describe('SessionManager instances', () => {
     expect(manager.get(S1).getSnapshot().blank).toBe(false)
   })
 
+  it('engages a blank Session without a prompt and keeps it out of New Session reuse across a blank refresh', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    onTestFinished(() => manager.dispose())
+    remote.session.list.mockResolvedValue(ok({ items: [summary(S1, { blank: true })] as never[] }))
+    await manager.refreshList()
+    const session = manager.get(S1)
+    expect(session.getSnapshot().blank).toBe(true)
+
+    session.engage()
+    expect(session.getSnapshot()).toMatchObject({ blank: false, promptAttempted: false, awaitingFirstTurn: false })
+    expect(manager.getListSnapshot().items[0]?.blank).toBe(false)
+
+    // The Host still reports no turn: its blank bit is unchanged, the Client keeps the conversion.
+    await manager.refreshList()
+    manager.handleSessionAdded(summary(S1, { blank: true }))
+    expect(manager.getListSnapshot().items[0]?.blank).toBe(false)
+    expect(session.getSnapshot().blank).toBe(false)
+    await manager.drop(S1, session)
+    expect(manager.get(S1).getSnapshot().blank).toBe(false)
+    expect(remote.session.prompt).not.toHaveBeenCalled()
+  })
+
   it('publishes acceptance from a nonblank sender after its list row is replaced', async ({ mock, remote }) => {
     const manager = makeManager(mock, remote)
     onTestFinished(() => manager.dispose())

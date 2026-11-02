@@ -91,6 +91,15 @@ export interface ISession {
     requestId?: SessionRequestId,
   ): Promise<RemoteResult<{ accepted: true }>>
   /**
+   * End the New Session display state without a prompt, because something the
+   * user asked for in this Client (a command it ran) is now in the
+   * transcript: the Session renders as a conversation, lists as one, and New
+   * Session no longer reuses it, as after an accepted first prompt. Display
+   * memory of this Client only: no Host call, the Host blank bit (no turn
+   * yet) is unchanged, and a reload forgets it.
+   */
+  engage(): void
+  /**
    * Resolve one durable image referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.
