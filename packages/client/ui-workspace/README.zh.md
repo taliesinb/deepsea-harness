@@ -51,7 +51,11 @@ kind: "package-reference"
 
 ### 管理会话
 
-Session 行内的 Rename 操作打开一个以该行显示标题预填的对话框；确认未修改的标题是有意允许的——这正是把当前自动标题钉住、不再被重新生成覆盖的手势。双击标题也会打开 Rename；对于未归档 Session，先发生的点击会打开其对话。Rename 使用临时 `workspaceOperation` reference，并等待首次历史打开。行内 Fork 在源会话最后一个已完成轮次处 fork，通过 Session Controller 递增继承的持久化标题，不 retain 子会话、不打开其历史，也不改变选择。Workspace 行内的 Delete 操作会打开确认框，说明保留边界；成功后该分组被移除，其 Session 则留在 Ungrouped 下。Pin、Rename、Fork、Archive 本身就是 `sidebar.workspaces.session.menu.item` 列表的条目（pin 与 archive 同时也是 `sidebar.workspaces.session.row.action` 的条目），因此客户端插件的 action 由其 `order` 决定落在哪个位置。
+Session 行内的 Rename 操作打开一个以该行显示标题预填的对话框；确认未修改的标题是有意允许的——这正是把当前自动标题钉住、不再被重新生成覆盖的手势。双击标题也会打开 Rename；对于未归档 Session，先发生的点击会打开其对话。Rename 使用临时 `workspaceOperation` reference，并等待首次历史打开。行内 Fork 在源会话最后一个已完成轮次处 fork，通过 Session Controller 递增继承的持久化标题，不 retain 子会话、不打开其历史，也不改变选择。Workspace 行内的 Delete 操作会打开确认框，说明保留边界；成功后该分组被移除，其 Session 则留在 Ungrouped 下。Pin、Rename、Fork、Move to…、Copy to…、Archive 本身就是 `sidebar.workspaces.session.menu.item` 列表的条目（pin 与 archive 同时也是 `sidebar.workspaces.session.row.action` 的条目），因此客户端插件的 action 由其 `order` 决定落在哪个位置。
+
+Session 行的 Move to…，以及把该行拖放到另一个 Workspace 分组上，都会通过 Session Controller 的 `session.move` 更改 Session 所属的 Workspace；同目录的 subagent Session 随之一起移动。拖放会立即移动。对话框通过与“添加工作区”相同的选择流程选取目标，因此新登记的目录也可以作为目标，并显示每个 Workspace 的目录。Host 若因 Session 有进行中的工作（回合、后台任务、subagent）而拒绝，对话框会列出这些工作，并提供中断后移动的选项；被拒绝的拖放会打开已选好目标的对话框。一个复选框决定是否在下一回合前告知 Agent。Copy to… 通过 `session.copy` 从该行的 Session 存出一个新 Session，原会话保持不变：对话框从该 Session 自己的 Workspace（即复制一份）开始，标题为“<标题>（副本）”，操作者可以修改；改回源标题则沿用源标题。源正在运行回合时，Host 会拒绝，直到操作者作出决定，对话框提供“只复制到最后一个已完成的回合”（默认勾选），不勾选则复制目前已记录的回合并将其闭合为已中断。复制成功后打开副本。Workspace 行的 Rehome… 用 `session.moveMany` 移动该 Workspace 的全部 Session，报告移动与跳过的数量，并可在其变空后删除该 Workspace。这些对话框由浏览器持有，因为它们渲染浏览器的 directory-flow hole；Move to… 与 Copy to… 行条目只发出请求。
+
+其他插件可以通过 `ctx.uiWorkspace.contributeDestinations({ id, order?, groups, run })` 为 Move to… 与 Copy to… 添加目标。`groups` 是带标题分组的 observable（`{ id, label, entries: [{ key, title, path? }] }`，例如每台远程主机一组）；此时目标列表变成树形：本机的 Workspace 在自己的标题下排在最前，各贡献的分组按 `order` 排在其后。选中贡献的目标后，操作交给 `run(request)`，它会收到操作类型、Session、其标题与 Workspace、所选分组与键，以及操作者对 `stopLive`、`truncate`、`title`、`notify` 的决定。它以普通对象作答：`{ ok: true, summary? }`（summary 会在对话框关闭前显示），或 `{ ok: false, code, message, details? }`。带 `details.blockers` 的 `session/move-live` 或 `session/copy-live` 代码与 Host 自身的拒绝同样处理。该调用返回一个注销函数，`destinationContributions` 是实时列表。Rehome… 只列出本机的 Workspace。
 
 对静止的 Session，Archive 不经确认对话框直接提交，并保留 Session 的记账位置。仍有工作在跑的 Session 是唯一会先询问的情形：Host 拒绝普通归档并列出这些工作，侧栏随即打开"停止并归档"对话框，按族列出——进行中的回合、运行中的子代理、后台任务、定时提醒，各带名称——并写明恢复路径；确认后请 Host 按停止按钮同样的方式停止这些工作，归档集合持久化后即完成归档，停止在后台收敛；取消则让 Session 继续运行并保持可见。视图选项以一组显式三选一控制显隐：隐藏已归档（默认项）隐藏已归档 Session，全部对话（显示已归档）将其纳入列表，仅显示已归档则隐藏普通 Session，并丢弃没有归档 Session 的 Workspace；树形分组下，被丢弃 Workspace 的子级挂到最近一个仍显示的祖先下。可见的归档行置灰，并提供无障碍说明，告知取消归档后才能打开；Rename、Fork 与取消归档仍然可用。归档成功后的提示提供"撤销"动作，并在归档行仍被隐藏时附带"筛选已归档会话"动作，后者直接把筛选切到全部对话（显示已归档）；停止并归档显示同样的提示但措辞不同，撤销只恢复 Session，不会让被停止的工作继续。取消归档移除归档标记，但不恢复置顶，也不改变保存的位置。列表为空时显示居中的"图标在上、文字在下"占位；仅显示已归档视图用自己的文案（暂无已归档会话），并附"查看其他会话"文字按钮，点击把筛选切回隐藏已归档。
 
@@ -87,6 +91,8 @@ Workspace 和 Session 的启动基线均就绪后，空安装环境调用 `works
 
 本包是一条组合：两个目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。
 
+另有两个 root 作用域的 `list` seat，让插件添加并非本地目录的另一类 Workspace。`sidebar.workspaces.headerAction` 在“添加工作区”旁渲染图标按钮，搜索展开时与其他标题操作一同隐藏；`sidebar.workspaces.extra` 在同一列表区域内本地树的下方渲染分组，仅在侧边栏展开且没有进行搜索时渲染，其条目自行确定尺寸，使本地树占据剩余高度。二者的所有者共享为该列的 `wide` 状态。
+
 浏览器入口还为每个 Session 行声明两个 root 作用域的 `list` 子 slot：`sidebar.session.row.leading` 仅在该行主状态为 idle 时渲染、归档行留空，`sidebar.session.row.hover` 仅在该行的悬浮卡片打开时挂载。两者只接收行的 Session 身份，占用方据此读取自己的数据；Session 作用域的 slot 会强制建立 Session 绑定，从而激活并保留列表中每个 Session。
 
 客户端调用方可以在 `uiWorkspace.startSession` 的第二参数中传入 `prompt` 与 `clearPreviousDraft`。提示词仅接受普通文字；结构化草稿由内部恢复和工作区携带流程处理。不清空时保留已有文字或附件；显式清空只替换目标 Session 的文字和内联引用，不删除附件。在异步创建前捕获选项值，在导航提交前应用到准确保留的 binding。已被后续操作取代的导航不写内容；输入处于提交阻塞状态时拒绝准备并保留原选择。不传选项时保持正常新会话流程。[草稿初始化决策](../../../.agents/notes/implemented/architecture/2026-09-30-structured-draft-initialization.zh.md)说明输入 owner 的数据流。
@@ -97,7 +103,7 @@ Workspace 和 Session 的启动基线均就绪后，空安装环境调用 `works
 
 ### Session 行 action
 
-Session 行的 "..." 菜单和行尾悬停按钮是 WorkspaceBrowser 注册项声明的两个 `list` slot：`sidebar.workspaces.session.menu.item` 与 `sidebar.workspaces.session.row.action`。每一个菜单行、每一个悬停按钮都是条目，本包自己的 action 也不例外：`apply` 以客户端插件注册自己 action 的同一方式注册 `pin`（菜单 100、按钮 200）、`rename`（200）、`fork`（300）、`archive`（菜单 400、按钮 100），因此插件 action 落在其 `order` 所指的位置，以另一个 `priority` 复用内置 id 则遮蔽该 action。
+Session 行的 "..." 菜单和行尾悬停按钮是 WorkspaceBrowser 注册项声明的两个 `list` slot：`sidebar.workspaces.session.menu.item` 与 `sidebar.workspaces.session.row.action`。每一个菜单行、每一个悬停按钮都是条目，本包自己的 action 也不例外：`apply` 以客户端插件注册自己 action 的同一方式注册 `pin`（菜单 100、按钮 200）、`rename`（200）、`fork`（300）、`move`（350）、`copy`（360）、`archive`（菜单 400、按钮 100），因此插件 action 落在其 `order` 所指的位置，以另一个 `priority` 复用内置 id 则遮蔽该 action。
 
 条目只接收行身份（`sessionId`、`displayTitle`），其余一切自己负责：用自己注入的 hook 读自己关心的 Host 状态（置顶与归档集合，以每次 Workspace 快照只派生一次的 Set 形式），自己决定是否显示（Host 规定归档与置顶互斥，所以 pin 在归档行上不渲染），整套行为放在注册项自己的 `inject` face 里（置顶成功后顺带把会话推到保存顺序最前，归档成功后发提示），浮层也自己带——重命名对话框、停止并归档对话框和行 action 的提示是本包注册在 `shell.overlay` 的条目，由 action 注入的请求驱动。菜单条目渲染一个 `role="menuitem"` 的按钮（本包自己的行用 ui-primitives 的 `MenuItemButton`，它带宿主样式，开启新分组的行加 `separatorBefore`，分隔线随行一起出现和消失），并通过 slot 级 `useMenuOpenState` hook（菜单自身的打开状态，从该行的渲染出现处绑定）关闭菜单；悬停按钮条目渲染一个图标按钮，按钮条会拦住点击、不让它打开该行。browser 不再向行传任何 action 回调，它剩下的动作只有搜索结果里的恢复按钮和标题双击，后者发出的是同一个重命名请求。
 

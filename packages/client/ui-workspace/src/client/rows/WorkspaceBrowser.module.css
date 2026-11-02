@@ -120,7 +120,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  /* Collapse ceiling for the search animation (headerActionsHidden → 0), wide
+     enough for the two shipped buttons plus headerAction seat entries. */
+  max-width: 160px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -322,6 +324,12 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Rows are pointer targets, not prose: a press that slides across rows (or
+     starts in the gap between them) starts a row drag or nothing, never a
+     text selection. Prefixed for Safari, which otherwise still selects
+     through row gaps and can lift the selection as a native drag. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Bottom fade: compact overlay pinned to the visible bottom,
@@ -618,4 +626,78 @@
   .headerActions {
     transition: none;
   }
+}
+
+/* Move to… / Rehome… dialogs: wider than the default card for the destination field and its path. */
+.relocateDialog {
+  width: min(520px, 100%);
+}
+
+.relocateBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.relocateField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.relocateLabel {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.relocateDestination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.relocateDestination:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.relocateDestination:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.relocateDestinationText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relocateDestinationPath {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* A Session row from another group hovering this Workspace group: the whole group is the drop target. */
+.workspaceDropInto {
+  border-radius: var(--dsw-radius-md);
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-state-business-primary);
 }

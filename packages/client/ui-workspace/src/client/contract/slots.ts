@@ -32,6 +32,11 @@
  * client plugin's action lands beside them by `order` and needs nothing from
  * the browser beyond the row identity.
  *
+ * Two more `list` seats let a plugin add a kind of workspace that is not a
+ * local directory: `sidebar.workspaces.headerAction` (icon buttons beside
+ * "Add workspace") and `sidebar.workspaces.extra` (groups below the local
+ * tree). Their owner share is the column's `wide` state.
+ *
  * The browser entry additionally declares two `list` seats per Session row
  * (`sidebar.session.row.leading` / `sidebar.session.row.hover`) for ambient
  * row decorations. Both take the row's Session identity and nothing else: a
@@ -46,12 +51,13 @@ import type {
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SessionSearchResultItem } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionSearchResultItem } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionActivity, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
+import type { DestinationContribution } from '../navigation.ts'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
 /**
@@ -111,8 +117,29 @@ export interface SessionRowScheduleOwnerProps {
   readonly sessionId: SessionId
 }
 
+/** Owner share of the browser's additive seats: the column's live width state. */
+export interface WorkspaceBrowserSeatOwnerProps {
+  /** True while the sidebar is expanded; the `extra` seat renders only then. */
+  wide: boolean
+}
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /**
+     * Header seat beside the "Add workspace" button: one icon button per
+     * entry, for a plugin that adds another kind of workspace. Rendered in the
+     * rail and the expanded column alike, hidden with the other header actions
+     * while search is open.
+     */
+    'sidebar.workspaces.headerAction': { kind: 'list'; scope: 'root'; owner: WorkspaceBrowserSeatOwnerProps }
+    /**
+     * Seat below the Workspace tree in the same list area: extra groups a
+     * plugin renders beside the local ones (workspaces that are not local
+     * directories, such as another Host's). Rendered only while the sidebar
+     * is wide and no search is active; an entry sizes itself (`flex: none`)
+     * so the local tree keeps the remaining height.
+     */
+    'sidebar.workspaces.extra': { kind: 'list'; scope: 'root'; owner: WorkspaceBrowserSeatOwnerProps }
     /** Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry). */
     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
@@ -135,7 +162,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * The rows of one Session's "..." menu, in ascending `order`. ui-workspace
      * registers the shipped rows here — `pin` (100), `rename` (200), `fork`
-     * (300), `archive` (400) — so a plugin row is placed by its own `order`
+     * (300), `move` (350), `copy` (360), `archive` (400) — so a plugin row is placed by its own `order`
      * among them. Use a package-namespaced `id`; reusing a shipped id at
      * another `priority` shadows that row. Each entry renders one
      * `role="menuitem"` `<button>` (the shipped rows use ui-primitives'
@@ -223,6 +250,8 @@ export type WorkspaceBrowserInjected = {
     hostInfo: HostObservable<RemoteHostFacts>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
+    /** Destinations other plugins add to Move to… / Copy to… (`ctx.uiWorkspace.contributeDestinations`). */
+    destinations: HostObservable<readonly DestinationContribution[]>
   }
   /** Open the browser search and focus its input. */
   requestSearch: () => void
@@ -269,6 +298,47 @@ export type WorkspaceBrowserInjected = {
   unarchiveSession: (sessionId: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
+  /**
+   * Move one Session (and its same-cwd subagent descendants) to another
+   * Workspace. The Host result is returned, not thrown: `session/move-live`
+   * is an expected outcome the move dialog answers with the stop-and-move
+   * option.
+   */
+  moveSession: ISessions['move']
+  /** Move several Sessions to one Workspace (Rehome…); per-Session skips arrive in the value. */
+  moveSessions: ISessions['moveMany']
+  /**
+   * Copy one Session (and its subagent descendants) into a Workspace as a new
+   * Session; the source is untouched. The Host result is returned, not
+   * thrown: `session/copy-live` is an expected outcome the copy dialog answers
+   * with the truncate option.
+   */
+  copySession: ISessions['copy']
+  /** Open the Move to… dialog (a refused drop); the row action entries raise the same request. */
+  requestSessionRelocation: (request: SessionRelocationRequest) => void
+  /** Consume or cancel the pending relocation request. */
+  settleSessionRelocation: () => void
+}
+
+/**
+ * A relocation a row action (or a refused drop) asked for: the browser's
+ * Move to… or Copy to… dialog opens on it.
+ */
+export interface SessionRelocationRequest {
+  /** What the dialog does with the Session: change its Workspace, or store a copy. */
+  action: 'move' | 'copy'
+  /** Session to relocate. */
+  sessionId: SessionId
+  /** The row's display title, named in the dialog. */
+  displayTitle: string
+  /** Preselected destination (a drop on a Workspace group). */
+  destinationId?: WorkspaceId | undefined
+}
+
+/** Relocation action share: the row only raises the request; the browser's dialog answers it. */
+export interface RelocateSessionInjected {
+  /** Ask for the relocation dialog. */
+  requestSessionRelocation: (request: SessionRelocationRequest) => void
 }
 
 /** The browser's declared viewing store handle, shared with the row actions that write view state. */
@@ -459,6 +529,8 @@ export type WorkspaceBrowserProps =
     | 'sidebar.workspaces.session.row.action'
     | 'sidebar.session.row.leading'
     | 'sidebar.session.row.hover'
+    | 'sidebar.workspaces.headerAction'
+    | 'sidebar.workspaces.extra'
   >
   & PropsStore<WorkspaceViewStoreHandle>
   & Omit<WorkspaceBrowserInjected, 'hooks'>

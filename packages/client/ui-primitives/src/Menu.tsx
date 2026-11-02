@@ -16,6 +16,8 @@ import css from './Menu.module.css'
 export interface MenuItem {
   id: string
   label: ReactNode
+  /** Trailing secondary text (a path, a host) in the label's row, muted and ellipsized; the selected row shows its check instead. */
+  detail?: string
   disabled?: boolean
   /** Effective binding supplied by the command owner; omitted for unbound actions. */
   shortcut?: { keys: readonly string[]; aria?: string | undefined }
@@ -159,13 +161,16 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * (`'check'`, default — figma .Menu_cell) or the hover fill held on the row
  * with no check (`'fill'`, for icon-labelled rows where a trailing glyph
  * crowds the cell).
+ * @param props.matchAnchorWidth - portal mode only: the card takes the
+ * anchor's width (a select-like popover under a field), lifting the card's
+ * maximum width.
  * @param props.className - extra class on the anchor wrapper span.
  * @param props.listClassName - extra class on the dropdown card itself; the
  * only style hook that reaches a portaled list, which renders under
  * document.body outside the owner's DOM subtree.
  * @returns anchor wrapper with the conditional list.
  */
-export function Menu({ open, anchor, items = [], children, selectedId, selectedIds, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, dense = false, compact = false, autoFocus = false, selection = 'check', getAnchorRect, footer, className, listClassName }: {
+export function Menu({ open, anchor, items = [], children, selectedId, selectedIds, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, dense = false, compact = false, autoFocus = false, selection = 'check', getAnchorRect, footer, className, listClassName, matchAnchorWidth = false }: {
   open: boolean
   autoFocus?: boolean
   anchor: ReactNode
@@ -186,6 +191,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
   getAnchorRect?: () => DOMRect | null
   className?: string | undefined
   listClassName?: string | undefined
+  matchAnchorWidth?: boolean
 }) {
   const rootRef = useRef<HTMLSpanElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -275,7 +281,10 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
       if (lw > 0) x = Math.min(Math.max(x, MARGIN), vw - lw - MARGIN)
       if (lh > 0) y = Math.min(Math.max(y, overlayTopMargin(MARGIN)), vh - lh - MARGIN)
 
-      setFixedPos(current => current?.left === x && current.top === y ? current : { left: x, top: y })
+      const width = matchAnchorWidth ? r.width : undefined
+      setFixedPos(current => current?.left === x && current.top === y && current.width === width
+        ? current
+        : width === undefined ? { left: x, top: y } : { left: x, top: y, width, maxWidth: 'none' })
     }
     // First run measures the hidden pre-render (same commit as `open`), so
     // end/top alignment and clamping use real dimensions before anything
@@ -294,7 +303,7 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
       window.removeEventListener('scroll', place, true)
       window.removeEventListener('resize', place)
     }
-  }, [open, portal, align, side, getAnchorRect])
+  }, [open, portal, align, side, getAnchorRect, matchAnchorWidth])
 
   // Opening remembers where the keyboard was, so closing can hand it back to
   // that control — an anchor wrapping several (a split button) cannot be asked
@@ -472,6 +481,10 @@ export function Menu({ open, anchor, items = [], children, selectedId, selectedI
         >
           {entry.icon !== undefined && <span className={css.itemIcon}>{entry.icon}</span>}
           <span className={css.itemLabel}>{entry.label}</span>
+          {/* A detail (path) shares the row; a checked row shows its check in its place. */}
+          {entry.detail !== undefined && !(selected && selection === 'check') && (
+            <span className={css.itemDetail} title={entry.detail}>{entry.detail}</span>
+          )}
           {entry.shortcut !== undefined && <span aria-hidden="true" className={css.shortcut}><ShortcutKeys keys={entry.shortcut.keys} className={css.shortcutKeys} /></span>}
           {/* Selection marker is a trailing check (figma .Menu_cell) unless the fill mode carries it. */}
           {selected && selection === 'check' && <IconCheckOutlineRegular className={css.check} />}

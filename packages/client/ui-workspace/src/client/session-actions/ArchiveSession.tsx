@@ -154,9 +154,13 @@ function ArchiveConfirmForm({ request, stopAndArchiveSession, onSettle, t }: {
 /**
  * One family's line: its count and the items' labels (ids when a family
  * carries no label). A family this dictionary does not know — a provider
- * merged into the kind map — falls through to the generic line.
+ * merged into the kind map — falls through to the generic line. The move
+ * dialog lists the work a refused move names with the same lines.
+ * @param entry - one activity family as a Host refusal reported it.
+ * @param t - the workspace locale seat.
+ * @returns the localized line.
  */
-function activityLine(entry: SessionActivity, t: SessionArchiveConfirmProps['t']): string {
+export function activityLine(entry: SessionActivity, t: SessionArchiveConfirmProps['t']): string {
   const items = entry.items ?? []
   const n = items.length
   const names = items.map(item => item.label ?? item.id).join(t('archive.confirm.listSeparator'))

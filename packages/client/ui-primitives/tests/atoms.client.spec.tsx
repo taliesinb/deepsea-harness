@@ -504,6 +504,32 @@ describe('Menu', () => {
     expect(menu.style.top).toBe('132px')
   })
 
+  it('portal mode can take the anchor width, and a detail trails each unchecked row', () => {
+    const rect = new DOMRect(40, 100, 420, 40)
+    render(
+      <Menu
+        portal
+        open
+        matchAnchorWidth
+        getAnchorRect={() => rect}
+        anchor={null}
+        items={[
+          { id: 'a', label: 'alpha', detail: '/projects/alpha' },
+          { id: 'b', label: 'beta', detail: '/projects/beta' },
+        ]}
+        selectedId="b"
+        onSelect={() => {}}
+        onClose={() => {}}
+      />)
+    const menu = screen.getByRole('menu')
+    expect(menu.style.width).toBe('420px')
+    expect(menu.style.maxWidth).toBe('none')
+    const [alpha, beta] = screen.getAllByRole('menuitem')
+    expect(alpha?.textContent).toBe('alpha/projects/alpha')
+    // The checked row shows its check where the detail would sit.
+    expect(beta?.textContent).toBe('beta')
+  })
+
   it('portal mode skips the frame when getAnchorRect returns null (no menu until a rect exists)', () => {
     render(
       <Menu

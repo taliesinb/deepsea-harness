@@ -335,6 +335,26 @@ function lastOpening(open: MockInstance<UiWorkspaceService['openWorkspace']>): P
 }
 
 describe('UiWorkspaceService', () => {
+  it('orders destination contributions, refuses a duplicate id, and withdraws one through its disposer', () => {
+    const b = bench()
+    const contribution = (id: string, order?: number) => ({
+      id,
+      ...(order === undefined ? {} : { order }),
+      groups: { getSnapshot: () => [], subscribe: () => () => {} },
+      run: vi.fn(async () => ({ ok: true as const })),
+    })
+    const seen = vi.fn()
+    const unsubscribe = b.uiWorkspace.destinationContributions.subscribe(seen)
+    const late = b.uiWorkspace.contributeDestinations(contribution('late', 20))
+    b.uiWorkspace.contributeDestinations(contribution('early', 10))
+    expect(b.uiWorkspace.destinationContributions.getSnapshot().map(entry => entry.id)).toEqual(['early', 'late'])
+    expect(() => b.uiWorkspace.contributeDestinations(contribution('late'))).toThrow('duplicate destination contribution "late"')
+    late()
+    expect(b.uiWorkspace.destinationContributions.getSnapshot().map(entry => entry.id)).toEqual(['early'])
+    expect(seen).toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it('prepares and selects the default Workspace after both startup baselines', async () => {
     const b = bench({ configureWorkspaces: (workspaces) => {
       workspaces.initializeDefault.mockImplementation(async () => {

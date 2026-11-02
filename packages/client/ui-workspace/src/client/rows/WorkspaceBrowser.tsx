@@ -11,8 +11,12 @@
  * "..." menu and hover buttons are the `sidebar.workspaces.session.menu.item`
  * and `sidebar.workspaces.session.row.action` lists rendered through this
  * entry's `renderSlot`; the actions in them, this package's own included,
- * are slot entries with their own behavior, so this component threads no
- * action callbacks and hosts no action surface.
+ * are slot entries with their own behavior. The one Session surface hosted
+ * here is the Move to… / Copy to… dialog (RelocateDialogs.tsx): it picks destinations
+ * through this entry's directory-flow hole, so the row action only raises a
+ * request this component answers. A Session row dropped on another Workspace
+ * group moves there directly; a refused drop opens the same dialog. The
+ * Workspace row's Rehome… dialog lives here beside its Rename and Delete.
  */
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -40,6 +44,7 @@ import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { RehomeWorkspaceDialog, SessionRelocateDialog, type DestinationFlowProps, type RehomeTarget } from './RelocateDialogs.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -176,6 +181,8 @@ interface DragState {
   pinned: boolean
   /** Row the marker sits on and which half (insert above/below it). */
   over: { id: SessionNode['id']; half: 'before' | 'after' } | null
+  /** Another Workspace group the dragged row hovers: dropping there moves the Session. */
+  into?: string | null
 }
 
 /** Apply a visible drop to the complete account without removing hidden members. */
@@ -253,6 +260,10 @@ type SessionTreeProps = Pick<
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the browser-owned Rehome… dialog for a real Workspace group. */
+  onRehomeRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** A Session row was dropped on another real Workspace group. */
+  onSessionDrop: (sessionId: SessionNode['id'], displayTitle: string, destinationId: WorkspaceId) => void
   /** Open the rename dialog from a row title double-click. */
   onSessionRenameRequest: (sessionId: SessionNode['id'], currentTitle: string) => void
   /** One Session chosen from search that must be exposed and scrolled into view. */
@@ -282,7 +293,7 @@ function SessionTree({
   list, useSessionStatus, startSession, open, workspaces, ungroupedSessionIds,
   rowState, onLeaveArchivedOnly,
   workspaceReady, animationResetKey, usePanelInfo,
-  onRenameRequest, onDeleteRequest, onSessionRenameRequest,
+  onRenameRequest, onDeleteRequest, onRehomeRequest, onSessionDrop, onSessionRenameRequest,
   renderSlot,
   insertWorkspaceBefore,
   nestWorkspaces, groupExpansion, setGroupExpanded,
@@ -453,6 +464,13 @@ function SessionTree({
       : (half: 'before' | 'after') => {
         commitWorkspaceDrag(workspaceDrag, { id: workspaceId, half })
       }
+    // A Session row dragged from another account may land on this whole
+    // group: that is a move, not a reorder. The innermost hovered group wins
+    // (handlers stop here, so an enclosing section does not light up too).
+    const foreignSession = drag !== null && drag.accountKey !== group.key && workspaceId !== undefined
+      ? { drag, workspaceId }
+      : undefined
+    const foreignHover = foreignSession !== undefined && drag?.into === group.key
     return (
     // Group section: header, descendant Workspaces, and own Session rows. The
     // inter-group breathing room is the section's own margin
@@ -464,34 +482,57 @@ function SessionTree({
           css.groupSection,
           workspaceMarker === 'before' && css.workspaceDropBefore,
           workspaceMarker === 'after' && css.workspaceDropAfter,
+          foreignHover && css.workspaceDropInto,
         )}
-        onDragOver={workspaceDrag === null
+        onDragLeave={foreignSession === undefined
           ? undefined
           : (e) => {
-            e.preventDefault()
-            if (hoverWorkspace === undefined && parents.get(group.key) !== undefined) return
-            e.stopPropagation()
-            if (hoverWorkspace === undefined) {
-              e.dataTransfer.dropEffect = 'none'
-              if (workspaceDrag.over !== null) setWorkspaceDrag({ ...workspaceDrag, over: null })
-            } else {
-              e.dataTransfer.dropEffect = 'move'
-              hoverWorkspace(workspaceGroupHalf(e))
-            }
+            if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return
+            setDrag(d => (d === null || d.into !== group.key ? d : { ...d, into: null }))
           }}
-        onDrop={workspaceDrag === null
-          ? undefined
-          : (e) => {
+        onDragOver={foreignSession !== undefined
+          ? (e) => {
             e.preventDefault()
-            if (dropWorkspace === undefined && parents.get(group.key) !== undefined) return
             e.stopPropagation()
-            if (dropWorkspace === undefined) {
-              workspaceDropCommitted.current = true
-              setWorkspaceDrag(null)
-            } else {
-              dropWorkspace(workspaceGroupHalf(e))
-            }
-          }}
+            e.dataTransfer.dropEffect = 'move'
+            setDrag(d => (d === null || d.into === group.key ? d : { ...d, over: null, into: group.key }))
+          }
+          : workspaceDrag === null
+            ? undefined
+            : (e) => {
+              e.preventDefault()
+              if (hoverWorkspace === undefined && parents.get(group.key) !== undefined) return
+              e.stopPropagation()
+              if (hoverWorkspace === undefined) {
+                e.dataTransfer.dropEffect = 'none'
+                if (workspaceDrag.over !== null) setWorkspaceDrag({ ...workspaceDrag, over: null })
+              } else {
+                e.dataTransfer.dropEffect = 'move'
+                hoverWorkspace(workspaceGroupHalf(e))
+              }
+            }}
+        onDrop={foreignSession !== undefined
+          ? (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            sessionDropCommitted.current = true
+            setDrag(null)
+            const { sessionId } = foreignSession.drag
+            onSessionDrop(sessionId, list.byId[sessionId]?.displayTitle ?? '', foreignSession.workspaceId)
+          }
+          : workspaceDrag === null
+            ? undefined
+            : (e) => {
+              e.preventDefault()
+              if (dropWorkspace === undefined && parents.get(group.key) !== undefined) return
+              e.stopPropagation()
+              if (dropWorkspace === undefined) {
+                workspaceDropCommitted.current = true
+                setWorkspaceDrag(null)
+              } else {
+                dropWorkspace(workspaceGroupHalf(e))
+              }
+            }}
       >
         <ProjectRowItem
           newShortcut={shortcuts.find(row => row.id === 'session.new')}
@@ -519,6 +560,10 @@ function SessionTree({
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                 if (group.workspaceId !== undefined) onRenameRequest(group.workspaceId, group.label)
               },
+              rehome: () => {
+              /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+                if (group.workspaceId !== undefined) onRehomeRequest(group.workspaceId, group.label)
+              },
               delete: () => {
               /* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
                 if (group.workspaceId !== undefined) onDeleteRequest(group.workspaceId, group.label)
@@ -540,7 +585,7 @@ function SessionTree({
           const dragProps = {
             start: () => {
               sessionDropCommitted.current = false
-              setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, over: null })
+              setDrag({ accountKey: group.key, sessionId: node.id, pinned: node.pinned, over: null, into: null })
             },
             active: compatibleTarget,
             marker: sameGroupDrag && drag.over?.id === node.id ? drag.over.half : null,
@@ -851,12 +896,18 @@ export function WorkspaceBrowser({
   insertWorkspaceBefore,
   unarchiveSession,
   createWorkspace,
+  moveSession,
+  moveSessions,
+  copySession,
+  requestSessionRelocation,
+  settleSessionRelocation,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
   useHostInfo,
   useShortcuts,
   useWorkspaceShortcuts,
+  useDestinations,
   requestSearch,
   requestAddWorkspace,
   closeAddWorkspace,
@@ -870,6 +921,7 @@ export function WorkspaceBrowser({
   const searchShortcut = shortcuts.find(row => row.id === 'session.search')
   const addShortcut = shortcuts.find(row => row.id === 'workspace.add')
   const shortcutState = useWorkspaceShortcuts(state => state)
+  const destinations = useDestinations(contributions => contributions)
   // Ordering remains live while the rail or search replaces the list body.
   const list = useSessions(state => state)
   const storedWorkspaces = useWorkspaces(state => state.items)
@@ -1161,6 +1213,29 @@ export function WorkspaceBrowser({
     })
   }
 
+  // Move to… and Rehome… pick destinations through this entry's
+  // directory-flow hole, like "Add workspace".
+  const destinationFlow: DestinationFlowProps = {
+    useWorkspaces,
+    createWorkspace,
+    useDirectoryFlow,
+    renderDirectoryFlow: owner => renderSlot('sidebar.workspaces.directoryFlow', owner),
+    home,
+  }
+  const [rehomeTarget, setRehomeTarget] = useState<RehomeTarget | null>(null)
+  // A drop on another Workspace group moves at once; any refusal (work in
+  // flight, most often) opens the dialog with that destination chosen, which
+  // explains it and offers stop-and-move.
+  const dropSession = (sessionId: SessionId, displayTitle: string, destinationId: WorkspaceId): void => {
+    void moveSession({ sessionId, destination: { workspaceId: destinationId }, notify: true }).then((result) => {
+      if (result.ok) {
+        actions.setGroupExpanded(destinationId, true)
+        return
+      }
+      requestSessionRelocation({ action: 'move', sessionId, displayTitle, destinationId })
+    })
+  }
+
   // The search results' restore button; the row actions own the rest of the
   // Session verbs as slot entries.
   const onSessionUnarchive = (sessionId: SessionNode['id']) => {
@@ -1300,6 +1375,8 @@ export function WorkspaceBrowser({
               </button>
             </Tooltip>
           )}
+          {/* Additive seat: other kinds of workspace a plugin can add. */}
+          {renderSlot('sidebar.workspaces.headerAction', { wide })}
         </div>
         {/* Add flow + its error dialog (same package — direct composition). */}
         <WorkspacePickFlow
@@ -1415,8 +1492,15 @@ export function WorkspaceBrowser({
                   setDeleteTarget({ workspaceId, title })
                   setDeleteError(null)
                 }}
+                onRehomeRequest={(workspaceId, title) => {
+                  const view = workspaces.find(candidate => candidate.workspaceId === workspaceId)
+                  setRehomeTarget({ workspaceId, title, sessionIds: view?.sessionIds ?? [] })
+                }}
+                onSessionDrop={dropSession}
               />
             ))}
+        {/* Additive seat: extra groups below the local tree (not while searching). */}
+        {wide && normalizedQuery === '' && renderSlot('sidebar.workspaces.extra', { wide })}
       </div>
 
       <Modal
@@ -1479,6 +1563,41 @@ export function WorkspaceBrowser({
         {deleting && <div className={css.deleteStatus} role="status">{t('delete.pending')}</div>}
         {deleteError !== null && <div className={css.renameError} role="alert">{deleteError}</div>}
       </Modal>
+      {shortcutState.relocation !== null && (
+        <SessionRelocateDialog
+          key={`${shortcutState.relocation.sessionId}:${shortcutState.relocation.destinationId ?? ''}`}
+          request={shortcutState.relocation}
+          workspaces={workspaces}
+          contributions={destinations}
+          moveSession={moveSession}
+          copySession={copySession}
+          flow={destinationFlow}
+          t={t}
+          onClose={settleSessionRelocation}
+          onDone={(outcome) => {
+            const copied = shortcutState.relocation?.action === 'copy'
+            settleSessionRelocation()
+            // A contributor carried the Session elsewhere: nothing here to show.
+            if (outcome === undefined) return
+            actions.setGroupExpanded(outcome.workspaceId, true)
+            // Land on a copy: it is where the operator's attention goes next.
+            if (copied) open(outcome.sessionId)
+          }}
+        />
+      )}
+      {rehomeTarget !== null && (
+        <RehomeWorkspaceDialog
+          key={rehomeTarget.workspaceId}
+          target={rehomeTarget}
+          workspaces={workspaces}
+          moveSessions={moveSessions}
+          deleteWorkspace={deleteWorkspace}
+          flow={destinationFlow}
+          t={t}
+          onClose={() => { setRehomeTarget(null) }}
+          onDone={(workspaceId) => { actions.setGroupExpanded(workspaceId, true) }}
+        />
+      )}
       {shortcutState.forkError !== null && <Toast key={shortcutState.forkError.seq}
         text={t(shortcutState.forkError.reason === 'unavailable' ? 'shortcut.noCompletedTurn' : 'shortcut.forkFailed')}
         onDone={dismissForkError} />}
