@@ -73,7 +73,7 @@ import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
 import { registerPiAiOAuthFlows } from './oauth.ts'
 
-export { PiAiAdapter } from './adapter.ts'
+export { loopbackUrl, PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
 export type {

@@ -465,6 +465,13 @@ interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+  /** Catalog (vendor) provider the route resolves to, when the adapter knows it, e.g. `anthropic` for `anthropic-oauth`. */
+  catalogProvider?: string
+  /**
+   * How the route authenticates and is billed: a subscription sign-in, a per-token API key, or a
+   * model served on this machine (no charge); absent when unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
 }
 ```
 
@@ -564,6 +571,14 @@ interface LlmModelReasoningInfo {
 ```ts type-equiv
 /** Exact-route model metadata resolved by its owning adapter. */
 interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Adapter-published list prices when known. */
+  pricing?: LlmModelPricing
+  /**
+   * List prices of the same model on the provider's per-token API, published
+   * for subscription routes that publish no `pricing` because the route does
+   * not charge per token. An API-price equivalent, not a charge.
+   */
+  listPricing?: LlmModelPricing
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
   /** Adapter-configured per-request output cap materialized when callers omit one. */
@@ -840,6 +855,25 @@ declare abstract class LlmAdapter {
    * @returns route-owned image pricing, or `undefined` when the route declares none.
    */
   imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;
+  /**
+   * Read current subscription usage for one owned route's signed-in account.
+   * The default supports none. Implementations make at most one provider
+   * request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
+   */
+  subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;
+  /**
+   * Look up the provider's recorded charge for one past response by its
+   * response id. The default supports none. Implementations make at most one
+   * provider request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _responseId - provider response id carried in replay state.
+   * @param _signal - cancellation for the lookup.
+   * @returns the charge, or `undefined` when the route cannot look one up.
+   */
+  responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined>;
   /**
    * List models this adapter can currently advertise for one owned provider.
    * Core routing accepts unlisted model ids; catalog-driven entry points such

@@ -12,6 +12,7 @@ import { credentialStoreFrom, recordKeyFor } from '../src/auth.ts'
 import { catalogProvider, oauthCatalogProvider, oauthProviderIds, oauthRouteAuth, oauthRouteDisplayName } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { parseAnthropicProfile, parseAnthropicUsage, parseCodexUsage } from '../src/subscription-usage.ts'
 import { assemble } from './assemble.ts'
 import { memoryAuth } from './auth-double.ts'
 
@@ -80,6 +81,163 @@ async function adapterContext(route: string, auth: PiAiAuthInjection, onReplayDe
   return ctx
 }
 
+describe('response cost', () => {
+  it('looks up one OpenRouter generation charge with the route key and ignores other routes and ids', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ data: { id: 'gen-1', total_cost: 0.01234 } }))))
+    vi.stubGlobal('fetch', fetchMock)
+    const profiles = resolveProfiles({ openrouter: {}, anthropic: {} })
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['openrouter', 'anthropic'], new PiAiAdapter({
+      profiles: () => profiles, resolveApiKey: () => Promise.resolve('sk-or-fixture'), auth: memoryAuth(),
+    }))
+    await expect(ctx.llm.responseCost('openrouter', 'gen-1790793644-abc')).resolves.toEqual({ amount: '0.01234', currency: 'USD' })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://openrouter.ai/api/v1/generation?id=gen-1790793644-abc')
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer sk-or-fixture')
+    await expect(ctx.llm.responseCost('openrouter', 'not-a-generation')).resolves.toBeUndefined()
+    await expect(ctx.llm.responseCost('anthropic', 'gen-1')).resolves.toBeUndefined()
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 404 }))
+    await expect(ctx.llm.responseCost('openrouter', 'gen-2')).rejects.toMatchObject({ code: 'PROVIDER_ERROR' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('subscription usage', () => {
+  it('reads Anthropic account usage once with the route token, normalizes it, and skips other routes', async () => {
+    const native = catalogProvider('anthropic-oauth')!
+    vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: 'sk-ant-oat01-fixture' })
+    const body = {
+      five_hour: { utilization: 3.0, resets_at: '2026-10-01T05:00:00.5+00:00' },
+      seven_day: { utilization: 41, resets_at: '2026-10-04T11:00:00+00:00' },
+      seven_day_opus: null, iguana_necktie: null,
+      extra_usage: { is_enabled: false },
+    }
+    const profile = {
+      account: { uuid: 'account-uuid', email: 'user@example.com', full_name: 'Fixture User', display_name: 'fixture' },
+      organization: { uuid: 'org-uuid', name: 'Fixture Org', organization_type: 'claude_team' },
+    }
+    const fetchMock = vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url.endsWith('/profile') ? profile : body), { headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = await adapterContext('anthropic-oauth', memoryAuth({ 'anthropic-oauth': grant('sk-ant-oat01-fixture') }))
+    const usage = await ctx.llm.subscriptionUsage('anthropic-oauth')
+    expect(usage).toMatchObject({
+      windows: [
+        { label: '5h', usedPercent: 3, resetAt: '2026-10-01T05:00:00.500Z' },
+        { label: '7d', usedPercent: 41, resetAt: '2026-10-04T11:00:00.000Z' },
+      ],
+      extraUsageEnabled: false,
+      account: { id: 'account-uuid/org-uuid', email: 'user@example.com', name: 'Fixture User', organization: 'Fixture Org', plan: 'claude_team' },
+    })
+    expect(fetchMock.mock.calls.map(call => call[0]).sort()).toEqual(['https://api.anthropic.com/api/oauth/profile', 'https://api.anthropic.com/api/oauth/usage'])
+    for (const call of fetchMock.mock.calls) {
+      expect(((call as unknown as [string, RequestInit])[1].headers as Record<string, string>).authorization).toBe('Bearer sk-ant-oat01-fixture')
+    }
+    // The profile of a token is read once; later readings reuse it.
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '160' } }))
+    await expect(ctx.llm.subscriptionUsage('anthropic-oauth')).rejects.toMatchObject({ code: 'RATE_LIMIT' })
+    await expect(ctx.llm.subscriptionUsage('anthropic-oauth')).resolves.toMatchObject({ account: { email: 'user@example.com' } })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    const other = flows.find(flow => flow.id !== 'anthropic' && flow.id !== 'openai-codex')!
+    const otherCtx = await adapterContext(other.route, memoryAuth({ [other.route]: grant('other-access') }))
+    await expect(otherCtx.llm.subscriptionUsage(other.route)).resolves.toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('a failed Anthropic profile read leaves the usage reading without an account', async () => {
+    const native = catalogProvider('anthropic-oauth')!
+    vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: 'sk-ant-oat01-noprofile' })
+    vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(url.endsWith('/profile')
+      ? new Response('', { status: 403 })
+      : new Response(JSON.stringify({ five_hour: { utilization: 1 } }), { headers: { 'content-type': 'application/json' } }))))
+    const ctx = await adapterContext('anthropic-oauth', memoryAuth({ 'anthropic-oauth': grant('sk-ant-oat01-noprofile') }))
+    const usage = await ctx.llm.subscriptionUsage('anthropic-oauth')
+    expect(usage?.windows).toEqual([{ label: '5h', usedPercent: 1 }])
+    expect(usage?.account).toBeUndefined()
+    expect(parseAnthropicProfile({ account: { display_name: 'only-display' }, organization: null })).toEqual({ name: 'only-display' })
+    expect(parseAnthropicProfile({})).toBeUndefined()
+  })
+
+  it('reads Codex account usage with the route token and its account id, labelling windows by length', async () => {
+    const claims = Buffer.from(JSON.stringify({
+      'https://api.openai.com/auth': { chatgpt_account_id: 'acct-fixture', chatgpt_account_user_id: 'user-fixture', chatgpt_plan_type: 'plus' },
+      'https://api.openai.com/profile': { email: 'user@example.com', email_verified: true },
+    })).toString('base64url')
+    const token = `header.${claims}.signature`
+    const native = catalogProvider('openai-codex-oauth')!
+    vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: token })
+    const body = {
+      plan_type: 'plus',
+      rate_limit: {
+        allowed: true, limit_reached: false,
+        primary_window: { used_percent: 12, limit_window_seconds: 18000, reset_after_seconds: 100, reset_at: 1790884286 },
+        secondary_window: { used_percent: 3, limit_window_seconds: 604800, reset_after_seconds: 100, reset_at: 1791483086 },
+      },
+      credits: { has_credits: false, unlimited: false, balance: '0' },
+    }
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = await adapterContext('openai-codex-oauth', memoryAuth({ 'openai-codex-oauth': grant(token) }))
+    await expect(ctx.llm.subscriptionUsage('openai-codex-oauth')).resolves.toMatchObject({
+      windows: [
+        { label: '5h', usedPercent: 12, resetAt: new Date(1790884286 * 1000).toISOString() },
+        { label: '7d', usedPercent: 3, resetAt: new Date(1791483086 * 1000).toISOString() },
+      ],
+      account: { id: 'acct-fixture/user-fixture', email: 'user@example.com', plan: 'plus' },
+    })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://chatgpt.com/backend-api/wham/usage')
+    const headers = init.headers as Record<string, string>
+    expect(headers.authorization).toBe(`Bearer ${token}`)
+    expect(headers['chatgpt-account-id']).toBe('acct-fixture')
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 401 }))
+    await expect(ctx.llm.subscriptionUsage('openai-codex-oauth')).rejects.toMatchObject({ code: 'AUTH' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads no Codex usage for tokens without readable claims or an account id', async () => {
+    const native = catalogProvider('openai-codex-oauth')!
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const noAccount = `h.${Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: '' } })).toString('base64url')}.s`
+    for (const token of ['opaque-token', 'h.!!not-json!!.s', noAccount]) {
+      vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: token })
+      const ctx = await adapterContext('openai-codex-oauth', memoryAuth({ 'openai-codex-oauth': grant(token) }))
+      await expect(ctx.llm.subscriptionUsage('openai-codex-oauth')).resolves.toBeUndefined()
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps at most sixteen Anthropic profiles, evicting the oldest token', async () => {
+    const native = catalogProvider('anthropic-oauth')!
+    const fetchMock = vi.fn((url: string) => Promise.resolve(new Response(JSON.stringify(url.endsWith('/profile') ? { account: { email: 'user@example.com' } } : {}), { headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const read = async (token: string) => {
+      vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: token })
+      const ctx = await adapterContext('anthropic-oauth', memoryAuth({ 'anthropic-oauth': grant(token) }))
+      return ctx.llm.subscriptionUsage('anthropic-oauth')
+    }
+    for (let i = 0; i < 17; i++) await read(`sk-ant-oat01-evict-${String(i)}`)
+    const profiles = () => fetchMock.mock.calls.filter(call => call[0].endsWith('/profile')).length
+    expect(profiles()).toBe(17)
+    await read('sk-ant-oat01-evict-16')
+    expect(profiles()).toBe(17)
+    await expect(read('sk-ant-oat01-evict-0')).resolves.toMatchObject({ account: { email: 'user@example.com' } })
+    expect(profiles()).toBe(18)
+  })
+
+  it('parses only well-formed Codex windows', () => {
+    expect(parseCodexUsage({ rate_limit: {
+      primary_window: { used_percent: 140, limit_window_seconds: 3600, reset_at: 0 },
+      secondary_window: { used_percent: 'x', limit_window_seconds: 604800 },
+    } }, '2026-10-01T00:00:00.000Z')).toEqual({ windows: [{ label: '1h', usedPercent: 100 }], observedAt: '2026-10-01T00:00:00.000Z' })
+    expect(parseCodexUsage(null, '2026-10-01T00:00:00.000Z').windows).toEqual([])
+    expect(parseCodexUsage({ rate_limit: { primary_window: { used_percent: 1, limit_window_seconds: 90 } } }, '2026-10-01T00:00:00.000Z').windows)
+      .toEqual([{ label: '2m', usedPercent: 1 }])
+    expect(parseAnthropicUsage(null, '2026-10-01T00:00:00.000Z')).toEqual({ windows: [], observedAt: '2026-10-01T00:00:00.000Z' })
+  })
+})
+
 describe('every installed OAuth catalog route', () => {
   it('enumerates exactly one dedicated alias per installed OAuth flow', () => {
     expect(flows.length).toBeGreaterThan(0)
@@ -120,6 +278,12 @@ describe('every installed OAuth catalog route', () => {
       for (const mode of ['strict', 'deferred'] as const) {
         expect(() => resolveProfiles({ [route]: override }, mode)).toThrow(/OAuth grant and native catalog/)
       }
+    })
+
+    it('accepts only the auth declaration matching its classification', () => {
+      const auth = oauthRouteAuth(route)!
+      expect(resolveProfiles({ [route]: { auth } }).get(route)?.auth).toBe(auth)
+      expect(() => resolveProfiles({ [route]: { auth: 'local' } })).toThrow(/billed as "(subscription|api-key)"; its auth cannot be "local"/)
     })
   })
 
