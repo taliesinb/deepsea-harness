@@ -182,7 +182,56 @@ function catalogProviders(): Map<string, Provider> {
  * @returns the catalog provider, or `undefined` for a route pi-ai does not ship.
  */
 export function catalogProvider(provider: string): Provider | undefined {
-  return catalogProviders().get(provider)
+  return catalogProviders().get(provider) ?? oauthCatalogProvider(provider)
+}
+
+/**
+ * Resolve a dedicated OAuth route to its native catalog provider.
+ * @param route - isolated provider route id, including its `-oauth` suffix.
+ * @returns the OAuth-capable catalog provider, or undefined for other routes.
+ */
+export function oauthCatalogProvider(route: string): Provider | undefined {
+  if (!route.endsWith('-oauth') || catalogProviders().has(route)) return undefined
+  const provider = catalogProviders().get(route.slice(0, -'-oauth'.length))
+  return provider?.auth.oauth === undefined ? undefined : provider
+}
+
+/**
+ * How a dedicated OAuth route is paid for, from pi-ai's own `isSubscription` on
+ * the provider's OAuth auth: a plan (Claude Pro/Max, ChatGPT, Copilot, Kimi
+ * Code, Muse, SuperGrok) or an ordinary pay-per-use key the flow issues
+ * (OpenRouter). This is the one classification every surface reads; the
+ * `-oauth` route id only names the sign-in mechanism.
+ * @param route - provider route id.
+ * @returns `subscription` or `api-key` for a dedicated OAuth route, otherwise undefined.
+ */
+export function oauthRouteAuth(route: string): 'subscription' | 'api-key' | undefined {
+  const provider = oauthCatalogProvider(route)
+  if (provider === undefined) return undefined
+  return provider.auth.oauth?.isSubscription === true ? 'subscription' : 'api-key'
+}
+
+/**
+ * Display name of a dedicated OAuth route: "<Provider> Plan" for a
+ * subscription plan, "<Provider> OAuth" for a flow that issues a pay-per-use key.
+ * @param route - provider route id.
+ * @returns the name, or undefined for a route that is not a dedicated OAuth route.
+ */
+export function oauthRouteDisplayName(route: string): string | undefined {
+  const provider = oauthCatalogProvider(route)
+  if (provider === undefined) return undefined
+  return `${provider.name} ${oauthRouteAuth(route) === 'subscription' ? 'Plan' : 'OAuth'}`
+}
+
+/**
+ * Dedicated route ids for every OAuth flow shipped by the installed catalog.
+ * @returns OAuth-only provider route ids, distinct from native catalog ids.
+ */
+export function oauthProviderIds(): readonly string[] {
+  return catalogProviderIds().flatMap((id) => {
+    const route = `${id}-oauth`
+    return oauthCatalogProvider(route) === undefined ? [] : [route]
+  })
 }
 
 /**
@@ -199,8 +248,9 @@ export function catalogProviderIds(): readonly string[] {
  * @returns catalog models by id; empty for a route pi-ai does not ship.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
-  if (!catalogProviders().has(provider)) return new Map()
-  const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
+  const catalogId = catalogProvider(provider)?.id
+  if (catalogId === undefined) return new Map()
+  const models = getBuiltinModels(catalogId as BuiltinProvider) as Model<Api>[]
   return new Map(models.map(model => [model.id, model]))
 }
 

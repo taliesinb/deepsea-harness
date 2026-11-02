@@ -55,13 +55,31 @@ async function boot(
   return ctx
 }
 
-describe('login flows in a real composition', () => {
+describe('OAuth flows in a real composition', () => {
+  it('exposes separate Anthropic OAuth login and model routes without changing the API-key profile', async () => {
+    const ctx = await boot(await home(), { providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } }, { authorization: true })
+    expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('anthropic-oauth'))?.methods.map(method => method.id))
+      .toEqual(['oauth'])
+    expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('anthropic'))).toBeUndefined()
+    expect(ctx.llm.listConfigurableProviders()).toContainEqual({
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'anthropic-oauth'], declared: false,
+    })
+    await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic Plan' },
+    ])
+    expect((await ctx.llm.listModels('anthropic-oauth')).map(model => model.id))
+      .toEqual((await ctx.llm.listModels('anthropic')).map(model => model.id))
+    await configurations.get(ctx)!.replace({ providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } })
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'anthropic', name: 'anthropic' }])
+  })
   it('offers a sign-in for a provider no route names, once the seam is mounted', async () => {
     const ctx = await boot(await home(), {}, { authorization: true })
 
     // Zero routes configured: signing in is what makes a route worth adding,
     // so the offer cannot wait for a profile to name the provider.
-    const codex = ctx.authorization.describe(LlmPiAi.recordKeyFor('openai-codex'))
+    const codex = ctx.authorization.describe(LlmPiAi.recordKeyFor('openai-codex-oauth'))
     expect(codex?.methods.map(method => method.id)).toEqual(['oauth'])
   })
 
