@@ -52,6 +52,10 @@ kind: "package-library"
 
 -----
 
+### Slug 标题
+
+在任一提供方行上设置 `style: slug`，会要求模型返回小写、以连字符连接的标识符（如 `fix-login-redirect`）而非短语；`slugifyTitle` 会把返回内容（引号、标题式大小写、句子、重音字符）统一转换成这种形式，最多 `min(targetWords, 6)` 个词。适用于同时使用手写 `slug: prompt` 命名约定的侧栏，以及自由摘要不可靠的小型端侧标题模型。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
