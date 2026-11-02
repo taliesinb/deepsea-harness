@@ -2,7 +2,7 @@
  * Root-owned frame measurement, panel preferences, and presentation reports.
  * The registration supplies a fresh store and binds its actions to ctx.layout.
  */
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
+import { defineStore, embedPresentation, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { MainPanelId } from './service.ts'
 import {
   clampWidth, RIGHTBAR_DEFAULT_RATIO, RIGHTBAR_MAX_RATIO, RIGHTBAR_MIN,
@@ -22,6 +22,12 @@ type LayoutState = {
 }
 
 type LayoutInfo = {
+  /**
+   * Embedded presentation: the Session id the page was opened for
+   * (`?embed=<id>`), or undefined for the ordinary shell. Fixed at boot; the
+   * frame renders no sidebar column, sidebar handle, or sidebar toggle while set.
+   */
+  embedSessionId: string | undefined
   sidebar: number
   /** Last positive frame measurement; window width bootstraps the first render. */
   viewportWidth: number
@@ -80,6 +86,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
     init: (): LayoutState => ({
       panelInfo: { activePanelId: null },
       layoutInfo: {
+        embedSessionId: embedPresentation()?.sessionId,
         sidebar: SIDEBAR_DEFAULT,
         viewportWidth: window.innerWidth,
         narrowExpanded: false,
@@ -106,6 +113,7 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
       // Narrow toggles flip only the override: the width preference survives
       // untouched, so re-widening restores the pre-squeeze layout.
       toggleSidebar: (d) => {
+        if (d.layoutInfo.embedSessionId !== undefined) return
         d.layoutInfo.rightbarInstant = false
         if (d.layoutInfo.viewportWidth < SIDEBAR_AUTO_COLLAPSE) d.layoutInfo.narrowExpanded = !d.layoutInfo.narrowExpanded
         else d.layoutInfo.sidebar = d.layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : 0

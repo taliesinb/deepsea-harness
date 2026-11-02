@@ -205,6 +205,23 @@ describe('BrowserAuth', () => {
     }
   })
 
+  it('keeps page-owned query parameters through the token exchange redirect', async () => {
+    const auth = await createAuth(new RecordCredentials())
+    const launch = new URL(auth.authenticatedUrl('http://127.0.0.1:3080'))
+    launch.searchParams.set('embed', 'session-42')
+    const minted = response()
+    expect(auth.authorizeIndex(request(`${launch.pathname}${launch.search}`), minted.value)).toBe(false)
+    expect(minted.state.status).toBe(303)
+    expect(minted.state.headers?.location).toBe('./?embed=session-42')
+    const cookie = minted.state.headers?.['set-cookie']?.split(';', 1)[0]
+    if (cookie === undefined) throw new Error('token exchange did not set a cookie')
+
+    // An already authenticated browser revisiting a stale launch link keeps them too.
+    const revisited = response()
+    expect(auth.authorizeIndex(request(`${launch.pathname}${launch.search}`, '127.0.0.1:3080', { cookie }), revisited.value)).toBe(false)
+    expect(revisited.state.headers?.location).toBe('./?embed=session-42')
+  })
+
   it('rejects tampering, expiry, future issuance, and a longer lifetime than configured', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-24T00:00:00.000Z'))
