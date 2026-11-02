@@ -350,15 +350,22 @@ describe('submit-machine: per-session isolation', () => {
 })
 
 describe('decorations: scanTextRefs', () => {
-  const lexicon: ReadonlyMap<'/' | '@', readonly string[]> = new Map([
+  const lexicon: ReadonlyMap<string, readonly string[]> = new Map([
     ['/', ['commit-helper', 'goal'] as readonly string[]],
     ['@', ['research'] as readonly string[]],
+    ['%', ['workspace-session'] as readonly string[]],
   ])
 
   it('matches lexicon tokens at line start and after whitespace, in draft order', () => {
     const out = scanTextRefs('/goal then @research and /commit-helper', lexicon)
     expect(out.map(r => [r.start, r.end, r.trigger])).toEqual([
       [0, 5, '/'], [11, 20, '@'], [25, 39, '/'],
+    ])
+  })
+
+  it('decorates a registered plugin punctuation reference', () => {
+    expect(scanTextRefs('see %workspace-session', lexicon)).toEqual([
+      { start: 4, end: 22, trigger: '%' },
     ])
   })
 

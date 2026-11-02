@@ -30,8 +30,8 @@ export interface ClientSessionContext {
   readonly sessionId: SessionId
 }
 
-/** Trigger character a source binds to. */
-export type TriggerChar = '/' | '@'
+/** Single-character token a source binds to. Built-ins use `/` and `@`; plugins may add punctuation triggers. */
+export type TriggerChar = string
 
 /** Where the trigger token sits in the draft: leading (trimmed draft starts with it) or inline. */
 export type TriggerPosition = 'leading' | 'inline'
@@ -235,6 +235,6 @@ export interface InputTriggerSource {
 
 /** Trigger availability tier, derived from the input phase by the wiring layer. */
 export interface TriggerGuard {
-  /** plain: '/' and '@' live; claimed: '/' suppressed, '@' live; frozen: none. */
+  /** plain: every registered trigger is live; claimed: only '/' is suppressed; frozen: none. */
   readonly tier: 'plain' | 'claimed' | 'frozen'
 }
