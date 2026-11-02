@@ -68,10 +68,19 @@
   flex: 0 0 auto;
 }
 
+/* The current route's kind glyph leads the model name and leaves with it. */
+.triggerRoute {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-label-caption);
+}
+
 /* The composer measures expanded row demand and owns these display variables.
    Outside a composer, the trigger retains its text. */
 .triggerLabel,
-.triggerEffort {
+.triggerEffort,
+.triggerRoute {
   display: var(--dsh-composer-model-text-display, block);
 }
 
@@ -213,9 +222,74 @@
   color: var(--dsw-alias-label-caption);
 }
 
+/* Access-kind radios, capability filters and the older-models toggle:
+   compact glyph toggles under search, the toggle at the far end. */
+.filters {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  margin: 0 0 3px;
+  padding: 0 3px;
+}
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-caption);
+  cursor: pointer;
+}
+
+.filter svg {
+  width: 14px;
+  height: 14px;
+}
+
+.filter:hover:not(:disabled),
+.filter:focus-visible {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.filter[aria-pressed='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.filter:disabled {
+  cursor: default;
+}
+
+.historical {
+  margin-left: auto;
+}
+
+/* Kind filters and capability filters are two sets. */
+.filterGap {
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--dsw-alias-border-l1);
+}
+
 .groups {
   min-height: 0;
   overflow-y: auto;
+}
+
+/* The access-kind glyph leading a section heading. */
+.sectionIcon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
 }
 
 .option {
@@ -321,6 +395,14 @@
   white-space: nowrap;
   text-align: right;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.cellRoute {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
+  vertical-align: -2px;
 }
 
 .cellChevron {

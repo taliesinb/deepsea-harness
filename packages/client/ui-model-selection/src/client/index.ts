@@ -28,7 +28,7 @@ import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
 import { en, zh, type ModelKey } from './locales.ts'
-import { orderModelProviders } from './provider-order.ts'
+import { modelSections, routeTitle } from './route-sections.ts'
 
 export { ModelDirectory } from './directory.ts'
 export type { ModelDirectoryState } from './directory.ts'
@@ -48,18 +48,23 @@ function rowId(providerId: string, modelId: string): string {
   return `${providerId}/${modelId}`
 }
 
-/** Flatten the directory into popup rows; failure rows are listed for visibility but never selectable. */
+/**
+ * Flatten the directory into popup rows, sectioned as the composer menu is but
+ * headed without glyphs, so an OpenRouter vendor names its route; failure rows
+ * are listed for visibility but never selectable.
+ */
 function optionsOf(directory: ModelDirectoryState, t: TranslateNS<'model'>): SelectOption[] {
   const rows: SelectOption[] = []
-  for (const group of orderModelProviders(directory.groups)) {
-    const name = group.id === 'deepseek-account' ? t('provider.account') : group.name
-    for (const model of group.models) {
+  const sections = modelSections(directory.groups, group =>
+    group.id === 'deepseek-account' ? t('provider.account') : routeTitle(group))
+  for (const section of sections) {
+    for (const model of section.models) {
       rows.push({
-        id: rowId(group.id, model.id),
+        id: rowId(section.provider, model.id),
         label: model.name,
-        group: { name: group.id, label: name },
+        group: { name: section.key, label: section.label },
         ...(directory.current !== null
-          && directory.current.provider === group.id
+          && directory.current.provider === section.provider
           && directory.current.model === model.id
           ? { active: true } : {}),
       })

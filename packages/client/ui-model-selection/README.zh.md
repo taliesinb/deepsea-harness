@@ -39,9 +39,11 @@ DeepSeek 账号和 API Key 路由显示为独立提供方分组，各自展示�
 
 按钮模型菜单仅在完整目录超过四个模型时显示搜索框；较小目录聚焦当前模型或首行，直接支持键盘导航。`/model` 命令始终保留搜索框。两个搜索框均按模型名称进行不区分大小写的匹配，支持按顺序输入不连续字符，并忽略首尾空格。每个提供方内的结果优先按前缀匹配、其次按匹配得分、最后按目录顺序排列。没有匹配项的分组会隐藏。空目录和无匹配结果均通过状态区域通知屏幕阅读器。方向键在各提供方分组的结果间循环移动高亮，焦点保留在搜索框；Enter 或 Tab 选定高亮项。左右方向键仍用于移动输入光标。打开时高亮当前模型或首个可用选项，修改搜索内容后高亮首个结果。重新打开模型面板会清空搜索内容。
 
+搜索框下方，composer 菜单显示一排图标开关筛选。先是访问类型（盾牌表示**套餐**，代码框表示 **API 密钥**，分叉表示 **OpenRouter**，笔记本表示**本地**），仅当目录包含多种类型时提供；它们像单选按钮：都未按下时显示所有路由，按下某一类型只显示该类型的路由，再按一次恢复全部。然后是**图像**、**推理**、**工具**与**免费**，仅在能划分目录时提供（依据目录中每个模型的 `capabilities`：部分模型具备该能力、部分不具备），以及**旧版模型**。按下的能力只保留具备该能力的模型，同时按下多个则保留全部具备的模型，搜索再对剩余结果排序。每个开关在悬停或获得焦点时立即以提示说明自身。若同一路由中另有名称仅版本号更高的模型（`Claude Opus 5.5` 旁的 `Claude Opus 4.5`），或某模型是无日期模型的带日期快照，则该模型为旧版；旧版模型在按下**旧版模型**之前隐藏，当前模型除外。筛选在 composer 挂载期间保持；目录小到无需搜索时显示全部模型且不显示筛选栏。
+
 composer 菜单中的模型名称和推理等级均使用 400（regular）字重，包括选中项。搜索框沿用 command 弹窗的紧凑样式，在浅／深色主题下均保持背景和边框透明，不显示前置图标，占位文字使用 caption 色。搜索内容非空时显示清除按钮；点击后恢复完整列表，并将焦点留在搜索框。
 
-两个入口均按提供方分组，DeepSeek 账号排第一，DeepSeek 排第二，第三方提供方保持目录原有顺序。两者采用 [ui-primitives](../ui-primitives/README.zh.md#understand-the-implementation) 异步观察的共享吸顶标题：原位透明，仅吸顶时使用主题的 94% 不透明填充，macOS 桌面端以外使用 `md` 圆角。composer 菜单只显示模型与推理强度名称。导航箭头使用 `--dsw-alias-menu-icon` 文本色。`/model` 弹窗以提供方名称作为分组标题、模型名称作为选项行，不在每行重复提供方，也不显示目录说明。搜索占位文字、无匹配提示和空目录提示与 composer 模型菜单共用同一组本地化文案。弹窗应用所选模型的默认推理强度；composer 随后可以选择任一已公布的推理强度。适配器没有推理元数据时不显示 Effort 行；不存在任意推理强度输入。
+两个入口均按提供方与访问类型分节；类型取自目录的路由元数据，而非 id 或名称：`auth` 为 `subscription` 的路由是套餐，`auth: local` 是本机服务，目录提供方为 `openrouter` 的路由是 OpenRouter，其余使用密钥的路由是 API 密钥。同一提供方的各节相邻，先套餐，再 API 密钥，再 OpenRouter（`Anthropic Plan`、`Anthropic`、OpenRouter 的 `Anthropic`；提供方按名称匹配，名称扩展另一名称的并入其中）。DeepSeek 账号与 DeepSeek 排在最前，其余提供方保持目录原有顺序，随后是本机服务，再是仅 OpenRouter 提供的厂商（按字母顺序），最后是没有厂商的 OpenRouter 模型。OpenRouter 路由按上游厂商拆分：厂商取自每个模型 id 的前缀（`anthropic/…`），标题取自其模型名称的 `Vendor: ` 前缀，选项行随之去掉该前缀；两个 OpenRouter 路由提供同一厂商时，标题还会写出路由名。composer 菜单中每节标题带有其类型的图标（套餐为盾牌，API 密钥为代码框，OpenRouter 为分叉，本地服务器为笔记本电脑）；触发器与 Model 行中的当前模型前也显示同一图标。两者采用 [ui-primitives](../ui-primitives/README.zh.md#understand-the-implementation) 异步观察的共享吸顶标题：原位透明，仅吸顶时使用主题的 94% 不透明填充，macOS 桌面端以外使用 `md` 圆角。composer 菜单只显示模型与推理强度名称。导航箭头使用 `--dsw-alias-menu-icon` 文本色。`/model` 弹窗以各节标题的文字（OpenRouter 厂商后接路由名）作为分组标题、模型名称作为选项行，不在每行重复提供方，也不显示目录说明。搜索占位文字、无匹配提示和空目录提示与 composer 模型菜单共用同一组本地化文案。弹窗应用所选模型的默认推理强度；composer 随后可以选择任一已公布的推理强度。适配器没有推理元数据时不显示 Effort 行；不存在任意推理强度输入。
 
 展开的控件无法排在同一行时，composer 将模型与推理强度文字替换为模型图标；空间足够后恢复文字。触发器的无障碍名称、提示和菜单仍提供完整选择。
 
@@ -63,7 +65,7 @@ composer 菜单中的模型名称和推理等级均使用 400（regular）字重
 <details>
 <summary>实现细节——点击展开</summary>
 
-composer 的 `ModelSelect` 与 `/model` 选项构建器共用[提供方排序](src/client/provider-order.ts)，两个搜索框均在每个提供方内使用 `rankByName`。命令通过 [popupSelect API](../ui-commands/README.zh.md#use-this-package) 提供可选分组与 `searchMode: 'fuzzy-label'`；两个入口均使用 `MenuGroup`，并在渲染分组变化时重建其吸顶观察器。命令弹窗撑满 composer 浮层，按钮则保留紧凑菜单。
+composer 的 `ModelSelect` 与 `/model` 选项构建器共用[提供方排序](src/client/provider-order.ts)，两个搜索框均在每个提供方内使用 `rankByName`。路由类型、能力筛选与旧版模型的版本系列位于 [route-sections.ts](src/client/route-sections.ts)；路由图标是 `ModelSelect.tsx` 中的 `RouteIcon`，每种类型一行，因为 DeepSea billing 插件绘制相同的套餐、OpenRouter 与 API 图标，其测试逐行比对。类型标题是插在各提供方 `MenuGroup` 之间的普通行，因此吸顶观察器仍将各分组视为列表的直接子元素。命令通过 [popupSelect API](../ui-commands/README.zh.md#use-this-package) 提供可选分组与 `searchMode: 'fuzzy-label'`；两个入口均使用 `MenuGroup`，并在渲染分组变化时重建其吸顶观察器。命令弹窗撑满 composer 浮层，按钮则保留紧凑菜单。
 
 两个入口共用一份由 `ModelDirectoryResolver`（`ctx.modelDirectories`）持有的会话级目录：`/model` popupSelect 贡献项（经 `ctx.commandUi` 注册）与 composer 的具名 `conversation.input.model` 位都经 `session.models` 加载会话的可用目录、经 `session.selectModel` 通过同一个 `ModelDirectory` 实例提交，因此任一入口所做的切换正是另一个入口接下来显示的。目录加载与选择共享一个代次计数器，旧响应不会覆盖新结果。目录把最近一次提交的选择发布为 `pending`，直到它完成或被连接重置作废；连接重置丢弃所有常驻投影，并在显示前重新拉取 Host 恢复的选择。目录按会话惰性解析，随会话作用域一并 dispose（资源释放）；已寻址 subagent 会话不公开任一入口。每份常驻目录都会直接在转发的 `llm/adapters-updated`、`settings/document-updated` 与凭据更新事件上重拉。
 
