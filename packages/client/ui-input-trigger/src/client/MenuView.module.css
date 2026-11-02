@@ -108,6 +108,12 @@
   white-space: nowrap;
 }
 
+/* A dim label segment (a separator or secondary piece of the title), in the
+   alias's quiet ink. */
+.itemNameDim {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* The command name beside a localized title, in the description's ink so
    the row reads title first. */
 .itemAlias {
