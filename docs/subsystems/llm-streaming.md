@@ -505,6 +505,12 @@ interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /**
+   * Present when the route signs in through a browser (OAuth) instead of an
+   * API key: configuration surfaces then show the sign-in state and account
+   * ({@link LlmRuntime.describeSignIn}) in place of a key field.
+   */
+  signIn?: LlmSignInRoute
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
 }
@@ -865,6 +871,16 @@ declare abstract class LlmAdapter {
    */
   subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;
   /**
+   * Describe whether one owned browser sign-in route holds a usable grant
+   * and, when the provider identifies it, the signed-in account. The default
+   * supports none. Implementations make at most one provider request and must
+   * not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the state, or `undefined` when the route does not sign in through a browser.
+   */
+  signInState(_provider: string, _signal?: AbortSignal): Promise<LlmSignInState | undefined>;
+  /**
    * Look up the provider's recorded charge for one past response by its
    * response id. The default supports none. Implementations make at most one
    * provider request and must not run model inference.
@@ -991,6 +1007,15 @@ registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): Dire
  * @returns detached directory entries in declaration order.
  */
 @Remote listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
+ * Describe one browser sign-in route for configuration surfaces: whether it
+ * holds a usable grant, and the signed-in account when the provider
+ * identifies it. A route with no registered adapter has nothing to ask.
+ * @param provider - provider route key.
+ * @returns the detached state, or `undefined` when the route is unregistered or not a sign-in route.
+ */
+@Remote describeSignIn(provider: string): Promise<LlmSignInState | undefined>
 
 /**
  * Offer to interrogate provider endpoints on behalf of the settings

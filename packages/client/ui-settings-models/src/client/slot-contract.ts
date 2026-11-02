@@ -18,7 +18,7 @@
  */
 
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import type { ProviderDirectoryEntry } from './store.ts'
+import type { ModelsGroup, ProviderDirectoryEntry } from './store.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -33,6 +33,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'settings.models.provider-card': { kind: 'keyed'; scope: 'root'; owner: ProviderCardExtrasOwnerProps }
     /** Optional account login choice before the credential editor. */
     'settings.models.sign-in': { kind: 'single'; scope: 'root'; owner: { complete: () => void; useApiKey: () => void } }
+    /**
+     * One section's add action, dispatched with `entryKey = section` after that
+     * section's rows (and its own add control, where it has one). The Plans
+     * section has none of its own: a sign-in plugin supplies it here. Without a
+     * registrant the area renders nothing.
+     */
+    'settings.models.section-actions': { kind: 'keyed'; scope: 'root'; owner: ModelsSectionActionsOwnerProps }
     /**
      * Ordered extension area after the provider rows and the add controls.
      * Without a registrant the area renders nothing.
@@ -52,6 +59,13 @@ export interface ProviderCardExtrasOwnerProps {
 }
 
 /** Owner share of the footer area (the section supplies nothing). */
+export interface ModelsSectionActionsOwnerProps {
+  /** The section this seat follows. */
+  section: ModelsGroup
+  /** Whether settings writes are allowed (read-only providers disable adding). */
+  writable: boolean
+}
+
 export interface ModelsFooterOwnerProps {
   /** Marker field: footer owner props are intentionally empty. */
   children?: never

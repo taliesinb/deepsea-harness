@@ -66,7 +66,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
-import { catalogProviderIds, oauthProviderIds, oauthRouteDisplayName } from './catalog.ts'
+import { catalogProviderIds, oauthCatalogProvider, oauthProviderIds, oauthRouteAuth, oauthRouteDisplayName } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
@@ -128,6 +128,9 @@ function directoryEntries(
   const catalog = new Set([...catalogProviderIds(), ...oauthProviderIds()])
   const entries = new Map<string, LlmConfigurableProvider>()
   const declare = (provider: string, displayName: string, error?: string): void => {
+    // A browser sign-in route: surfaces show its state and account instead of a key field.
+    const native = oauthCatalogProvider(provider)
+    const auth = oauthRouteAuth(provider)
     entries.set(provider, {
       provider,
       displayName,
@@ -137,6 +140,7 @@ function directoryEntries(
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
       declared: !catalog.has(provider),
+      ...native === undefined || auth === undefined ? {} : { signIn: { kind: auth === 'subscription' ? 'subscription' : 'oauth', vendor: native.name } },
       ...error === undefined ? {} : { error },
     })
   }

@@ -103,6 +103,49 @@ describe('response cost', () => {
   })
 })
 
+describe('sign-in state', () => {
+  it('reports the Anthropic account from its profile, nothing for a route without a grant, and no state for API-key routes', async () => {
+    const native = catalogProvider('anthropic-oauth')!
+    vi.spyOn(native.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: 'sk-ant-oat01-state' })
+    const profile = {
+      account: { uuid: 'account-uuid', email: 'user@example.com', full_name: 'Fixture User' },
+      organization: { uuid: 'org-uuid', name: 'Fixture Org', organization_type: 'claude_max' },
+    }
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(profile), { headers: { 'content-type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = await adapterContext('anthropic-oauth', memoryAuth({ 'anthropic-oauth': grant('sk-ant-oat01-state') }))
+    await expect(ctx.llm.describeSignIn('anthropic-oauth')).resolves.toEqual({
+      signedIn: true,
+      account: { id: 'account-uuid/org-uuid', email: 'user@example.com', name: 'Fixture User', organization: 'Fixture Org', plan: 'claude_max' },
+    })
+    expect(fetchMock.mock.calls.map(call => (call as unknown as [string])[0])).toEqual(['https://api.anthropic.com/api/oauth/profile'])
+    const empty = await adapterContext('anthropic-oauth', memoryAuth({}))
+    await expect(empty.llm.describeSignIn('anthropic-oauth')).resolves.toEqual({ signedIn: false })
+    const keyed = await adapterContext('anthropic', memoryAuth({}))
+    await expect(keyed.llm.describeSignIn('anthropic')).resolves.toBeUndefined()
+  })
+
+  it('counts a grant that reaches requests as headers alone (Kimi Code)', async () => {
+    const ctx = await adapterContext('kimi-coding-oauth', memoryAuth({ 'kimi-coding-oauth': grant('kimi-access') }))
+    await expect(ctx.llm.describeSignIn('kimi-coding-oauth')).resolves.toEqual({ signedIn: true })
+    const empty = await adapterContext('kimi-coding-oauth', memoryAuth({}))
+    await expect(empty.llm.describeSignIn('kimi-coding-oauth')).resolves.toEqual({ signedIn: false })
+  })
+
+  it('reads the Codex account from the token claims without a request', async () => {
+    const claims = Buffer.from(JSON.stringify({
+      'https://api.openai.com/auth': { chatgpt_account_id: 'acct-fixture', chatgpt_plan_type: 'pro' },
+      'https://api.openai.com/profile': { email: 'user@example.com' },
+    })).toString('base64url')
+    const token = `header.${claims}.signature`
+    vi.spyOn(catalogProvider('openai-codex-oauth')!.auth.oauth!, 'toAuth').mockResolvedValue({ apiKey: token })
+    const ctx = await adapterContext('openai-codex-oauth', memoryAuth({ 'openai-codex-oauth': grant(token) }))
+    await expect(ctx.llm.describeSignIn('openai-codex-oauth')).resolves.toEqual({
+      signedIn: true, account: { id: 'acct-fixture', email: 'user@example.com', plan: 'pro' },
+    })
+  })
+})
+
 describe('subscription usage', () => {
   it('reads Anthropic account usage once with the route token, normalizes it, and skips other routes', async () => {
     const native = catalogProvider('anthropic-oauth')!
@@ -297,6 +340,7 @@ describe('every installed OAuth catalog route', () => {
         provider: route,
         displayName: oauthRouteDisplayName(route),
         settingsNs: 'llm-pi-ai', settingsPath: ['providers', route], declared: false,
+        signIn: { kind: oauthRouteAuth(route) === 'subscription' ? 'subscription' : 'oauth', vendor: catalogProvider(route)!.name },
       }])
       expect(directory.some(entry => entry.provider === id)).toBe(true)
     }

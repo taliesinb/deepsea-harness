@@ -932,6 +932,12 @@ export function resolveRouteModels(
     ? configured
     : [...defaults.values()].map(model => ({ id: model.id, ...overrides[model.id] }))
   if (entries.length === 0) {
+    // A sign-in route whose flow the installed pi-ai no longer ships (or an
+    // upgrade in progress): say that, not that it is a gateway missing models.
+    if (provider.endsWith('-oauth')) {
+      invalid(provider, 'is a sign-in route, but the installed pi-ai ships no sign-in for'
+        + ` "${provider.slice(0, -'-oauth'.length)}"; remove the route or install a pi-ai that ships it`)
+    }
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')
   }

@@ -112,6 +112,21 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()[1]!.settingsPath).toEqual(['providers', 'openai'])
   })
 
+  it('carries a sign-in route detached and refuses a malformed one', async () => {
+    const ctx = await setup()
+    const signIn = { kind: 'subscription' as const, vendor: 'Anthropic' }
+    ctx.llm.registerConfigurableProviders([entry({ provider: 'anthropic-oauth', displayName: 'Anthropic Plan', signIn })])
+    signIn.vendor = 'mutated'
+    const listed = ctx.llm.listConfigurableProviders()
+    expect(listed[0]!.signIn).toEqual({ kind: 'subscription', vendor: 'Anthropic' })
+    listed[0]!.signIn!.vendor = 'mutated'
+    expect(ctx.llm.listConfigurableProviders()[0]!.signIn).toEqual({ kind: 'subscription', vendor: 'Anthropic' })
+    for (const bad of [{ kind: 'plan', vendor: 'X' }, { kind: 'oauth', vendor: '' }]) {
+      expect(() => ctx.llm.registerConfigurableProviders([entry({ provider: 'other-oauth', signIn: bad as never })]))
+        .toThrow(expect.objectContaining({ code: 'INVALID_DIRECTORY' }) as Error)
+    }
+  })
+
   it('detaches stored entries from caller-owned objects', async () => {
     const ctx = await setup()
     const source = entry()
