@@ -280,7 +280,8 @@ export class PiAiAdapter extends LlmAdapter {
     // The configured name, not the route key: `displayName` exists so a
     // deployment can label a route, and a label only the configuration surface
     // reads would leave every selector showing the raw key.
-    const catalogId = catalogProvider(provider)?.id
+    const catalog = catalogProvider(provider)
+    const catalogId = catalog?.id
     const profile = this.current().profiles.get(provider)
     // A catalog vendor stays billed even behind a local proxy; only a custom route on this machine is local.
     const local = catalogId === undefined && profile?.baseURL !== undefined && loopbackUrl(profile.baseURL)
@@ -289,7 +290,7 @@ export class PiAiAdapter extends LlmAdapter {
     return {
       id: provider,
       name: profile?.displayName ?? provider,
-      ...catalogId === undefined ? {} : { catalogProvider: catalogId },
+      ...catalog === undefined ? {} : { catalogProvider: catalog.id, vendor: catalog.name },
       ...auth === undefined ? {} : { auth },
     }
   }

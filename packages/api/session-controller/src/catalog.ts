@@ -3,13 +3,22 @@
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
-import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
+import type { LlmModelInfo, LlmModelPricing } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
   ModelCatalog,
   ModelReasoning,
   ModelSelection,
 } from './types.ts'
+
+/**
+ * Whether published list prices charge nothing for input and output.
+ * @param pricing - adapter-published list prices, when any.
+ * @returns true only for present prices whose input and output rates are zero.
+ */
+function zeroPriced(pricing: LlmModelPricing | undefined): boolean {
+  return pricing !== undefined && Number(pricing.inputPerMillion) === 0 && Number(pricing.outputPerMillion) === 0
+}
 
 /**
  * Build the browser model catalog without requiring a Session.
@@ -43,12 +52,26 @@ export async function buildModelCatalog(
           id: model.id,
           name: model.name,
           ...(model.description === undefined ? {} : { description: model.description }),
+          capabilities: {
+            images: (resolved.inputModalities ?? model.inputModalities)?.includes('image') === true,
+            reasoning: reasoning !== undefined,
+            // Every current chat adapter accepts declared tools.
+            tools: true,
+            free: provider.auth === 'local' || zeroPriced(resolved.pricing),
+          },
           ...(reasoning === undefined ? {} : { reasoning }),
         }
       }))
       return {
         kind: 'group' as const,
-        group: { id: provider.id, name: provider.name, models: entries },
+        group: {
+          id: provider.id,
+          name: provider.name,
+          ...(provider.catalogProvider === undefined ? {} : { catalogProvider: provider.catalogProvider }),
+          ...(provider.vendor === undefined ? {} : { vendor: provider.vendor }),
+          ...(provider.auth === undefined ? {} : { auth: provider.auth }),
+          models: entries,
+        },
       }
     } catch (error) {
       return {

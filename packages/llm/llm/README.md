@@ -56,7 +56,7 @@ for await (const chunk of ctx.llm.stream({
 }
 ```
 
-After a successful mount, `ctx.llm.listProviders()` reports the registered routes in registration order: `id`, `name`, and, when the adapter knows them, `catalogProvider` (the vendor the route resolves to) and `auth` (`subscription`, `api-key`, or `local` for a model served on this machine). Other adapter-published fields are dropped; an empty catalog provider or unknown auth kind rejects the registration with `INVALID_ADAPTER`.
+After a successful mount, `ctx.llm.listProviders()` reports the registered routes in registration order: `id`, `name`, and, when the adapter knows them, `catalogProvider` (the vendor the route resolves to), `vendor` (that provider's display name) and `auth` (`subscription`, `api-key`, or `local` for a model served on this machine). Other adapter-published fields are dropped; an empty catalog provider or vendor, or an unknown auth kind, rejects the registration with `INVALID_ADAPTER`.
 
 `GenerateOptions.messages` accepts durable `Message` values and request-only `RequestUserInput` values. Request-only inputs carry user-role content with no `id` or `source`; Session writes and Agent delivery still require durable messages. Callers keep auxiliary inputs unchanged until the stream settles. A caller that records its exact request, such as session-title generation, must use durable messages.
 

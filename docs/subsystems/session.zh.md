@@ -764,7 +764,7 @@ interface TurnEndReasonMap {
 
 ## Remote 目录与 workspace 打开
 
-`ModelCatalog` 是 `session/modelCatalog` 返回的 Host generation 模型目录：它携带部署默认值、可路由 provider id、成功的 provider 分组与相互隔离的 provider 失败。它不由某个 Session 派生，因此与 Session projection 分开保存。
+`ModelCatalog` 是 `session/modelCatalog` 返回的 Host generation 模型目录：它携带部署默认值、可路由 provider id、成功的 provider 分组与相互隔离的 provider 失败。它不由某个 Session 派生，因此与 Session projection 分开保存。adapter 报告时，分组从 LLM 注册表复制其路由的 `catalogProvider`、该提供方的显示名称 `vendor` 与计费方式 `auth`（`subscription`、`api-key`、`local`）；每个模型携带由其解析元数据得出的 `capabilities`（`images`、`reasoning`、`tools`、`free`）——图像输入模态、推理等级、零标价或本地路由——让 Client 无需自带模型词表即可对目录分组与筛选。
 
 `SessionOpenWorkspacePathRequest` 携带绝对路径或已按 workspace 解析的 `path`。`SessionOpenWorkspacePathValue` 确认 Host 已接受原生交接。Session-aware Client 会在已知当前 Session cwd 时据此解析相对路径；controller 将路径原样交给打开器，并通过 Session Remote 错误词汇表报告无效请求、取消与打开器失败。 可选的 `action: "reveal"` 选择文件管理器导航；省略时使用默认应用打开。
 

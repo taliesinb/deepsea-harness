@@ -227,6 +227,8 @@ export interface LlmProviderInfo {
   name: string
   /** Catalog (vendor) provider the route resolves to, when the adapter knows it, e.g. `anthropic` for `anthropic-oauth`. */
   catalogProvider?: string
+  /** Display name of that catalog provider, e.g. `Anthropic`, for selectors that title a route carrying only its bare key. */
+  vendor?: string
   /**
    * How the route authenticates and is billed: a subscription sign-in, a per-token API key, or a
    * model served on this machine (no charge); absent when unknown.
