@@ -108,6 +108,8 @@ export class SessionProjectionCache extends Service {
 
   private table?: KvTable<SessionId, CheckpointRecord>
   private readonly dirty = new Map<Session, DirtyState>()
+  /** The latest record write per session, settled either way; the table's write chain orders them. */
+  private readonly writes = new Map<SessionId, Promise<void>>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'sessionProjectionCache')
@@ -188,6 +190,33 @@ export class SessionProjectionCache extends Service {
     const record = this.requireTable().get(meta.id)
     if (record === undefined || !predecessorIdentityMatches(record.identity, expected)) return undefined
     return this.viewRecord(record, [PREDECESSOR_TITLE_KEY])
+  }
+
+  /**
+   * Re-bind one stored record to a relocated session's header. A relocation
+   * (`sessionPersistence.relocate`) replaces only the header's `cwd` and
+   * appends events after the stored tail, and no projection unit folds the
+   * cwd, so a record folded from the previous log stays a valid fold of a
+   * prefix of the relocated one once its identity names the new cwd. Without
+   * this the moved session lists without cached values until its next fold.
+   * A current or predecessor record bound to `previous` is re-bound; any other
+   * record is left alone.
+   * @param previous - the header the record was written under.
+   * @param current - the header stored now: the same session in another cwd.
+   * @param inheritedEventCount - exact inherited cut of the lifecycle.
+   * @returns true when a record was re-bound.
+   */
+  async rebind(previous: SessionHeader, current: SessionHeader, inheritedEventCount: SessionLogOffset): Promise<boolean> {
+    if (previous.id !== current.id) throw new Error('projection cache rebind requires one session')
+    const table = this.requireTable()
+    const record = table.get(current.id)
+    if (record === undefined) return false
+    const expected = identityOf(previous, inheritedEventCount)
+    if (!identityMatches(record.identity, expected) && !predecessorIdentityMatches(record.identity, expected)) return false
+    const { cwd: _previousCwd, ...rest } = record.identity
+    const identity: CheckpointIdentity = current.cwd === undefined ? rest : { ...rest, cwd: current.cwd }
+    await table.put(current.id, { identity, rows: record.rows })
+    return true
   }
 
   /**
@@ -385,13 +414,33 @@ export class SessionProjectionCache extends Service {
     }
   }
 
+  /**
+   * Resolve once every record write started for one session so far has
+   * settled, successfully or not; afterwards `cachedSnapshot` observes the
+   * outcome. A listing that follows a fire-and-forget `coldSnapshot` (an
+   * imported session) awaits this before reading the record back.
+   * @param id - the session whose pending writes to await.
+   * @returns completion; never rejects.
+   */
+  settled(id: SessionId): Promise<void> {
+    return this.writes.get(id) ?? Promise.resolve()
+  }
+
   /** Replace one session's stored record with its log identity and a detached snapshot of `rows`. */
-  private async put(id: SessionId, identity: CheckpointIdentity, rows: ProjectionCheckpoint): Promise<void> {
+  private put(id: SessionId, identity: CheckpointIdentity, rows: ProjectionCheckpoint): Promise<void> {
     const detached = snapshotJsonValue(rows)
     if (detached === undefined) {
-      throw new TypeError('projection checkpoint is not losslessly JSON-serializable (a unit state violates the plain-JSON contract)')
+      return Promise.reject(new TypeError(
+        'projection checkpoint is not losslessly JSON-serializable (a unit state violates the plain-JSON contract)',
+      ))
     }
-    await this.requireTable().put(id, { identity, rows: detached as CheckpointRecord['rows'] })
+    const write = this.requireTable().put(id, { identity, rows: detached as CheckpointRecord['rows'] })
+    const settled = write.then(() => {}, () => {})
+    this.writes.set(id, settled)
+    void settled.then(() => {
+      if (this.writes.get(id) === settled) this.writes.delete(id)
+    })
+    return write
   }
 
   private requireTable(): KvTable<SessionId, CheckpointRecord> {

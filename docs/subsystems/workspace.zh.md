@@ -599,6 +599,17 @@ unpinSession(sessionId: SessionId): Promise<void>
  * @returns the workspace owning the canonical path, when one exists.
  */
 async resolveByPath(path: string): Promise<Workspace | undefined>
+
+/**
+ * Forget the indexed header and canonical path of one session so the next
+ * membership check reads its stored header again. Stored headers change
+ * only through a relocation (`sessionPersistence.relocate`); its caller
+ * invokes this before detaching the session from its old Workspace and
+ * attaching it to the new one. Until then the session counts as a member of
+ * no Workspace.
+ * @param id - the relocated session.
+ */
+forgetSessionHeader(id: SessionId): void
 ```
 
 Types: [SessionId](core.zh.md)

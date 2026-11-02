@@ -7,6 +7,12 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type {
   SessionControlBaseline,
   SessionControlFrame,
+  SessionCopyRequest,
+  SessionCopyValue,
+  SessionMoveManyRequest,
+  SessionMoveManyValue,
+  SessionMoveRequest,
+  SessionMoveValue,
   SessionProjectionHints,
   SessionRenameValue,
   SessionSummary,
@@ -520,6 +526,35 @@ export class SessionManager {
   }
 
   /**
+   * Move one Session through the Host. The moved Session's refreshed summary
+   * arrives as an `api-session/added` relay.
+   * @param opts - session, destination, and live policy.
+   * @returns the Host result, refusals included.
+   */
+  move(opts: SessionMoveRequest): Promise<RemoteResult<SessionMoveValue>> {
+    return this.remote.session.move(opts)
+  }
+
+  /**
+   * Move several Sessions through the Host.
+   * @param opts - sessions, destination, and live policy.
+   * @returns the Host result with moved ids and per-session skips.
+   */
+  moveMany(opts: SessionMoveManyRequest): Promise<RemoteResult<SessionMoveManyValue>> {
+    return this.remote.session.moveMany(opts)
+  }
+
+  /**
+   * Copy one Session through the Host. The copy's summary arrives as an
+   * `api-session/added` relay.
+   * @param opts - source, destination, mid-turn policy, and optional title.
+   * @returns the Host result, refusals included.
+   */
+  copy(opts: SessionCopyRequest): Promise<RemoteResult<SessionCopyValue>> {
+    return this.remote.session.copy(opts)
+  }
+
+  /**
    * Contract session.fork; on success merge the child into summaries
    * immediately (same synchronous-addressability guarantee as create).
    * Blankness starts provisionally true so the authoritative Host summary can
@@ -642,7 +677,9 @@ export class SessionManager {
   handleSessionAdded(summary: SessionSummary): void {
     this.mergeSummary(summary)
     if (!this.disposed && summary.running) this.engagedSessions.add(summary.sessionId)
-    this.sessions.get(summary.sessionId)?.handleBlank(this.effectiveBlank(summary))
+    const resident = this.sessions.get(summary.sessionId)
+    resident?.handleRestored()
+    resident?.handleBlank(this.effectiveBlank(summary))
     if (summary.projections !== undefined) this.applyListBlock(summary.sessionId, summary.projections)
   }
 

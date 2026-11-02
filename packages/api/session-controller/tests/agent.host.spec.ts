@@ -329,6 +329,30 @@ describe('ApiSession model selection', () => {
   })
 })
 
+describe('ApiSession Agent retirement', () => {
+  it('disposes exactly the Agents it created and refuses residents another owner holds', async () => {
+    const { ctx, agents } = await harness()
+    const cwd = mkdtempSync(join(tmpdir(), 'dsh-session-controller-retire-'))
+    tempDirs.push(cwd)
+    const meta = header('retire-created', cwd)
+    const created = agent(ctx, meta)
+    const dispose = vi.fn(() => Promise.resolve())
+    vi.spyOn(ctx.agents, 'create').mockImplementation(async () => {
+      await ctx.agents.register(created)
+      return { agent: created, dispose }
+    })
+    await agents.ensureSession(meta.id, cwd, false)
+    expect(await agents.retire(meta.id)).toBe(true)
+    expect(dispose).toHaveBeenCalledOnce()
+    // Nothing resident any more, and no handle: a second retire is a no-op success.
+    expect(await agents.retire(SessionId('never-resident'))).toBe(true)
+
+    const foreign = agent(ctx, header('retire-foreign', cwd))
+    await ctx.agents.register(foreign)
+    expect(await agents.retire(foreign.id)).toBe(false)
+  })
+})
+
 describe('ApiSession create or adoption', () => {
   it('shares one in-flight creation between concurrent callers', async () => {
     const { ctx, agents } = await harness()

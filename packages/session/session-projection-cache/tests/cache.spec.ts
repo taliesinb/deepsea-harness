@@ -469,6 +469,51 @@ describe('SessionProjectionCache listing read', () => {
     expect(cache.cachedPredecessorTitle(headerOf(id))).toBeUndefined()
   })
 
+  it('settles a fire-and-forget cold write before a listing reads it back', async () => {
+    const { cache } = await harness()
+    const id = SessionId('cold-settled')
+    const log: SessionEvent[] = [{ type: 'cache-test/mark', seq: SessionSeq(0), time: 0, data: { marks: ['cold'] } }]
+    await cache.settled(id)
+    cache.coldSnapshot(headerOf(id), SessionLogOffset(0), log)
+    await cache.settled(id)
+    expect(cache.cachedSnapshot(headerOf(id))).toEqual({ asOfSeq: 0, values: { 'cache-test/marks': { marks: ['cold'] } } })
+  })
+
+  it('re-binds a relocated session\'s record to its new cwd and leaves unrelated records alone', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
+    roots.push(root)
+    const rows = { 'cache-test/marks': { ver: 1, seq: SessionSeq(3), val: { marks: ['moved'] } } }
+    await seedRecord(root, 'relocated', rows, {
+      formatVersion: SESSION_FORMAT_VERSION, createdAt: 0, cwd: '/old', isSeeded: false, inheritedEventCount: SessionLogOffset(0),
+    })
+    await seedRecord(root, 'predecessor', rows, {
+      formatVersion: SESSION_FORMAT_VERSION - 1, createdAt: 0, cwd: '/old', isSeeded: false,
+    })
+    await seedRecord(root, 'unrelated', rows, {
+      formatVersion: SESSION_FORMAT_VERSION, createdAt: 5, cwd: '/old', isSeeded: false, inheritedEventCount: SessionLogOffset(0),
+    })
+    const { cache } = await harness({ root })
+    const moved = SessionId('relocated')
+    expect(cache.cachedSnapshot(headerOf(moved, 0, '/new'))).toBeUndefined()
+    expect(await cache.rebind(headerOf(moved, 0, '/old'), headerOf(moved, 0, '/new'), SessionLogOffset(0))).toBe(true)
+    expect(cache.cachedSnapshot(headerOf(moved, 0, '/new')))
+      .toEqual({ asOfSeq: 3, values: { 'cache-test/marks': { marks: ['moved'] } } })
+    expect(cache.cachedSnapshot(headerOf(moved, 0, '/old'))).toBeUndefined()
+    expect((await storedRecord(root, moved))?.identity.cwd).toBe('/new')
+
+    const predecessor = SessionId('predecessor')
+    expect(await cache.rebind(headerOf(predecessor, 0, '/old'), headerOf(predecessor, 0), SessionLogOffset(0))).toBe(true)
+    expect((await storedRecord(root, predecessor))?.identity).toEqual({
+      formatVersion: SESSION_FORMAT_VERSION - 1, createdAt: 0, isSeeded: false,
+    })
+
+    const unrelated = SessionId('unrelated')
+    expect(await cache.rebind(headerOf(unrelated, 0, '/old'), headerOf(unrelated, 0, '/new'), SessionLogOffset(0))).toBe(false)
+    expect(await cache.rebind(headerOf(SessionId('absent'), 0, '/old'), headerOf(SessionId('absent'), 0, '/new'), SessionLogOffset(0)))
+      .toBe(false)
+    await expect(cache.rebind(headerOf(moved), headerOf(unrelated), SessionLogOffset(0))).rejects.toThrow('one session')
+  })
+
   it('serves a creation-time checkpoint at the before-first-event cursor', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
     roots.push(root)

@@ -10,7 +10,7 @@ import type { TextBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
+import type { SessionActivity, WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -224,6 +224,31 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
     'session/fork-unavailable': { readonly sessionId: SessionId }
+    /**
+     * Move refused: retiring the Session's Agent would interrupt the work in
+     * `blockers` (a turn, background jobs, subagents); retry with `stopLive`.
+     * Empty `blockers` mean another owner or process holds the Session.
+     */
+    'session/move-live': { readonly sessionId: SessionId; readonly blockers: readonly SessionActivity[] }
+    /** Move refused: no stored Session with this id. */
+    'session/move-missing': { readonly sessionId: SessionId }
+    /** Move refused: the Session already belongs to the destination Workspace. */
+    'session/move-same-workspace': { readonly sessionId: SessionId }
+    /** Move failed after validation; the message carries the storage or registry failure. */
+    'session/move-error': { readonly sessionId: SessionId }
+    /** The mounted Session storage cannot relocate Sessions. */
+    'session/move-unsupported': Record<string, never>
+    /**
+     * Copy refused: the source's Agent is running a turn and `truncate` was
+     * not decided; `blockers` name the source's work in flight.
+     */
+    'session/copy-live': { readonly sessionId: SessionId; readonly blockers: readonly SessionActivity[] }
+    /** Copy refused: no stored Session with this id. */
+    'session/copy-missing': { readonly sessionId: SessionId }
+    /** Copy failed after validation; the message carries the read or storage failure. */
+    'session/copy-error': { readonly sessionId: SessionId }
+    /** The destination directory could not be registered as a Workspace. */
+    'workspace/create-failed': { readonly path: string }
     'subagent/not-found': {
       readonly parentSessionId: SessionId
       readonly childSessionId: SessionId
@@ -315,6 +340,97 @@ export interface SessionRenameRequest {
 export interface SessionRenameValue {
   readonly title: string
   readonly seq: number
+}
+
+/** Where a moved Session goes: an existing Workspace, or a directory registered as one on the way. */
+export type SessionMoveDestination =
+  | { readonly workspaceId: WorkspaceId }
+  | { readonly path: string; readonly title?: string }
+
+/** Move one Session, with its same-cwd subagent descendants, to another Workspace. */
+export interface SessionMoveRequest {
+  readonly sessionId: SessionId
+  readonly destination: SessionMoveDestination
+  /**
+   * Also move a Session whose Agent has work in flight (a turn, running
+   * background jobs, running subagents), interrupting it. A resident Agent
+   * with nothing in flight is always retired silently; it resumes cold in the
+   * new Workspace on the next open. Without this flag a Session with such
+   * work is refused with `session/move-live`, whose details name it.
+   */
+  readonly stopLive?: boolean
+  /** Append the relocation notice the Agent reads on its next step; default true. */
+  readonly notify?: boolean
+}
+
+/** Result of one move. */
+export interface SessionMoveValue {
+  readonly sessionId: SessionId
+  readonly workspaceId: WorkspaceId
+  /** Every Session that changed Workspace, subagent descendants included. */
+  readonly moved: readonly SessionId[]
+}
+
+/** Why one Session of a batch did not move. */
+export interface SessionMoveSkip {
+  readonly sessionId: SessionId
+  readonly reason: 'live' | 'missing' | 'same-workspace' | 'error'
+  readonly message: string
+  /** For `live`: the work a move would interrupt (empty when another owner or process holds the Session). */
+  readonly blockers?: readonly SessionActivity[]
+}
+
+/** Move several Sessions to one Workspace. */
+export interface SessionMoveManyRequest {
+  readonly sessionIds: readonly SessionId[]
+  readonly destination: SessionMoveDestination
+  /** Same policy as {@link SessionMoveRequest.stopLive}, applied to every Session. */
+  readonly stopLive?: boolean
+  /** Same policy as {@link SessionMoveRequest.notify}, applied to every Session. */
+  readonly notify?: boolean
+}
+
+/** Result of a batch move: skips are reported, not thrown. */
+export interface SessionMoveManyValue {
+  readonly workspaceId: WorkspaceId
+  readonly moved: readonly SessionId[]
+  readonly skipped: readonly SessionMoveSkip[]
+}
+
+/**
+ * Copy one Session, with its subagent descendants, into a Workspace (its own
+ * included) as a new Session with a fresh id. The source is only read: a
+ * running Agent keeps running.
+ */
+export interface SessionCopyRequest {
+  readonly sessionId: SessionId
+  readonly destination: SessionMoveDestination
+  /**
+   * What to do with a turn in progress at the source. `true`: drop it whole
+   * (the copy ends after the last completed turn and the prompt that started
+   * the turn is cancelled). `false`: copy what has been recorded and close the
+   * turn as interrupted. Omitted: a running source is refused with
+   * `session/copy-live` so the caller decides; a cold source whose last turn
+   * never ended is closed as interrupted.
+   */
+  readonly truncate?: boolean
+  /** Title recorded on the copy as a user rename; omitted keeps the source's title. */
+  readonly title?: string
+  /** Append the copy notice the Agent reads on its next step; default true. */
+  readonly notify?: boolean
+}
+
+/** Result of one copy. */
+export interface SessionCopyValue {
+  /** The new root Session. */
+  readonly sessionId: SessionId
+  /** The Session that was copied. */
+  readonly sourceSessionId: SessionId
+  readonly workspaceId: WorkspaceId
+  /** Every Session stored, root first, descendants after. */
+  readonly copied: readonly SessionId[]
+  /** Whether a turn in progress was dropped. */
+  readonly truncated: boolean
 }
 
 /** Session fork request. */

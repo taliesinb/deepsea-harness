@@ -10,6 +10,7 @@ import {
   Config,
   SESSION_LOG_FILENAME,
   SESSION_LOG_EXPORT_PATH,
+  SESSION_LOG_IMPORT_PATH,
   apply,
   inject,
 } from '../src/index.ts'
@@ -103,5 +104,55 @@ describe('Session log export Fetch route', () => {
     for (const compressionLevel of [-1, 10, 1.5]) {
       expect(() => Config({ compressionLevel } as never)).toThrow()
     }
+  })
+})
+
+describe('Session log import Fetch route', () => {
+  async function importRoute(registry?: object): Promise<{
+    readonly post: (query: string, body?: Uint8Array) => Promise<Response>
+    readonly dispose: () => Promise<void>
+  }> {
+    const ctx = new Context()
+    ctx.provide('commands', { register: () => () => {} } as never)
+    if (registry !== undefined) ctx.provide('workspaceRegistry', registry as never)
+    const connection = new HostConnectionService(ctx, [], {} as BrowserAuth)
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber
+    const shared = connection.createSharedFetchHandler('/api')
+    return {
+      post: (query, body) => shared.fetch(new Request(
+        `http://host${SESSION_LOG_IMPORT_PATH}?${query}`,
+        body === undefined
+          ? { method: 'POST' }
+          : { method: 'POST', body: new Blob([new Uint8Array(body)]), headers: { 'content-type': 'application/zip' } },
+      )),
+      dispose: () => fiber.dispose(),
+    }
+  }
+
+  it('validates the destination before reading the archive and removes the route with the plugin fiber', async () => {
+    const missingRegistry = await importRoute()
+    expect((await missingRegistry.post('workspaceId=w', new Uint8Array([1]))).status).toBe(500)
+    await missingRegistry.dispose()
+
+    const { post, dispose } = await importRoute({
+      get: () => undefined,
+      create: () => Promise.reject(new Error('not a directory')),
+    })
+    expect((await post('', new Uint8Array([1]))).status).toBe(400)
+    expect((await post('workspaceId=w&cwd=/x', new Uint8Array([1]))).status).toBe(400)
+    expect((await post('workspaceId=missing', new Uint8Array([1]))).status).toBe(404)
+    expect((await post('cwd=/not-a-dir', new Uint8Array([1]))).status).toBe(400)
+    await dispose()
+    expect((await post('workspaceId=missing', new Uint8Array([1]))).status).toBe(404)
+  })
+
+  it('answers 422 for an archive it cannot import', async () => {
+    const { post, dispose } = await importRoute({ get: () => ({ id: 'w', path: '/w', title: 'w' }) })
+    const response = await post('workspaceId=w', new Uint8Array([1, 2, 3]))
+    expect(response.status).toBe(422)
+    expect(await response.text()).toContain('session import failed')
+    expect((await post('workspaceId=w')).status).toBe(400)
+    await dispose()
   })
 })

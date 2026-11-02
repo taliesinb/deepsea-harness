@@ -163,7 +163,13 @@ export class ApiSessionList {
     return items
   }
 
-  private summarizeCold(header: SessionHeader): SessionSummary {
+  /**
+   * Build one stored-Session summary from its header and the persisted
+   * projection cache, without reading the log.
+   * @param header - stored header of a Session that is not attached.
+   * @returns list metadata and any cached projections.
+   */
+  summarizeCold(header: SessionHeader): SessionSummary {
     const projections = this.projectionsFor(header, undefined)
     const metadata = projections?.values.sessionListMetadata
     return {

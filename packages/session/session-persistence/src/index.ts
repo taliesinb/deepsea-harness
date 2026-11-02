@@ -106,9 +106,55 @@ export interface SessionPersistenceListOptions {
   readonly signal?: AbortSignal
 }
 
+/** One event appended by {@link SessionPersistence.relocate}; the backend stamps `seq` and `time`. */
+export interface SessionRelocateAppend {
+  /** Event type; the complete relocated log must pass current-format validation. */
+  readonly type: SessionEvent['type']
+  /** Event payload for `type`. */
+  readonly data: SessionEvent['data']
+  /** Envelope marker for an event type readers may skip when they do not know it. */
+  readonly ignorable?: true
+}
+
+/** Request for {@link SessionPersistence.relocate}. */
+export interface SessionRelocateRequest {
+  /** The stored session to relocate. */
+  readonly id: SessionId
+  /** Absolute working directory the stored session belongs to afterwards. */
+  readonly cwd: string
+  /** Events appended after the stored tail as part of the same durable rewrite. */
+  readonly append?: readonly SessionRelocateAppend[]
+  /** Optional cancellation observed before the rewrite publishes. */
+  readonly signal?: AbortSignal
+}
+
+/** Result of {@link SessionPersistence.relocate}. */
+export interface SessionRelocateResult {
+  /** The header stored for the session afterwards. */
+  readonly header: SessionHeader
+  /** Exact fork-inherited prefix length of the stored lifecycle (unchanged by a relocation). */
+  readonly inheritedEventCount: SessionLogOffset
+  /** False when the session already belonged to the requested cwd; nothing was written. */
+  readonly moved: boolean
+  /** Where the backend retained the previous artifact, when it keeps one. */
+  readonly backupPath?: string
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
+  }
+
+  interface Events {
+    /**
+     * A stored session appeared or changed identity outside the live store —
+     * created cold by an import, or relocated to another cwd — so list owners
+     * refresh their row for it. The writer emits it after the change is
+     * durable. Carries the header now stored.
+     * @param header - the stored header after the change.
+     * @mode emit
+     */
+    'session-persistence/stored'(header: SessionHeader): void
   }
 }
 
@@ -199,6 +245,23 @@ export abstract class SessionPersistence extends Service {
    * @returns one snapshot per stored session.
    */
   abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+  /**
+   * Optional: move one cold stored session to another working directory. The
+   * header's `cwd` is the session's Workspace membership, so this is the
+   * storage half of moving a session between Workspaces. A backend that
+   * implements it rewrites the header, appends the requested events, and
+   * publishes the result where the new cwd places it as one durable operation,
+   * then retires the old artifact. The session id, creation time, lineage, and
+   * inherited cut are unchanged. A session open for writing, in this or another
+   * process, is refused; the caller decides whether to stop its writer first.
+   * Backends that cannot relocate leave this undefined.
+   * @param request - the session, its destination cwd, and events to append.
+   * @returns the stored header afterwards and whether anything moved.
+   * @throws {SessionPersistenceNotFoundError} when the session does not exist.
+   * @throws {SessionAlreadyOwnedError} when a writer holds the session.
+   */
+  relocate?(request: SessionRelocateRequest): Promise<SessionRelocateResult>
 }
 
 export default SessionPersistence

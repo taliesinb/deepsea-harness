@@ -727,6 +727,17 @@ describe('Host Remote event routing', () => {
     expect(session.getSnapshot().removed).toBe(true)
     expect(manager.get(S1)).toBe(session) // resident-instance rule survives removal
   })
+
+  it('clears a resident session\'s removed flag when the Host lists it again (a moved session)', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    manager.handleSessionAdded(summary(S1))
+    const session = manager.get(S1)
+    manager.handleSessionRemoved(S1)
+    expect(session.getSnapshot().removed).toBe(true)
+    manager.handleSessionAdded(summary(S1, { cwd: '/moved' }))
+    expect(session.getSnapshot().removed).toBe(false)
+    expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({ sessionId: S1, cwd: '/moved' })])
+  })
 })
 
 describe('subagent catalogs', () => {

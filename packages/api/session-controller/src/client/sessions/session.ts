@@ -612,6 +612,18 @@ export class Session implements SessionFace {
   }
 
   /**
+   * `api-session/added` relay for a Session flagged removed: the Host lists it
+   * again (a move retired its Agent and re-listed the stored Session under its
+   * new Workspace), so it is addressable; the next prompt resumes it cold, as
+   * opening it fresh would.
+   */
+  handleRestored(): void {
+    if (!this.removed) return
+    this.removed = false
+    this.notifier.markDirty()
+  }
+
+  /**
    * `api-session/error` relay: the outlet for live failures with no turn position.
    * @param message - the stringified error.
    */
