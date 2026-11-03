@@ -66,13 +66,13 @@ import type {} from '@deepseek-ai/dsh-fs'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
-import { catalogProvider, catalogProviderIds } from './catalog.ts'
+import { catalogProvider, catalogProviderIds, oauthCatalogProvider, oauthProviderIds } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
 import { registerPiAiFlows } from './login.ts'
-import { providerDefaultsOf } from './provider-data.ts'
+import { routeDefaultsOf } from './provider-data.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 export { PiAiAdapter } from './adapter.ts'
@@ -136,8 +136,9 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 }
 
 /**
- * The configurable-provider directory: every installed catalog route, plus
- * every route the current profiles declare. A hand-declared route has no
+ * The configurable-provider directory: every installed catalog route and the
+ * `<provider>-oauth` route of each that ships OAuth, plus every route the
+ * current profiles declare. A hand-declared route has no
  * catalog entry, so without this union it would have no settings address and
  * configuration surfaces could neither show nor edit it. A catalog route also
  * carries its catalog endpoint and native authentication, which a settings
@@ -162,11 +163,14 @@ function directoryEntries(
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
       declared: installed === undefined,
-      ...installed === undefined ? {} : providerDefaultsOf(installed),
+      ...installed === undefined ? {} : routeDefaultsOf(provider, installed),
       ...error === undefined ? {} : { error },
     })
   }
-  for (const provider of catalogProviderIds()) declare(provider, provider)
+  for (const provider of [...catalogProviderIds(), ...oauthProviderIds()]) {
+    const oauth = oauthCatalogProvider(provider)
+    declare(provider, oauth === undefined ? provider : `${oauth.name} OAuth`)
+  }
   for (const [provider, profile] of profiles) declare(provider, profile.displayName, profile.catalogError)
   return [...entries.values()]
 }

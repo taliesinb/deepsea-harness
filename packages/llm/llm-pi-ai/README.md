@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-llm-pi-ai` routes model requests to multiple pi-ai providers, OpenAI-compatible gateways, or self-hosted servers from one configuration. Installed pi-ai providers supply endpoint, protocol, and model-catalog defaults; custom routes can declare those values without code changes. Profiles and credentials are resolved for each request, so settings changes take effect on the next request without a restart. Supported providers can use stored OAuth or interactive-key sign-in with cross-process refresh locking. The package may start with no routes and activate when user settings add them.
+`@deepseek-ai/dsh-llm-pi-ai` routes model requests to multiple pi-ai providers, OpenAI-compatible gateways, or self-hosted servers from one configuration. Installed pi-ai providers supply endpoint, protocol, and model-catalog defaults; custom routes can declare those values without code changes. Profiles and credentials are resolved for each request, so settings changes take effect on the next request without a restart. Supported providers can use interactive-key sign-in, and stored OAuth on dedicated `-oauth` routes with cross-process refresh locking. The package may start with no routes and activate when user settings add them.
 
 ## Table of Contents
 
@@ -96,7 +96,15 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Sign in to a provider
 
-A provider pi-ai ships a login for can be signed into through the harness authorization seam: the flow offers OAuth or an interactive key prompt (a key is typed into pi-ai's own login prompt, not into the settings form), and the resulting credential is stored in the harness credential store at `llm-pi-ai/<provider id>`. The stored sign-in authenticates its route beneath any `apiKeyEnv` override and refreshes itself under the store's cross-process lock; signing out deletes the stored record. A hand-declared route key outside the record grammar — a lowercase hyphenated identifier — cannot be signed into, because a record write for it refuses with `LlmError('UNSTORABLE_PROVIDER_ID')`; such a route authenticates through `apiKeyEnv` or ambient provider settings instead.
+A provider whose API key pi-ai collects interactively can be signed into through the harness authorization seam under its own route: the flow, keyed `llm-pi-ai/<provider id>`, offers that key prompt (a key is typed into pi-ai's own login prompt, not into the settings form), and the key is stored in the harness credential store at that key. The stored sign-in authenticates its route beneath any `apiKeyEnv` override; signing out deletes the stored record. A hand-declared route key outside the record grammar — a lowercase hyphenated identifier — cannot be signed into, because a record write for it refuses with `LlmError('UNSTORABLE_PROVIDER_ID')`; such a route authenticates through `apiKeyEnv` or ambient provider settings instead.
+
+A provider's OAuth sign-in is never offered on that route. Every installed pi-ai provider with OAuth gets a dedicated route `<provider id>-oauth` and one `ctx.authorization` flow keyed by it: `anthropic-oauth`, for example, whose grant is stored at `llm-pi-ai/anthropic-oauth`. A surface that runs the flow adds the `anthropic-oauth` route to the configuration and begins the attempt. Every OAuth provider follows this rule, OAuth-only ones such as `openai-codex` included, so a subscription and an API key for one provider coexist without overwriting each other.
+
+OAuth routes use the native catalog and transport, reject `apiKeyEnv`, `api`, and `baseURL` overrides, and never fall back to API-key records or ambient keys. The unsuffixed provider route, its settings, and its stored credentials remain independent. Refresh writes only the OAuth route's record under the credential store's cross-process lock; signing out deletes that record without removing its route. A grant an earlier version stored under the unsuffixed route is neither moved nor deleted; signing in through the `-oauth` flow authorizes the dedicated route.
+
+Sign in with ChatGPT (`openai-oauth`) identifies the installation to OpenAI with a stable device id. The flow supplies one per DSH home: a random UUID created the first time a sign-in asks for it, stored in the credential store at `llm-pi-ai-installation/device-id`, and presented by every later sign-in from that home. A sign-in whose provider never asks stores none.
+
+Transport dispatch restores the native provider id where pi-ai uses it for provider-specific headers and replay. Durable replay continues to identify the configured route, keeping OAuth and API-key histories distinct.
 
 ### Resolve the model catalog
 
@@ -156,8 +164,8 @@ This event covers inference calls with or without a Session id, including auxili
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Config snapshots, directory and route registration |
-| [`src/auth.ts`](src/auth.ts) | The credential store and ambient auth context over the harness credential plane |
-| [`src/login.ts`](src/login.ts) | Authorization flows for the installed providers that ship a login |
+| [`src/auth.ts`](src/auth.ts) | The credential store and ambient auth context over the harness credential plane, and the installation device id |
+| [`src/login.ts`](src/login.ts) | Key-login flows on provider routes and OAuth flows on their `-oauth` routes |
 | [`src/config.ts`](src/config.ts) | Profile schema, resolution, and serviceability checks |
 | [`src/catalog.ts`](src/catalog.ts) | Installed-catalog integration and drift gates |
 | [`src/provider-data.ts`](src/provider-data.ts) | Generated authentication and endpoint metadata for configuration surfaces |
@@ -254,7 +262,7 @@ These limits define where the adapter stops and future work begins. They are cur
 - **`maxRequestImageBytes` counts base64 image payload only** — text, tools, descriptors, and JSON structure ride outside the bound, so it must sit below the gateway's request-body cap with headroom.
 - **The byte bound has no removal quantum** — at `maxRequestImageBytes`, every new image offloads the minimum oldest prefix, so prompt-cache reuse restarts from that point on each image-adding request.
 - **A sign-in lives only in the process that started it** — an authorization attempt is not durable, so reloading the page mid-login abandons it and the human starts over. Signing out is `deleteRecord` on the stored record, which forgets it locally without telling the issuer.
-- **OpenAI offers no ChatGPT sign-in** — pi-ai's Sign in with ChatGPT identifies the installation to OpenAI with a stable UUID the app supplies, and the harness keeps no installation ID meant for a third-party account sign-in; the `openai` route signs in with an API key.
+- **The device id lives in the credential store** — deleting `llm-pi-ai-installation/device-id`, or moving to another DSH home, makes the next Sign in with ChatGPT present a new id, which OpenAI sees as another installation.
 - **Provider-native discovery answers through this plugin's ambient context** — a route naming no credential defers to the catalog provider's own resolution, which asks for environment values (`AZURE_OPENAI_API_KEY`, `AWS_PROFILE`, and each provider's own set) and for local credential files. Both questions are answered here: the credential seam is consulted before the process environment, and file existence is checked against the host process's filesystem with `~` expanded. What it cannot do is *read* a credential file's contents — a provider that parses `~/.aws/credentials` itself does so directly, outside the seam.
 - **Reset restores inherited configuration** — resetting a route supplied by a lower profile layer restores that route.
 - **Complete Config replacement can remove inherited dictionary entries** — a field reset instead restores its inherited value.

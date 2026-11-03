@@ -7,7 +7,7 @@ import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import type { AuthorizationInteraction, AuthorizationNotice, AuthorizationPrompt } from '@deepseek-ai/dsh-authorization'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import type { CredentialKey } from '@deepseek-ai/dsh-credentials'
-import type { AuthEvent, AuthInteraction, AuthPrompt, AuthType, Credential } from '@earendil-works/pi-ai'
+import type { AuthEvent, AuthInteraction, AuthPrompt, AuthType, Credential, LoginOptions } from '@earendil-works/pi-ai'
 
 const login = vi.hoisted(() => vi.fn())
 
@@ -19,11 +19,10 @@ vi.mock('../src/models.ts', async importOriginal => ({
   createModels: () => ({ setProvider: () => {}, login }),
 }))
 
-const { credentialStoreFrom, authContextFrom, recordKeyFor } = await import('../src/auth.ts')
-const { catalogProvider } = await import('../src/catalog.ts')
+const { credentialStoreFrom, authContextFrom, DEVICE_ID_KEY, recordKeyFor } = await import('../src/auth.ts')
 const { registerPiAiFlows } = await import('../src/login.ts')
 
-const CODEX = recordKeyFor('openai-codex')
+const CODEX = recordKeyFor('openai-codex-oauth')
 const dirs: string[] = []
 
 /** A context with the record store, the seam, and every pi-ai login flow. */
@@ -58,12 +57,14 @@ function surface(answer = 'typed'): AuthorizationInteraction & {
 /** Drive one attempt, letting the mocked login talk back through `converse`. */
 async function attempt(
   ctx: Context,
-  converse: (interaction: AuthInteraction) => Promise<void>,
+  converse: (interaction: AuthInteraction, options?: LoginOptions) => Promise<void>,
   request: { key?: CredentialKey; method?: string } = {},
 ): Promise<ReturnType<typeof surface>> {
   const ui = surface()
-  login.mockImplementation(async (providerId: string, _type: AuthType, interaction: AuthInteraction) => {
-    await converse(interaction)
+  login.mockImplementation(async (
+    providerId: string, _type: AuthType, interaction: AuthInteraction, options?: LoginOptions,
+  ) => {
+    await converse(interaction, options)
     const granted: Credential = { type: 'oauth', access: 'at', refresh: 'rt', expires: 1 }
     await credentialStoreFrom(ctx).modify(providerId, () => Promise.resolve(granted))
     return granted
@@ -82,36 +83,85 @@ afterEach(async () => {
 })
 
 describe('pi-ai login flows', () => {
-  it('offers one flow per installed provider, with the methods that provider ships', async () => {
+  it('offers key logins on provider routes and OAuth sign-ins on their -oauth routes', async () => {
     const ctx = await harness()
     const offered = ctx.authorization.list()
+    const methods = (route: string): string[] | undefined =>
+      offered.find(entry => entry.key === recordKeyFor(route))?.methods.map(one => one.id)
 
     // The OAuth-only provider is exactly the case this exists for: nothing
-    // else could ever configure it.
+    // else could ever configure it. Its own route has no key login to offer.
     expect(offered.find(entry => entry.key === CODEX)?.methods)
       .toEqual([{ id: 'oauth', label: expect.stringContaining('ChatGPT') as string }])
-    // A provider offering both keeps both, the subscription login first.
-    expect(offered.find(entry => entry.key === recordKeyFor('anthropic'))?.methods.map(one => one.id))
-      .toEqual(['oauth', 'api-key'])
+    expect(methods('openai-codex')).toBeUndefined()
+    // A provider offering both splits them: the subscription on its own route,
+    // so its grant never replaces the provider route's API key.
+    expect(methods('anthropic')).toEqual(['api-key'])
+    expect(methods('anthropic-oauth')).toEqual(['oauth'])
     // A key-only provider still gets a flow, because pi-ai collects the key
     // through its own prompt rather than leaving it to the settings form.
-    expect(offered.find(entry => entry.key === recordKeyFor('deepseek'))?.methods.map(one => one.id))
-      .toEqual(['api-key'])
-    // pi-ai ships Sign in with ChatGPT for `openai`, which needs an
-    // installation ID the harness does not supply; only the key login is offered.
-    expect(catalogProvider('openai')?.auth.oauth?.loginLabel).toBe('Sign in with ChatGPT')
-    expect(offered.find(entry => entry.key === recordKeyFor('openai'))?.methods.map(one => one.id))
-      .toEqual(['api-key'])
+    expect(methods('deepseek')).toEqual(['api-key'])
+    expect(methods('deepseek-oauth')).toBeUndefined()
+    // Sign in with ChatGPT is offered too: the flow supplies the installation
+    // device id it requires.
+    expect(methods('openai')).toEqual(['api-key'])
+    expect(offered.find(entry => entry.key === recordKeyFor('openai-oauth'))?.methods)
+      .toEqual([{ id: 'oauth', label: 'Sign in with ChatGPT' }])
   })
 
-  it('runs the pi-ai auth type the chosen method names', async () => {
+  it('runs the pi-ai auth type the chosen flow names, under the route it signs into', async () => {
     const ctx = await harness()
 
     await attempt(ctx, () => Promise.resolve())
-    expect(login).toHaveBeenLastCalledWith('openai-codex', 'oauth', expect.anything())
+    expect(login).toHaveBeenLastCalledWith('openai-codex-oauth', 'oauth', expect.anything(), expect.anything())
 
     await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic'), method: 'api-key' })
     expect(login).toHaveBeenLastCalledWith('anthropic', 'api_key', expect.anything())
+
+    await ctx.credentials.deleteRecord(recordKeyFor('anthropic'))
+    await attempt(ctx, () => Promise.resolve(), { key: recordKeyFor('anthropic-oauth') })
+    expect(login).toHaveBeenLastCalledWith('anthropic-oauth', 'oauth', expect.anything(), expect.anything())
+    await expect(ctx.credentials.readRecord(recordKeyFor('anthropic-oauth'))).resolves.toMatchObject({ kind: 'grant' })
+    await expect(ctx.credentials.readRecord(recordKeyFor('anthropic'))).resolves.toBeUndefined()
+  })
+
+  it('stores no device id for a sign-in that never asks for one', async () => {
+    const ctx = await harness()
+
+    await attempt(ctx, () => Promise.resolve())
+
+    await expect(ctx.credentials.readRecord(DEVICE_ID_KEY)).resolves.toBeUndefined()
+  })
+
+  it('creates the installation device id on first use and presents it to every later sign-in', async () => {
+    const ctx = await harness()
+    const asked: string[] = []
+    const ask = (_interaction: AuthInteraction, options?: LoginOptions): Promise<void> => {
+      asked.push(options!.getDeviceId!(), options!.getDeviceId!())
+      return Promise.resolve()
+    }
+
+    await attempt(ctx, ask, { key: recordKeyFor('openai-oauth') })
+    const [id] = asked
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    await expect(ctx.credentials.readRecord(DEVICE_ID_KEY)).resolves.toEqual({ kind: 'grant', payload: { id } })
+
+    await attempt(ctx, ask, { key: recordKeyFor('openai-oauth') })
+    expect(asked).toEqual([id, id, id, id])
+  })
+
+  it('replaces an unreadable device record instead of presenting it', async () => {
+    const ctx = await harness()
+    await ctx.credentials.modifyRecord(DEVICE_ID_KEY, () => Promise.resolve({ kind: 'grant', payload: { id: 'not-a-uuid' } }))
+    let presented: string | undefined
+
+    await attempt(ctx, (_interaction, options) => {
+      presented = options?.getDeviceId?.()
+      return Promise.resolve()
+    }, { key: recordKeyFor('openai-oauth') })
+
+    expect(presented).not.toBe('not-a-uuid')
+    await expect(ctx.credentials.readRecord(DEVICE_ID_KEY)).resolves.toEqual({ kind: 'grant', payload: { id: presented } })
   })
 
   it('commits what the login produced, where the adapter reads it back', async () => {

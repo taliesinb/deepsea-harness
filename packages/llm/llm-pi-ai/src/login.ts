@@ -4,46 +4,36 @@
  * vocabulary and pi-ai's `AuthInteraction`; nothing above it knows which
  * library ran the conversation.
  *
+ * A provider's OAuth sign-in is a flow of its own route, `<provider>-oauth`,
+ * whose grant is that route's credential record; the provider's own route keeps
+ * the interactive API-key login, so a subscription and an API key never
+ * overwrite each other.
+ *
  * @module dsh-llm-pi-ai/login
  */
 
-import type { AuthEvent, AuthPrompt, AuthType, Provider } from '@earendil-works/pi-ai'
+import type { AuthEvent, AuthPrompt, Provider } from '@earendil-works/pi-ai'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthorizationMethod, AuthorizationPrompt, AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { isCredentialKeySegment } from '@deepseek-ai/dsh-credentials'
-import { catalogProvider, catalogProviderIds } from './catalog.ts'
-import { recordKeyFor } from './auth.ts'
+import { catalogProvider, catalogProviderIds, oauthCatalogProvider, oauthProviderIds } from './catalog.ts'
+import { installationDeviceId, recordKeyFor } from './auth.ts'
+import { buildProvider } from './provider.ts'
 import type { PiAiAuthInjection } from './adapter.ts'
 import { createModels } from './models.ts'
 
 /**
- * Catalog providers whose OAuth login this adapter does not offer. pi-ai's Sign
- * in with ChatGPT (`openai`) identifies the installation to OpenAI with a
- * stable UUID that the app supplies through `LoginOptions.getDeviceId`, and it
- * refuses to start without one. The harness keeps no installation ID meant for
- * a third-party account sign-in, so the route signs in with an API key.
+ * The login method a provider's own route offers: its interactive API-key
+ * login, when pi-ai collects the key through its own prompt — which every
+ * installed provider with a key currently does, so a key can be typed into
+ * pi-ai's prompt rather than into the settings form. Its OAuth sign-in is the
+ * `<provider>-oauth` route's flow instead.
+ * @param provider - the installed catalog provider.
+ * @returns its methods; empty when it offers no key login.
  */
-const UNSERVED_OAUTH: ReadonlySet<string> = new Set(['openai'])
-
-/**
- * The login methods one catalog provider offers.
- *
- * A method appears only when pi-ai can actually run it: `oauth` carries a
- * `login` that runs without app-supplied login options except for the
- * providers in {@link UNSERVED_OAUTH}, while an api-key method has one only
- * when the provider collects its key interactively — which every installed one
- * currently does, so a key is typed into pi-ai's own prompt rather than into
- * the settings form.
- * @param provider - the installed catalog provider, if pi-ai ships one.
- * @returns its methods, most preferred first; empty when it offers no login.
- */
-function loginMethods(provider: Provider | undefined): AuthorizationMethod[] {
-  const methods: AuthorizationMethod[] = []
-  const oauth = provider === undefined || UNSERVED_OAUTH.has(provider.id) ? undefined : provider.auth.oauth
-  if (oauth !== undefined) methods.push({ id: 'oauth', label: oauth.loginLabel ?? oauth.name })
-  const apiKey = provider?.auth.apiKey
-  if (apiKey?.login !== undefined) methods.push({ id: 'api-key', label: apiKey.name })
-  return methods
+function keyLoginMethods(provider: Provider): AuthorizationMethod[] {
+  const apiKey = provider.auth.apiKey
+  return apiKey?.login === undefined ? [] : [{ id: 'api-key', label: apiKey.name }]
 }
 
 /**
@@ -120,7 +110,9 @@ function restate(prompt: AuthPrompt): AuthorizationPrompt {
 }
 
 /**
- * Register one authorization flow per installed provider that ships a login.
+ * Register the authorization flows of the installed catalog: an API-key flow
+ * under each provider's own route that collects its key interactively, and an
+ * OAuth flow under the `<provider>-oauth` route of each that ships OAuth.
  *
  * Registration is unconditional on configuration: a provider has to be signed
  * into before a route for it is worth adding, so the flow exists from the
@@ -131,21 +123,12 @@ function restate(prompt: AuthPrompt): AuthorizationPrompt {
 export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
   for (const providerId of catalogProviderIds()) {
     const provider = catalogProvider(providerId)
-    const [first, ...rest] = loginMethods(provider)
-    /* v8 ignore next 3 -- every id here names an installed provider and every
-       installed provider ships a login, so no entry is skipped; the guard
-       is what keeps that from becoming a crash if either stops being true. */
-    if (provider === undefined || first === undefined) continue
-    /* v8 ignore next 7 -- every installed catalog id is a lowercase
-       hyphenated identifier; the guard keeps a future upstream id outside the
-       record grammar (dotted or uppercase, as vendor ids elsewhere already
-       are) from throwing in `recordKeyFor` and failing the whole mount. */
-    if (!isCredentialKeySegment(providerId)) {
-      ctx.logger.warn(
-        'llm-pi-ai: catalog provider "%s" cannot address a credential record; its sign-in is not offered',
-        providerId)
-      continue
-    }
+    /* v8 ignore next -- every id here names an installed provider. */
+    if (provider === undefined) continue
+    // An OAuth-only provider (openai-codex) has no key login; its only flow is
+    // its OAuth route's.
+    const [first, ...rest] = keyLoginMethods(provider)
+    if (first === undefined || !addressable(ctx, providerId)) continue
     ctx.authorization.registerFlow({
       key: recordKeyFor(providerId),
       label: provider.name,
@@ -156,12 +139,9 @@ export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
         // lands in the shared store either way.
         const models = createModels(auth)
         models.setProvider(provider)
-        // Total over the two ids declared above, and the seam only ever hands
-        // back one a flow declared.
-        const type: AuthType = session.method === 'oauth' ? 'oauth' : 'api_key'
         // pi-ai persists what the login returns through that same store, which
         // is what makes it the single writer of this record.
-        await models.login(providerId, type, {
+        await models.login(providerId, 'api_key', {
           signal: session.signal,
           notify: (event) => { relay(event, session) },
           prompt: prompt => session.prompt(restate(prompt)),
@@ -169,4 +149,58 @@ export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
       },
     })
   }
+  for (const route of oauthProviderIds()) {
+    const provider = oauthCatalogProvider(route)
+    const oauth = provider?.auth.oauth
+    /* v8 ignore next -- `oauthProviderIds()` lists exactly the routes this resolves. */
+    if (provider === undefined || oauth === undefined) continue
+    if (!addressable(ctx, route)) continue
+    // The route's own provider: pi-ai stores the grant under the id it signs
+    // into, which has to be the route, never the native provider id.
+    const routeProvider = buildProvider({
+      provider: route,
+      displayName: `${provider.name} OAuth`,
+      models: provider.getModels().map(model => ({ ...model, provider: route })),
+      namesCredential: false,
+    })
+    ctx.authorization.registerFlow({
+      key: recordKeyFor(route),
+      label: routeProvider.name,
+      methods: [{ id: 'oauth', label: oauth.loginLabel ?? oauth.name }],
+      async run(session) {
+        const models = createModels(auth)
+        models.setProvider(routeProvider)
+        // Read before the sign-in starts because pi-ai asks for it
+        // synchronously; only a provider that needs one (Sign in with ChatGPT)
+        // asks, and only then is a new id stored.
+        const device = await installationDeviceId(ctx)
+        try {
+          await models.login(route, 'oauth', {
+            signal: session.signal,
+            notify: (event) => { relay(event, session) },
+            prompt: prompt => session.prompt(restate(prompt)),
+          }, { getDeviceId: device.get })
+        } finally {
+          await device.stored()
+        }
+      },
+    })
+  }
+}
+
+/**
+ * Whether a route key can address a credential record, warning when it cannot.
+ * @param ctx - the plugin context, for its logger.
+ * @param route - the route whose record a flow would write.
+ * @returns whether its sign-in can be offered.
+ */
+function addressable(ctx: Context, route: string): boolean {
+  if (isCredentialKeySegment(route)) return true
+  /* v8 ignore next 3 -- every installed catalog id is a lowercase hyphenated
+     identifier; the guard keeps a future upstream id outside the record
+     grammar (dotted or uppercase, as vendor ids elsewhere already are) from
+     throwing in `recordKeyFor` and failing the whole mount. */
+  ctx.logger.warn(
+    'llm-pi-ai: catalog route "%s" cannot address a credential record; its sign-in is not offered', route)
+  return false
 }

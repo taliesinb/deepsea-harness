@@ -8,6 +8,7 @@ import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
+import { catalogModels } from '../src/catalog.ts'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import { assemble } from './assemble.ts'
@@ -55,13 +56,35 @@ async function boot(
   return ctx
 }
 
-describe('login flows in a real composition', () => {
+describe('OAuth flows in a real composition', () => {
+  it('exposes separate Anthropic OAuth login and model routes without changing the API-key profile', async () => {
+    const ctx = await boot(await home(), { providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } }, { authorization: true })
+    expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('anthropic-oauth'))?.methods.map(method => method.id))
+      .toEqual(['oauth'])
+    // The provider route keeps only its key login.
+    expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('anthropic'))?.methods.map(method => method.id))
+      .toEqual(['api-key'])
+    expect(ctx.llm.listConfigurableProviders()).toContainEqual({
+      provider: 'anthropic-oauth', displayName: 'Anthropic OAuth', settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'anthropic-oauth'], declared: false,
+      defaultBaseURL: 'https://api.anthropic.com', nativeAuth: { env: [], oauth: true },
+    })
+    await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
+    expect(ctx.llm.listProviders()).toEqual([
+      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic OAuth' },
+    ])
+    // The native catalog's models; the API-key route lists none while its key is unset.
+    expect((await ctx.llm.listModels('anthropic-oauth')).map(model => model.id))
+      .toEqual([...catalogModels('anthropic').keys()])
+    await configurations.get(ctx)!.replace({ providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } })
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'anthropic', name: 'anthropic' }])
+  })
   it('offers a sign-in for a provider no route names, once the seam is mounted', async () => {
     const ctx = await boot(await home(), {}, { authorization: true })
 
     // Zero routes configured: signing in is what makes a route worth adding,
     // so the offer cannot wait for a profile to name the provider.
-    const codex = ctx.authorization.describe(LlmPiAi.recordKeyFor('openai-codex'))
+    const codex = ctx.authorization.describe(LlmPiAi.recordKeyFor('openai-codex-oauth'))
     expect(codex?.methods.map(method => method.id)).toEqual(['oauth'])
   })
 

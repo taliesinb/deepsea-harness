@@ -2,6 +2,7 @@
 
 import type { Provider } from '@earendil-works/pi-ai'
 import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
+import { oauthCatalogProvider } from './catalog.ts'
 import { PROVIDER_DATA } from './provider-data.generated.ts'
 
 /**
@@ -16,4 +17,17 @@ export function providerDefaultsOf(provider: Provider): Pick<LlmConfigurableProv
   if (data === undefined) return provider.baseUrl && !provider.baseUrl.includes('{') ? { defaultBaseURL: provider.baseUrl } : {}
   const { env, ...endpoint } = data
   return { ...endpoint, nativeAuth: { env, oauth: provider.auth.oauth !== undefined } }
+}
+
+/**
+ * Directory metadata for one catalog route. A `<provider>-oauth` route signs in
+ * with its own OAuth grant and reads no environment key, so it reports no
+ * environment names: a settings editor then offers no key field for it.
+ * @param route - catalog route key, possibly a `<provider>-oauth` route.
+ * @param provider - its installed catalog provider.
+ * @returns the route's endpoint and native authentication metadata.
+ */
+export function routeDefaultsOf(route: string, provider: Provider): Pick<LlmConfigurableProvider, 'nativeAuth' | 'defaultBaseURL' | 'baseURLEnv'> {
+  const defaults = providerDefaultsOf(provider)
+  return oauthCatalogProvider(route) === undefined ? defaults : { ...defaults, nativeAuth: { env: [], oauth: true } }
 }

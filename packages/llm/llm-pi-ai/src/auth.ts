@@ -3,11 +3,13 @@
  * plane. Every pi-ai-specific concept stays on this side of them: the harness
  * seams they consume — `ctx.credentials` records and `ctx.authorization` flows —
  * name nothing from this library, so another adapter family can arrive with a
- * different auth model and share the same two seams.
+ * different auth model and share the same two seams. The installation device
+ * id a sign-in may have to present lives here too, in a record of its own.
  *
  * @module dsh-llm-pi-ai/auth
  */
 
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { access } from 'node:fs/promises'
 import { resolve as resolvePath } from 'node:path'
@@ -226,6 +228,71 @@ export function authContextFrom(ctx: Context): AuthContext {
         // distinction the caller makes.
         return false
       }
+    },
+  }
+}
+
+/**
+ * Where this installation's device id is stored. Its own scope, not
+ * {@link RECORD_SCOPE}: every record under that scope is a provider route's
+ * credential, listed to pi-ai and addressable by any route key, and this one
+ * is neither.
+ */
+export const DEVICE_ID_KEY: CredentialKey = credentialKey('llm-pi-ai-installation', 'device-id')
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The id a stored device record holds, or undefined for an absent or malformed one. */
+function deviceIdOf(record: CredentialRecord | undefined): string | undefined {
+  if (record?.kind !== 'grant') return undefined
+  const id: unknown = (record.payload as { id?: unknown } | null)?.id
+  return typeof id === 'string' && UUID_PATTERN.test(id) ? id : undefined
+}
+
+/** pi-ai's `LoginOptions.getDeviceId` for one sign-in, and the write it may start. */
+export interface InstallationDeviceId {
+  /**
+   * The stable id of this installation: the stored one, or a new random UUID
+   * that is stored on first use. Synchronous, as pi-ai calls it.
+   */
+  readonly get: () => string
+  /** Settles once an id {@link get} created is stored; at once when it created none. */
+  readonly stored: () => Promise<void>
+}
+
+/**
+ * The installation device id a sign-in presents when its provider asks for
+ * one (pi-ai's Sign in with ChatGPT sends it to OpenAI as the agent host id).
+ *
+ * One id per installation, which is one per DSH home: it lives in the home's
+ * credential store, beside the grants it accompanies, and nowhere else. It is
+ * read before the sign-in starts, because pi-ai asks for it synchronously, and
+ * created only when a flow actually asks, so signing in to a provider that
+ * never does stores nothing. Creation keeps a valid id another sign-in stored
+ * in the meantime; the attempt that raced it has then presented its own once.
+ * @param ctx - the plugin context carrying the optional `ctx.credentials`.
+ * @returns the accessor to hand pi-ai, and the write to await after the sign-in.
+ */
+export async function installationDeviceId(ctx: Context): Promise<InstallationDeviceId> {
+  const existing = deviceIdOf(await ctx.get('credentials')?.readRecord(DEVICE_ID_KEY))
+  let created: string | undefined
+  let storing: Promise<unknown> | undefined
+  return {
+    get() {
+      if (existing !== undefined) return existing
+      if (created === undefined) {
+        const id = randomUUID()
+        storing = writableStore(ctx).modifyRecord(DEVICE_ID_KEY, current => Promise.resolve(
+          deviceIdOf(current) === undefined ? { kind: 'grant', payload: { id } } : undefined))
+        // Reported by `stored()`, which the flow awaits once the sign-in settles;
+        // this keeps a failure during the sign-in from counting as unhandled.
+        void storing.catch(() => undefined)
+        created = id
+      }
+      return created
+    },
+    async stored() {
+      await storing
     },
   }
 }
