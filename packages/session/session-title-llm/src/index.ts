@@ -32,7 +32,7 @@ import type {
   Message,
   ReasoningEffortId,
 } from '@deepseek-ai/dsh-llm'
-import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { deadline, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
 import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
@@ -287,20 +287,46 @@ function terminalFinish(finish: FinishReason): SessionTitleLlmFinish {
   }
 }
 
+/** Pause before the single retry of a failed title request. */
+const TITLE_RETRY_DELAY_MS = 1500
+
+/** Wait `ms`, rejecting with the signal's reason as soon as it aborts. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = (): void => {
+      clearTimeout(timer)
+      reject(signal.reason as Error)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', abort, { once: true })
+  })
+}
+
 /**
- * Execute one prepared auxiliary title request.
+ * Execute one prepared auxiliary title request, retrying it once.
  *
  * The provider owns the system prompt, user input, reasoning selection, and
  * output interpretation. This function owns route preparation, the final input
  * byte limit, the output-token cap, the end-to-end deadline, cancellation, the
  * exact `session/title-llm-request` record, and stream assembly.
+ *
+ * The title request runs alongside the session's own model request, and a
+ * provider that serves one request at a time (a single on-device model) fails
+ * one of them. The main turn retries itself; a title attempt that reached the
+ * model and failed gets one retry after {@link TITLE_RETRY_DELAY_MS}, with its
+ * own deadline and record, unless the caller has cancelled or the attempt used
+ * up `timeoutMs`. Failures before dispatch (input bounds, route preparation)
+ * are not retried.
  * @param ctx - context exposing the registered LLM service.
  * @param config - validated execution controls.
  * @param request - service-owned session, route, message snapshot, current title, and cancellation.
  * @param titleProvider - registered title-provider identity recorded with the request.
  * @param prepared - provider system prompt, input, source-message seqs, and reasoning selector.
  * @returns assembled response blocks, terminal finish, and the exact route used.
- * @throws {Error} when input bounds, route preparation, the deadline, cancellation, or an operational finish failure occurs.
+ * @throws {Error} when input bounds, route preparation, the deadline, or cancellation stop it, or an operational finish failure recurs on the retry.
  */
 export async function executeSessionTitleLlm(
   ctx: Context,
@@ -308,6 +334,26 @@ export async function executeSessionTitleLlm(
   request: SessionTitleProviderRequest,
   titleProvider: SessionTitleProviderId,
   prepared: SessionTitleLlmPreparedRequest,
+): Promise<SessionTitleLlmResponse> {
+  const attempt = { dispatched: false }
+  try {
+    return await executeOnce(ctx, config, request, titleProvider, prepared, attempt)
+  } catch (error) {
+    if (!attempt.dispatched || request.signal.aborted
+      || timeoutOf({ reason: error }, SESSION_TITLE_TIMEOUT_CODE) !== undefined) throw error
+    await pause(TITLE_RETRY_DELAY_MS, request.signal)
+    return await executeOnce(ctx, config, request, titleProvider, prepared, attempt)
+  }
+}
+
+/** One attempt of {@link executeSessionTitleLlm}; marks `attempt.dispatched` once the request is recorded. */
+async function executeOnce(
+  ctx: Context,
+  config: ResolvedSessionTitleLlmConfig,
+  request: SessionTitleProviderRequest,
+  titleProvider: SessionTitleProviderId,
+  prepared: SessionTitleLlmPreparedRequest,
+  attempt: { dispatched: boolean },
 ): Promise<SessionTitleLlmResponse> {
   request.signal.throwIfAborted()
   if (prepared.messageSeqs.length === 0) {
@@ -348,6 +394,7 @@ export async function executeSessionTitleLlm(
     maxTokens,
     ...call.config.reasoningEffort === undefined ? {} : { reasoningEffort: call.config.reasoningEffort },
   })
+  attempt.dispatched = true
   callDeadline.signal.throwIfAborted()
   const assembler = new BlockAssembler()
   for await (const chunk of call.stream(options)) {
