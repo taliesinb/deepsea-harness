@@ -102,6 +102,8 @@ kind: "package-reference"
 
 OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；退出登录仅删除该记录，不移除路由。旧版本存于不带后缀路由下的 grant 既不会被移动也不会被删除；经 `-oauth` 流程登录即授权专用路由。
 
+`-oauth` 后缀表示登录方式，而不是路由的计费方式。`oauthRouteAuth(route)` 读取 pi-ai 在提供方 OAuth 认证上声明的 `isSubscription`：订阅计划登录（Claude Pro/Max、经 `openai` 与旧版 `openai-codex` 流程的 ChatGPT、GitHub Copilot、Kimi Code、Muse、SuperGrok）为 `subscription`，pi-ai 未标为订阅、签发普通按量计费密钥的流程（OpenRouter、Radius）为 `api-key`。显示名称随之确定——`Anthropic Plan`，但 `OpenRouter OAuth`——用于路由目录、Settings 表单和授权流程；路由 ID 与凭据键保留 `-oauth` 写法。
+
 Sign in with ChatGPT（`openai-oauth`）用稳定的设备 id 向 OpenAI 标识安装实例。流程为每个 DSH home 提供一个：首次有登录请求它时创建的随机 UUID，存于凭据存储的 `llm-pi-ai-installation/device-id`，此后该 home 的每次登录都出示它。从不请求设备 id 的提供方登录不会存储任何 id。
 
 传输分派会恢复 pi-ai 用于提供方专属标头与重放的原生提供方 id。持久化重放仍标识已配置的路由，使 OAuth 与 API 密钥历史保持独立。

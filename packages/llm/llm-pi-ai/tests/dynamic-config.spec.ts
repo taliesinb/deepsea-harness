@@ -65,13 +65,13 @@ describe('OAuth flows in a real composition', () => {
     expect(ctx.authorization.describe(LlmPiAi.recordKeyFor('anthropic'))?.methods.map(method => method.id))
       .toEqual(['api-key'])
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
-      provider: 'anthropic-oauth', displayName: 'Anthropic OAuth', settingsNs: 'llm-pi-ai',
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'anthropic-oauth'], declared: false,
       defaultBaseURL: 'https://api.anthropic.com', nativeAuth: { env: [], oauth: true },
     })
     await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
     expect(ctx.llm.listProviders()).toEqual([
-      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic OAuth' },
+      { id: 'anthropic', name: 'anthropic' }, { id: 'anthropic-oauth', name: 'Anthropic Plan' },
     ])
     // The native catalog's models; the API-key route lists none while its key is unset.
     expect((await ctx.llm.listModels('anthropic-oauth')).map(model => model.id))

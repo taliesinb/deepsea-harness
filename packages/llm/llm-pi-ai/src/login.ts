@@ -16,7 +16,7 @@ import type { AuthEvent, AuthPrompt, Provider } from '@earendil-works/pi-ai'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AuthorizationMethod, AuthorizationPrompt, AuthorizationSession } from '@deepseek-ai/dsh-authorization'
 import { isCredentialKeySegment } from '@deepseek-ai/dsh-credentials'
-import { catalogProvider, catalogProviderIds, oauthCatalogProvider, oauthProviderIds } from './catalog.ts'
+import { catalogProvider, catalogProviderIds, oauthCatalogProvider, oauthProviderIds, oauthRouteDisplayName } from './catalog.ts'
 import { installationDeviceId, recordKeyFor } from './auth.ts'
 import { buildProvider } from './provider.ts'
 import type { PiAiAuthInjection } from './adapter.ts'
@@ -159,7 +159,7 @@ export function registerPiAiFlows(ctx: Context, auth: PiAiAuthInjection): void {
     // into, which has to be the route, never the native provider id.
     const routeProvider = buildProvider({
       provider: route,
-      displayName: `${provider.name} OAuth`,
+      displayName: oauthRouteDisplayName(route) ?? `${provider.name} OAuth`,
       models: provider.getModels().map(model => ({ ...model, provider: route })),
       namesCredential: false,
     })

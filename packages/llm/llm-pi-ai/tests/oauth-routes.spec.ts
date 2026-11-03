@@ -9,7 +9,7 @@ import * as LlmPiAi from '../src/index.ts'
 import { PiAiAdapter } from '../src/adapter.ts'
 import type { PiAiAuthInjection } from '../src/adapter.ts'
 import { credentialStoreFrom, recordKeyFor } from '../src/auth.ts'
-import { catalogProvider, oauthCatalogProvider, oauthProviderIds } from '../src/catalog.ts'
+import { catalogProvider, oauthCatalogProvider, oauthProviderIds, oauthRouteAuth, oauthRouteDisplayName } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { providerDefaultsOf } from '../src/provider-data.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
@@ -134,7 +134,7 @@ describe('every installed OAuth catalog route', () => {
       // A key field would have nothing to store: the route reads no environment key.
       expect(directory.filter(entry => entry.provider === route)).toEqual([{
         provider: route,
-        displayName: `${catalogProvider(id)!.name} OAuth`,
+        displayName: oauthRouteDisplayName(route),
         settingsNs: 'llm-pi-ai', settingsPath: ['providers', route], declared: false,
         ...defaultBaseURL === undefined ? {} : { defaultBaseURL },
         nativeAuth: { env: [], oauth: true },
@@ -271,5 +271,30 @@ describe.each(flows)('$route credential isolation and dispatch', ({ id, route })
     expect(first.message).toEqual(saved)
     expect(degrade).not.toHaveBeenCalled()
     expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('OAuth route classification', () => {
+  it("follows pi-ai's isSubscription: plans are subscriptions, OpenRouter's and Radius's issued keys are pay-per-use", () => {
+    for (const id of oauthProviderIds()) {
+      const oauth = oauthCatalogProvider(id)!.auth.oauth!
+      expect(oauthRouteAuth(id)).toBe(oauth.isSubscription === true ? 'subscription' : 'api-key')
+      expect(oauthRouteDisplayName(id)).toBe(`${oauthCatalogProvider(id)!.name} ${oauth.isSubscription === true ? 'Plan' : 'OAuth'}`)
+    }
+    // pi-ai 1.3.0's OAuth providers, pinned so a catalog change shows up here.
+    expect(Object.fromEntries(oauthProviderIds().map(id => [id, oauthRouteAuth(id)]))).toEqual({
+      'anthropic-oauth': 'subscription',
+      'github-copilot-oauth': 'subscription',
+      'kimi-coding-oauth': 'subscription',
+      'meta-oauth': 'subscription',
+      'openai-oauth': 'subscription',
+      'openai-codex-oauth': 'subscription',
+      'openrouter-oauth': 'api-key',
+      'radius-oauth': 'api-key',
+      'xai-oauth': 'subscription',
+    })
+    expect(oauthRouteDisplayName('openai-oauth')).toBe('OpenAI Plan')
+    expect(oauthRouteDisplayName('openrouter-oauth')).toBe('OpenRouter OAuth')
+    expect(oauthRouteAuth('anthropic')).toBeUndefined()
   })
 })
