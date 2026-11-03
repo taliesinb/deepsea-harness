@@ -37,7 +37,7 @@ The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [exe
 
 ### Failures and recovery
 
-A generation that fails — a missing route before any main request, input over `maxInputBytes`, timeout, cancellation, or invalid model output — warns and keeps the current title; only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
+A generation that fails — a missing route before any main request, input over `maxInputBytes`, timeout, cancellation, or invalid model output — warns and keeps the current title. A request that reached the model and failed there is retried once by the [execution module](../session-title-llm/README.md#route-and-failure-contract); beyond that, only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
 
 -----
 
