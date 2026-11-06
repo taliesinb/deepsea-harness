@@ -2,6 +2,7 @@
 import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 /** Frame interactions with a real store and explicitly driven browser measurements. */
 import type { GlobalStandardProps, RenderOpts } from '@deepseek-ai/dsh-client-ui-slots'
+import { setEmbedPresentation } from '@deepseek-ai/dsh-client-store'
 import { allowAllAccess, bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -183,6 +184,7 @@ afterEach(() => {
     delete document.documentElement.dataset.platform
     for (const restore of restoreProperties.splice(0).reverse()) restore()
     document.title = originalTitle
+    setEmbedPresentation(undefined)
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
@@ -277,6 +279,57 @@ describe('AppFrame', () => {
     expect(queryByTestId('shell.leading-content')).toBeTruthy()
     act(() => { instance.actions.toggleSidebar() })
     expect(queryByTestId('shell.leading-content')).toBeNull()
+  })
+
+  it('renders no left column, sidebar outlet, handle, or toggle while embedded', () => {
+    setEmbedPresentation({ sessionId: 's-test' })
+    const { frame, instance, slotCalls, getByTestId, queryByTestId } = mountFrame()
+    expect(frame.dataset['embedded']).toBe('true')
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(slotCalls.some(call => call.key === 'sidebar')).toBe(false)
+    expect(queryByTestId('sidebar-content')).toBeNull()
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+    // The Session content and the frame-wide layers stay: approvals and the right dock live there.
+    expect(getByTestId('main-content')).toBeTruthy()
+    expect(getByTestId('rightbar-content')).toBeTruthy()
+    expect(getByTestId('shell.overlay-content')).toBeTruthy()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(instance.getSnapshot().layoutInfo.embedSessionId).toBe('s-test')
+    // A narrow frame does not reintroduce a rail either.
+    resize(800)
+    expect(tracks(frame)).toEqual([0, 0])
+  })
+
+  it('keeps the embedded frame free of the drawer, its mask, and inert content on a phone-width frame', () => {
+    setEmbedPresentation({ sessionId: 's-test' })
+    frameWidth = 390
+    const { frame, instance, slotCalls, getByTestId } = mountFrame()
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.hasAttribute('data-sidebar-drawer')).toBe(false)
+    expect(frame.querySelector('[data-sidebar-mask]')).toBeNull()
+    expect(frame.querySelector('[data-shell-leading]')).toBeNull()
+    act(() => { instance.actions.toggleSidebar() })
+    expect(frame.querySelector('[inert]')).toBeNull()
+    expect(getByTestId('main-content').closest('[inert]')).toBeNull()
+    expect(slotCalls.some(call => call.key === 'sidebar')).toBe(false)
+  })
+
+  it('does not center a sidebar in a folded-landscape embedded frame', () => {
+    setEmbedPresentation({ sessionId: 's-test' })
+    frameWidth = 951
+    const { frame } = mountFrame()
+    act(() => { foldedLandscape.set(true) })
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.querySelector('[data-side="sidebar"]')).toBeNull()
+  })
+
+  it('mounts no macOS leading seat for the absent sidebar', () => {
+    document.documentElement.dataset.platform = 'darwin'
+    setEmbedPresentation({ sessionId: 's-test' })
+    const { frame } = mountFrame()
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.querySelector('[data-shell-leading]')).toBeNull()
   })
 
   it('switches only the keyed main outlet when the active panel changes', () => {

@@ -46,6 +46,10 @@ Windows Electron 的 `data-windows-titlebar` 标记在所有列上方预留顶�
 
 根元素通过 `--dsh-frame-top-clearance` 发布顶栏占用量（macOS 为 48px，Windows 为标题栏高度），通过 `--dsh-frame-overlay-top` 为弹窗和菜单再留出 20px。原生全屏时浮层起点降为 20px；弹窗仍保留自身 24px 的最小边距。`--dsh-frame-chrome-top` 让模态遮罩不绘制 Windows 顶栏区域，全屏时归零。覆盖整个视口的模态层仍阻挡背景点击。普通浏览器文档不发布这些值。
 
+### 嵌入式呈现
+
+以 `?embed=<sessionId>` 打开的页面为外层框架文档渲染一个会话。框架从共享 store 模块读取该模式（`embedPresentation()`），以 `ctx.layout.embedSessionId` 公开，并且在任何形态下都不绘制左列：不渲染侧栏 slot，其网格轨道为零，侧栏把手与 `toggleSidebar()` 均不起作用；手机宽度或折叠横屏的框架也没有抽屉、遮罩、居中侧栏或抽屉的前置座位，因此不会为它把其他内容设为 inert。中间区域、右列与 `shell.overlay` 保留，因此审批与右侧停靠栏在框架内仍可用。框架会给自己标上 `data-embedded`。会话固定属于 ui-workspace 的导航服务，它以嵌入 id 作为初始选择，并拒绝为其他根会话执行 `openSession()`。
+
 ### 主题呈现
 
 呈现器消费解析后的主题快照，并投影到 document：`html { color-scheme }` 驱动原生 UA 控件，依据当前配色方案设置 `body[data-ds-dark-theme]`，把主题的别名 token、`--dsh-content-font-size`、`--dsh-code-font-size`、`--dsh-terminal-font-size` 以及每个非空的 `--dsh-font-family-<role>` 列表设为 body 上的内联变量，并持有一个 `<meta name="theme-color">`，其内容随计算后的 body 背景色更新。对呈现器执行 dispose（资源释放）时，它会连同其他全局写入一起移除自己的元数据节点。

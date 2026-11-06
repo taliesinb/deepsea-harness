@@ -43,6 +43,7 @@ async function bench(collapsed = false, track?: TrackProductEvent) {
   locale.setLocale('en')
   const layout = {
     panelInfo: runtime.panelInfo,
+    embedSessionId: undefined,
     beginNavigation: vi.fn(() => new AbortController().signal),
     toggleSidebar: vi.fn(),
     selectPanel: vi.fn((activePanelId: MainPanelId | null) => { runtime.panelInfo.set({ activePanelId }) }),
