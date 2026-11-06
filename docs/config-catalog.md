@@ -1965,7 +1965,7 @@ export interface Config extends ProtocolConfig, ModelListingConfig {
 
 - `inject`: `llm`
 - `refs`: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-pi-ai/src/config.ts:253`](../packages/llm/llm-pi-ai/src/config.ts)
+- `source`: [`packages/llm/llm-pi-ai/src/config.ts:262`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
@@ -1984,6 +1984,14 @@ export interface PiAiProviderProfile {
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
+  /**
+   * How this route is billed, published on provider info for billing surfaces: `subscription`,
+   * `api-key`, or `local` (a model served on this machine, free). Omission infers it: OAuth and
+   * subscription-only catalog routes are `subscription`, other catalog routes are `api-key` (even
+   * behind a local proxy), a custom route whose `baseURL` is a loopback address is `local`, and
+   * anything else is unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
   /**
    * Wire protocol every model on this route speaks. Omission keeps each
    * installed catalog model's own protocol, which is why a catalog route needs

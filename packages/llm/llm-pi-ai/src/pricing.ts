@@ -7,7 +7,7 @@
 import type { Api, Model, ModelCost } from '@earendil-works/pi-ai'
 import { builtinProviders, getBuiltinModelDataGeneratedAt } from '@earendil-works/pi-ai/providers/all'
 import type { LlmModelPricing, LlmModelTokenRates } from '@deepseek-ai/dsh-llm'
-import { catalogModels, catalogProvider, oauthCatalogProvider } from './catalog.ts'
+import { catalogModels, catalogProvider, oauthRouteAuth } from './catalog.ts'
 
 /** Installed catalog models per route; the installed catalog is fixed for the process. */
 const routeModels = new Map<string, Map<string, Model<Api>>>()
@@ -50,7 +50,7 @@ function rates(cost: Pick<ModelCost, 'input' | 'output' | 'cacheRead' | 'cacheWr
  */
 function subscriptionOnlyProviders(): ReadonlySet<string> {
   subscriptionOnly ??= new Set(builtinProviders()
-    .filter(provider => provider.auth.oauth !== undefined && provider.auth.apiKey === undefined)
+    .filter(provider => provider.auth.oauth?.isSubscription === true && provider.auth.apiKey === undefined)
     .map(provider => provider.id))
   return subscriptionOnly
 }
@@ -64,9 +64,35 @@ function subscriptionOnlyProviders(): ReadonlySet<string> {
  *   catalog does not describe, and catalog entries without rates.
  */
 export function catalogPricing(provider: string, model: string): LlmModelPricing | undefined {
-  if (oauthCatalogProvider(provider) !== undefined) return undefined
+  return subscriptionRoute(provider) ? undefined : catalogListPricing(provider, model)
+}
+
+/**
+ * Whether a route is billed by subscription rather than per token: a dedicated
+ * `-oauth` route whose sign-in pi-ai marks `isSubscription` (not OpenRouter's,
+ * which issues a pay-per-use key), or a catalog provider whose only
+ * authentication is such a sign-in.
+ * @param provider - provider route key.
+ * @returns true for subscription routes.
+ */
+export function subscriptionRoute(provider: string): boolean {
+  const oauth = oauthRouteAuth(provider)
+  if (oauth !== undefined) return oauth === 'subscription'
   const catalogId = catalogProvider(provider)?.id
-  if (catalogId === undefined || subscriptionOnlyProviders().has(catalogId)) return undefined
+  return catalogId !== undefined && subscriptionOnlyProviders().has(catalogId)
+}
+
+/**
+ * The installed catalog's list prices for a route's model regardless of how
+ * the route is billed: for a subscription route, what the same usage would
+ * cost on the provider's per-token API.
+ * @param provider - provider route key.
+ * @param model - exact model id.
+ * @returns USD list prices, or `undefined` for models the catalog does not
+ *   describe and catalog entries without rates.
+ */
+export function catalogListPricing(provider: string, model: string): LlmModelPricing | undefined {
+  if (catalogProvider(provider) === undefined) return undefined
   let models = routeModels.get(provider)
   if (models === undefined) {
     models = catalogModels(provider)
