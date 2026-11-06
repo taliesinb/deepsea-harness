@@ -50,6 +50,7 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  LlmResponseCost,
   LlmSubscriptionUsage,
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
@@ -64,7 +65,7 @@ import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
 import { catalogPricing } from './pricing.ts'
-import { readSubscriptionUsage } from './subscription-usage.ts'
+import { readResponseCost, readSubscriptionUsage } from './subscription-usage.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
@@ -387,6 +388,13 @@ export class PiAiAdapter extends LlmAdapter {
       ...reasoningInfo(resolvedModel, defaultLevel),
       ...conversationUpdates(resolvedModel),
     }
+  }
+
+  override async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    const apiKey = await this.config.resolveApiKey(provider, profile) ?? (await snapshot.models.getAuth(provider))?.auth.apiKey
+    return readResponseCost(apiKey, provider, responseId, signal)
   }
 
   override subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {

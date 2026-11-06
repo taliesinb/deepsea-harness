@@ -947,6 +947,16 @@ declare abstract class LlmAdapter {
    */
   subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;
   /**
+   * Look up the provider's recorded charge for one past response by its
+   * response id. The default supports none. Implementations make at most one
+   * provider request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _responseId - provider response id carried in replay state.
+   * @param _signal - cancellation for the lookup.
+   * @returns the charge, or `undefined` when the route cannot look one up.
+   */
+  responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined>;
+  /**
    * List models this adapter can currently advertise for one owned provider.
    * Core routing accepts unlisted model ids; catalog-driven entry points such
    * as the GUI may require membership. Adapters used there must advertise
@@ -1142,6 +1152,15 @@ fileRequestText(ref: FileAttachmentRef): string
  * @returns detached model metadata in adapter-preferred order.
  */
 async listModels(provider: string): Promise<LlmModelInfo[]>
+
+/**
+ * Look up and validate the provider's recorded charge for one past response.
+ * @param provider - registered provider route.
+ * @param responseId - provider response id.
+ * @param signal - optional cancellation for the lookup.
+ * @returns the detached charge, or `undefined` when the route cannot look one up.
+ */
+async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined>
 
 /**
  * Read and validate the current subscription usage of one route's signed-in
