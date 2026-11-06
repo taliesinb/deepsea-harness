@@ -6952,8 +6952,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmModelInfo {\n    provider: string;\n    id: string;\n    name: string;\n    description?: string;\n    inputModalities?: readonly ModelModality[];\n    badge?: LlmModelBadge;\n}',
   },
   {
+    name: 'LlmModelPricing',
+    declaration: 'export interface LlmModelPricing extends LlmModelTokenRates {\n    currency: string;\n    tiers?: readonly (LlmModelTokenRates & {\n        inputTokensAbove: number;\n    })[];\n    source: string;\n}',
+  },
+  {
     name: 'LlmModelReasoningInfo',
     declaration: 'export interface LlmModelReasoningInfo {\n    efforts: readonly LlmReasoningEffortInfo[];\n    defaultEffort?: ReasoningEffortId;\n}',
+  },
+  {
+    name: 'LlmModelTokenRates',
+    declaration: 'export interface LlmModelTokenRates {\n    inputPerMillion: string;\n    outputPerMillion: string;\n    cacheReadPerMillion?: string;\n    cacheWritePerMillion?: string;\n}',
   },
   {
     name: 'LlmNativeAuth',
@@ -6977,7 +6985,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    systemPromptUpdate?: SystemPromptUpdate;\n    toolUpdate?: ToolUpdate;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    pricing?: LlmModelPricing;\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    systemPromptUpdate?: SystemPromptUpdate;\n    toolUpdate?: ToolUpdate;\n}',
   },
   {
     name: 'LlmRuntime',

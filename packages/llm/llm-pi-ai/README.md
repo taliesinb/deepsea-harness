@@ -118,6 +118,8 @@ A profile's `models` list replaces the route's installed catalog rather than ext
 
 Exact-model metadata lists `reasoning.efforts` from least to greatest selectable effort. A configuration function can select from that list before `prepareCall()` validates the concrete effort. The adapter receives only the resolved controls. Selecting `off` does not guarantee disabled reasoning: a protocol that expresses it by omitting the reasoning field leaves the gateway's default in effect. Reasoning tokens at any selected level count toward the request's output cap.
 
+`resolveModelInfo()` publishes the installed catalog's USD list prices as `pricing` (source `pi-ai catalog <generation date>`) for models the catalog describes with non-zero rates. Subscription routes publish none: dedicated `-oauth` routes and catalog providers whose only authentication is a subscription sign-in (for example `openai-codex`), because their catalog rates are not what the route charges. Anthropic's 1-hour cache-write surcharge is not represented, since usage does not distinguish 5-minute from 1-hour writes.
+
 For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
 
 ### Change configuration at runtime

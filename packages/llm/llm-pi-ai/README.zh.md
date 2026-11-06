@@ -118,6 +118,8 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 确切模型元数据将 `reasoning.efforts` 按可选强度从低到高排列。配置函数可从该列表中选择，再由 `prepareCall()` 校验具体强度。适配器只接收解析后的控制项。选择 `off` 不保证禁用推理：以省略推理字段表达该值的协议会沿用网关默认行为。所选等级下产生的推理 token 都计入该请求的输出上限。
 
+`resolveModelInfo()` 会把已安装目录中的美元标价作为 `pricing`（来源 `pi-ai catalog <生成日期>`）发布给目录中费率非零的模型。订阅路由不发布：专用的 `-oauth` 路由，以及唯一认证方式是订阅登录的目录提供方（例如 `openai-codex`），因为其目录费率并不是该路由实际收取的费用。Anthropic 的 1 小时缓存写入附加费未被体现，因为用量不区分 5 分钟与 1 小时的写入。
+
 对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
 
 ### 运行时更改配置
