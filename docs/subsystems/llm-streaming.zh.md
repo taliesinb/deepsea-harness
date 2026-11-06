@@ -944,6 +944,15 @@ declare abstract class LlmAdapter {
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
   /**
+   * Read current subscription usage for one owned route's signed-in account.
+   * The default supports none. Implementations make at most one provider
+   * request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
+   */
+  subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;
+  /**
    * List models this adapter can currently advertise for one owned provider.
    * Core routing accepts unlisted model ids; catalog-driven entry points such
    * as the GUI may require membership. Adapters used there must advertise
@@ -1139,6 +1148,15 @@ fileRequestText(ref: FileAttachmentRef): string
  * @returns detached model metadata in adapter-preferred order.
  */
 async listModels(provider: string): Promise<LlmModelInfo[]>
+
+/**
+ * Read and validate the current subscription usage of one route's signed-in
+ * account from its owning adapter.
+ * @param provider - registered provider route.
+ * @param signal - optional cancellation for the lookup.
+ * @returns detached usage windows, or `undefined` when the route exposes none.
+ */
+async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>
 
 /**
  * Resolve and validate all metadata from the adapter that owns one exact

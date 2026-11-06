@@ -120,6 +120,8 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 `resolveModelInfo()` 会把已安装目录中的美元标价作为 `pricing`（来源 `pi-ai catalog <生成日期>`）发布给目录中费率非零的模型。订阅路由不发布：专用的 `-oauth` 路由，以及唯一认证方式是订阅登录的目录提供方（例如 `openai-codex`），因为其目录费率并不是该路由实际收取的费用。Anthropic 的 1 小时缓存写入附加费未被体现，因为用量不区分 5 分钟与 1 小时的写入。
 
+`subscriptionUsage()` 为 `anthropic-oauth` 与 `openai-codex` 路由实现（后者包括其原生 ID 与 `-oauth` 路由），每次都是一条 GET 请求，使用该路由自己的登录令牌（通过 pi-ai 的 `Models.getAuth` 解析，必要时刷新）。Anthropic：`https://api.anthropic.com/api/oauth/usage`，归一化为 `5h` 与 `7d` 窗口，外加 `extra_usage.is_enabled`。Codex：`https://chatgpt.com/backend-api/wham/usage`，带上从令牌 `https://api.openai.com/auth` 声明中取得的 `chatgpt-account-id` 请求头，与 pi-ai 的 Codex 传输发送的一致；`rate_limit.primary_window` 与 `secondary_window` 成为按 `limit_window_seconds` 标注的窗口（`5h`、`7d`，否则为整小时、整天或整分钟），额度、套餐类型与模型可用性不予报告。两个端点都未公开文档（分别支撑 Claude Code 的 `/usage` 与 Codex CLI 的 `/status`）；HTTP 429 表现为 `RATE_LIMIT`，401/403 表现为 `AUTH`。自定义基础 URL、没有账号 ID 的令牌以及其他 OAuth 路由返回 `undefined`。不发出任何模型请求。
+
 对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
 
 ### 运行时更改配置

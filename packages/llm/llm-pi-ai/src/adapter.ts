@@ -50,6 +50,7 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  LlmSubscriptionUsage,
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
   ResolvedRetryPolicy,
@@ -63,6 +64,7 @@ import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
 import { catalogPricing } from './pricing.ts'
+import { readSubscriptionUsage } from './subscription-usage.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
@@ -385,6 +387,10 @@ export class PiAiAdapter extends LlmAdapter {
       ...reasoningInfo(resolvedModel, defaultLevel),
       ...conversationUpdates(resolvedModel),
     }
+  }
+
+  override subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve().then(() => readSubscriptionUsage(this.current().models, provider, signal))
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
