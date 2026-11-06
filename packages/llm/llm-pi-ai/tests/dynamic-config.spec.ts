@@ -68,6 +68,7 @@ describe('OAuth flows in a real composition', () => {
       provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'anthropic-oauth'], declared: false,
       defaultBaseURL: 'https://api.anthropic.com', nativeAuth: { env: [], oauth: true },
+      signIn: { kind: 'subscription', vendor: 'Anthropic' },
     })
     await configurations.get(ctx)!.update({ providers: { 'anthropic-oauth': {} } })
     expect(ctx.llm.listProviders()).toEqual([

@@ -2039,6 +2039,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'detached usage windows, or `undefined` when the route exposes none.',
       },
       {
+        signature: '@Remote async describeSignIn(provider: string): Promise<LlmSignInState | undefined>',
+        description: 'Describe one browser sign-in route for configuration surfaces: whether it holds a usable grant, and the signed-in account when the provider identifies it. A route with no registered adapter has nothing to ask.',
+        parameters: [{ name: 'provider', description: 'provider route key.' }],
+        returns: 'the detached state, or `undefined` when the route is unregistered or not a sign-in route.',
+      },
+      {
         signature: 'async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, ): Promise<LlmResolvedModelInfo>',
         description: 'Resolve and validate all metadata from the adapter that owns one exact route. The result is detached from adapter-owned objects; catalog membership remains advisory and does not control request routing.',
         parameters: [{ name: 'provider', description: 'registered provider route to inspect.' }, { name: 'model', description: 'exact model id passed to the adapter.' }, { name: 'signal', description: 'optional cancellation for adapter-owned asynchronous lookup.' }],
@@ -6905,7 +6911,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmAdapter',
-    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;\n    responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined>;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export abstract class LlmAdapter {\n    providerInfo(provider: string): LlmProviderInfo;\n    providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined;\n    imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;\n    signInState(_provider: string, _signal?: AbortSignal): Promise<LlmSignInState | undefined>;\n    responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined>;\n    listModels(_provider: string): Promise<readonly LlmModelInfo[]>;\n    resolveModel(provider: string, model: string, _signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<PreparedAdapterCall>;\n    abstract stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
   {
     name: 'LlmAttemptId',
@@ -6925,7 +6931,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmConfigurableProvider',
-    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    defaultBaseURL?: string;\n    baseURLEnv?: readonly string[];\n    nativeAuth?: LlmNativeAuth;\n    error?: string;\n}',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    defaultBaseURL?: string;\n    baseURLEnv?: readonly string[];\n    nativeAuth?: LlmNativeAuth;\n    signIn?: LlmSignInRoute;\n    error?: string;\n}',
   },
   {
     name: 'LlmDiscoveredModel',
@@ -7006,6 +7012,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'LlmRuntime',
     declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined>;\n    async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;\n     /* …truncated — full shape in source */',
+  },
+  {
+    name: 'LlmSignInRoute',
+    declaration: 'export interface LlmSignInRoute {\n    kind: \'subscription\' | \'oauth\';\n    vendor: string;\n}',
+  },
+  {
+    name: 'LlmSignInState',
+    declaration: 'export interface LlmSignInState {\n    signedIn: boolean;\n    account?: LlmSubscriptionAccount;\n}',
   },
   {
     name: 'LlmSubscriptionAccount',
