@@ -51,6 +51,7 @@ import type {
   LlmProviderInfo,
   LlmResolvedModelInfo,
   LlmResponseCost,
+  LlmSignInState,
   LlmSubscriptionUsage,
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
@@ -66,7 +67,7 @@ import { conversationUpdates, createModels, getSupportedThinkingLevels } from '.
 import { toStreamChunks } from './stream.ts'
 import { catalogProvider } from './catalog.ts'
 import { catalogListPricing, catalogPricing, subscriptionRoute } from './pricing.ts'
-import { readResponseCost, readSubscriptionUsage } from './subscription-usage.ts'
+import { readResponseCost, readSignInState, readSubscriptionUsage } from './subscription-usage.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
@@ -428,6 +429,10 @@ export class PiAiAdapter extends LlmAdapter {
 
   override subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
     return Promise.resolve().then(() => readSubscriptionUsage(this.current().models, provider, signal))
+  }
+
+  override signInState(provider: string, signal?: AbortSignal): Promise<LlmSignInState | undefined> {
+    return Promise.resolve().then(() => readSignInState(this.current().models, provider, signal))
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {

@@ -289,6 +289,12 @@ export interface LlmConfigurableProvider {
   baseURLEnv?: readonly string[]
   /** Authentication the adapter performs when the profile names no credential reference; absent when it reports none. */
   nativeAuth?: LlmNativeAuth
+  /**
+   * Present when the route signs in through a browser (OAuth) instead of an
+   * API key: configuration surfaces then show the sign-in state and account
+   * ({@link LlmRuntime.describeSignIn}) in place of a key field.
+   */
+  signIn?: LlmSignInRoute
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
 }
@@ -299,6 +305,26 @@ export interface LlmNativeAuth {
   env: readonly string[]
   /** Whether a stored OAuth sign-in can authenticate the route. */
   oauth: boolean
+}
+
+/** What a configuration surface needs to present a browser sign-in route. */
+export interface LlmSignInRoute {
+  /**
+   * How the route is paid for: `subscription` for a plan sign-in (Claude
+   * Pro/Max, ChatGPT, Copilot, …), `oauth` for a flow that issues an ordinary
+   * pay-per-use key.
+   */
+  kind: 'subscription' | 'oauth'
+  /** The provider's display name; the route's own name may carry the distinction instead. */
+  vendor: string
+}
+
+/** Whether a sign-in route holds a usable grant, and the account when the provider identifies it. */
+export interface LlmSignInState {
+  /** A grant is stored and usable. */
+  signedIn: boolean
+  /** The signed-in account, when the provider identifies it; display-only. */
+  account?: LlmSubscriptionAccount
 }
 
 /**
