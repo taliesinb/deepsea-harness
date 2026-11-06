@@ -6981,7 +6981,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmProviderInfo',
-    declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
+    declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n    catalogProvider?: string;\n    vendor?: string;\n    auth?: \'subscription\' | \'api-key\' | \'local\';\n}',
   },
   {
     name: 'LlmReasoningEffortInfo',
@@ -6997,7 +6997,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    pricing?: LlmModelPricing;\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    systemPromptUpdate?: SystemPromptUpdate;\n    toolUpdate?: ToolUpdate;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    pricing?: LlmModelPricing;\n    listPricing?: LlmModelPricing;\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n    systemPromptUpdate?: SystemPromptUpdate;\n    toolUpdate?: ToolUpdate;\n}',
   },
   {
     name: 'LlmResponseCost',
@@ -7008,8 +7008,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export class LlmRuntime extends TypertRemoteService {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    @Remote\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    @Remote\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal?: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    @Remote(\'discoverModels\')\n    async remoteDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest, signal: AbortSignal): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined;\n    imageRequestTarget(provider: string, model: string, image: ImageAttachmentRef): ImageRequestTarget;\n    fileRequestText(ref: FileAttachmentRef): string;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined>;\n    async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;\n     /* …truncated — full shape in source */',
   },
   {
+    name: 'LlmSubscriptionAccount',
+    declaration: 'export interface LlmSubscriptionAccount {\n    id?: string;\n    email?: string;\n    name?: string;\n    organization?: string;\n    plan?: string;\n}',
+  },
+  {
     name: 'LlmSubscriptionUsage',
-    declaration: 'export interface LlmSubscriptionUsage {\n    windows: readonly LlmSubscriptionWindow[];\n    extraUsageEnabled?: boolean;\n    observedAt: string;\n}',
+    declaration: 'export interface LlmSubscriptionUsage {\n    windows: readonly LlmSubscriptionWindow[];\n    extraUsageEnabled?: boolean;\n    account?: LlmSubscriptionAccount;\n    observedAt: string;\n}',
   },
   {
     name: 'LlmSubscriptionWindow',
@@ -7297,7 +7301,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelProviderGroup',
-    declaration: 'export interface ModelProviderGroup {\n    readonly id: string;\n    readonly name: string;\n    readonly models: readonly ModelCatalogModel[];\n}',
+    declaration: 'export interface ModelProviderGroup {\n    readonly id: string;\n    readonly name: string;\n    readonly catalogProvider?: string;\n    readonly vendor?: string;\n    readonly auth?: \'subscription\' | \'api-key\' | \'local\';\n    readonly models: readonly ModelCatalogModel[];\n}',
   },
   {
     name: 'ModelReasoning',

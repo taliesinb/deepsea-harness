@@ -75,7 +75,7 @@ import { registerPiAiFlows } from './login.ts'
 import { routeDefaultsOf } from './provider-data.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
-export { PiAiAdapter } from './adapter.ts'
+export { loopbackUrl, PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export type { PiAiRequestHeaderContext } from './types.ts'
 export { Config } from './config.ts'

@@ -471,6 +471,15 @@ interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+  /** Catalog (vendor) provider the route resolves to, when the adapter knows it, e.g. `anthropic` for `anthropic-oauth`. */
+  catalogProvider?: string
+  /** Display name of that catalog provider, e.g. `Anthropic`, for selectors that title a route carrying only its bare key. */
+  vendor?: string
+  /**
+   * How the route authenticates and is billed: a subscription sign-in, a per-token API key, or a
+   * model served on this machine (no charge); absent when unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
 }
 ```
 
@@ -619,6 +628,12 @@ interface LlmModelReasoningInfo {
 interface LlmResolvedModelInfo extends LlmModelInfo {
   /** Adapter-published list prices when known. */
   pricing?: LlmModelPricing
+  /**
+   * List prices of the same model on the provider's per-token API, published
+   * for subscription routes that publish no `pricing` because the route does
+   * not charge per token. An API-price equivalent, not a charge.
+   */
+  listPricing?: LlmModelPricing
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
   /** Adapter-configured per-request output cap materialized when callers omit one. */

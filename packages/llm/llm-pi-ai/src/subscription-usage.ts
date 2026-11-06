@@ -5,20 +5,57 @@
 
 import type { Models } from '@earendil-works/pi-ai'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { LlmResponseCost, LlmSubscriptionUsage, LlmSubscriptionWindow } from '@deepseek-ai/dsh-llm'
+import type { LlmResponseCost, LlmSubscriptionAccount, LlmSubscriptionUsage, LlmSubscriptionWindow } from '@deepseek-ai/dsh-llm'
 import { catalogProvider, oauthCatalogProvider } from './catalog.ts'
 
 /** Anthropic's account usage endpoint (the data behind Claude Code's `/usage`). */
 export const ANTHROPIC_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const ANTHROPIC_WINDOWS = [['five_hour', '5h'], ['seven_day', '7d']] as const
+/** Anthropic's signed-in account profile (email, name, organization); read once per access token. */
+export const ANTHROPIC_PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile'
+const PROFILE_CACHE_LIMIT = 16
 /** ChatGPT's Codex usage endpoint (the data behind the Codex CLI's `/status`). */
 export const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
 const CODEX_WINDOWS = ['primary_window', 'secondary_window'] as const
 const JWT_AUTH_CLAIM = 'https://api.openai.com/auth'
+const JWT_PROFILE_CLAIM = 'https://api.openai.com/profile'
 const TIMEOUT_MS = 15_000
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+const label = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : undefined
+
+/**
+ * Drop absent fields; `undefined` when nothing identifies the account.
+ * @param fields - candidate account fields.
+ * @returns the account, or `undefined`.
+ */
+function accountOf(fields: Record<keyof LlmSubscriptionAccount, string | undefined>): LlmSubscriptionAccount | undefined {
+  const account: LlmSubscriptionAccount = {}
+  for (const [key, value] of Object.entries(fields) as [keyof LlmSubscriptionAccount, string | undefined][]) {
+    if (value !== undefined) account[key] = value
+  }
+  return Object.keys(account).length === 0 ? undefined : account
+}
+
+/**
+ * Parse Anthropic's profile body: account email/name, organization name and type.
+ * @param body - parsed JSON response.
+ * @returns the account, or `undefined` when the body identifies nothing.
+ */
+export function parseAnthropicProfile(body: unknown): LlmSubscriptionAccount | undefined {
+  const account = record(record(body)?.account)
+  const organization = record(record(body)?.organization)
+  const ids = [label(account?.uuid), label(organization?.uuid)].filter(id => id !== undefined)
+  return accountOf({
+    id: ids.length === 0 ? undefined : ids.join('/'),
+    email: label(account?.email),
+    name: label(account?.full_name) ?? label(account?.display_name),
+    organization: label(organization?.name),
+    plan: label(organization?.organization_type),
+  })
+}
 
 /**
  * Parse Anthropic's usage body defensively; unknown or null buckets are ignored.
@@ -78,20 +115,82 @@ export function parseCodexUsage(body: unknown, observedAt: string): LlmSubscript
 }
 
 /**
- * The ChatGPT account id carried in a Codex access token (as pi-ai's transport reads it).
- * @param token - OAuth access token (a JWT).
- * @returns the account id, or `undefined` when the token carries none.
+ * The claims of a Codex access token (a JWT); the signature is not checked, the token is our own.
+ * @param token - OAuth access token.
+ * @returns the claims, or `undefined` when the token is not a readable JWT.
  */
-function codexAccountId(token: string): string | undefined {
+function codexClaims(token: string): Record<string, unknown> | undefined {
+  const payload = token.split('.')[1]
+  if (payload === undefined) return undefined
   try {
-    const payload = token.split('.')[1]
-    if (payload === undefined) return undefined
-    const claims = record(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')))
-    const id = record(claims?.[JWT_AUTH_CLAIM])?.chatgpt_account_id
-    return typeof id === 'string' && id.length > 0 ? id : undefined
+    return record(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')))
   } catch {
+    // Not base64url JSON: the token carries no readable claims.
     return undefined
   }
+}
+
+/**
+ * The ChatGPT account id carried in a Codex access token (as pi-ai's transport reads it).
+ * @param claims - token claims.
+ * @returns the account id, or `undefined` when the token carries none.
+ */
+function codexAccountId(claims: Record<string, unknown> | undefined): string | undefined {
+  const id = record(claims?.[JWT_AUTH_CLAIM])?.chatgpt_account_id
+  return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
+/**
+ * The signed-in account named by a Codex token's profile and auth claims.
+ * @param claims - token claims.
+ * @returns the account, or `undefined` when the token names none.
+ */
+function codexAccount(claims: Record<string, unknown> | undefined): LlmSubscriptionAccount | undefined {
+  const profile = record(claims?.[JWT_PROFILE_CLAIM])
+  const auth = record(claims?.[JWT_AUTH_CLAIM])
+  // A ChatGPT workspace account plus the member signed into it.
+  const member = label(auth?.chatgpt_account_user_id) ?? label(auth?.chatgpt_user_id)
+  const ids = [label(auth?.chatgpt_account_id), member].filter(id => id !== undefined)
+  return accountOf({
+    id: ids.length === 0 ? undefined : ids.join('/'),
+    email: label(profile?.email),
+    name: label(profile?.name),
+    organization: undefined,
+    plan: label(auth?.chatgpt_plan_type),
+  })
+}
+
+/** Anthropic profiles by access token; the account behind a token never changes. */
+const anthropicProfiles = new Map<string, LlmSubscriptionAccount | undefined>()
+
+/**
+ * Anthropic account profile for one token, cached; a failed read yields no account and is retried next time.
+ * @param token - OAuth access token.
+ * @param signal - optional cancellation.
+ * @returns the account, or `undefined`.
+ */
+async function anthropicProfile(token: string, signal?: AbortSignal): Promise<LlmSubscriptionAccount | undefined> {
+  if (anthropicProfiles.has(token)) return anthropicProfiles.get(token)
+  let account: LlmSubscriptionAccount | undefined
+  try {
+    account = parseAnthropicProfile(await getUsage(ANTHROPIC_PROFILE_URL, anthropicHeaders(token), signal))
+  } catch {
+    // The profile is display-only: a failed read leaves the usage reading without an account.
+    return undefined
+  }
+  const oldest = anthropicProfiles.keys().next()
+  if (anthropicProfiles.size >= PROFILE_CACHE_LIMIT && oldest.done !== true) anthropicProfiles.delete(oldest.value)
+  anthropicProfiles.set(token, account)
+  return account
+}
+
+/**
+ * Headers for Anthropic's OAuth account endpoints.
+ * @param token - OAuth access token.
+ * @returns request headers.
+ */
+function anthropicHeaders(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20', 'anthropic-version': '2023-06-01' }
 }
 
 /**
@@ -137,18 +236,21 @@ export async function readSubscriptionUsage(
   if (native === 'anthropic') {
     if (token === undefined || !token.startsWith('sk-ant-oat')) return undefined
     if (baseHost !== undefined && baseHost !== 'api.anthropic.com') return undefined
-    const body = await getUsage(ANTHROPIC_USAGE_URL, {
-      authorization: `Bearer ${token}`,
-      'anthropic-beta': 'oauth-2025-04-20',
-      'anthropic-version': '2023-06-01',
-    }, signal)
-    return parseAnthropicUsage(body, new Date().toISOString())
+    const [body, account] = await Promise.all([
+      getUsage(ANTHROPIC_USAGE_URL, anthropicHeaders(token), signal),
+      anthropicProfile(token, signal),
+    ])
+    const usage = parseAnthropicUsage(body, new Date().toISOString())
+    return account === undefined ? usage : { ...usage, account }
   }
-  const accountId = token === undefined ? undefined : codexAccountId(token)
+  const claims = token === undefined ? undefined : codexClaims(token)
+  const accountId = codexAccountId(claims)
   if (token === undefined || accountId === undefined) return undefined
   if (baseHost !== undefined && baseHost !== 'chatgpt.com') return undefined
   const body = await getUsage(CODEX_USAGE_URL, { authorization: `Bearer ${token}`, 'chatgpt-account-id': accountId }, signal)
-  return parseCodexUsage(body, new Date().toISOString())
+  const usage = parseCodexUsage(body, new Date().toISOString())
+  const account = codexAccount(claims)
+  return account === undefined ? usage : { ...usage, account }
 }
 
 /** OpenRouter's per-generation accounting endpoint. */
