@@ -7,7 +7,7 @@ import Schema from '@deepseek-ai/schemastery'
 import { Context } from '@deepseek-ai/cordis'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
-  CredentialInfo, RemoteResult, SettingsNamespaceView,
+  CredentialInfo, LlmConfigurableProvider, RemoteResult, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
@@ -193,7 +193,7 @@ function scriptedFace(overrides: {
         { id: 'deepseek-official', name: 'DeepSeek' },
         { id: 'openai', name: 'openai' },
       ]))),
-      listConfigurableProviders: vi.fn(() => Promise.resolve(remoteOk([
+      listConfigurableProviders: vi.fn(() => Promise.resolve(remoteOk<LlmConfigurableProvider[]>([
         { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
         {
           provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true,
@@ -272,6 +272,38 @@ function piAiNamespaceWith(provider: string, profile: { [key: string]: JsonValue
   return { ...namespace, value: { providers }, user: { providers } }
 }
 
+/**
+ * A page holding two configured browser sign-in routes of the pi-ai namespace,
+ * a subscription plan and a pay-per-use sign-in, beside an ordinary API-key
+ * route; both sign-in profiles are the user layer's, so both are removable.
+ */
+function signInRoutesFace(): ReturnType<typeof scriptedFace> {
+  const scripted = scriptedFace()
+  scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+    { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    {
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic-oauth'],
+      nativeAuth: { env: [], oauth: true }, signIn: { kind: 'subscription', vendor: 'Anthropic' },
+    },
+    {
+      provider: 'openrouter-oauth', displayName: 'OpenRouter OAuth', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openrouter-oauth'],
+      nativeAuth: { env: [], oauth: true }, signIn: { kind: 'oauth', vendor: 'OpenRouter' },
+    },
+  ]))
+  const plan = piAiNamespaceWith('anthropic-oauth', {})
+  const providers = { ...(plan.value as { providers: object }).providers, 'openrouter-oauth': {} }
+  const piAi = { ...plan, value: { providers }, user: { providers } }
+  scripted.face.settings.describe.mockResolvedValue(remoteOk({
+    writable: true, hasDocument: false,
+    namespaces: wireNamespaces().map(view => view.ns === 'llm-pi-ai' ? piAi : view),
+  }))
+  return scripted
+}
+
+/** One mounted provider row, found by its Edit button's accessible name. */
+function signInRowOf(provider: string, displayName: string): HTMLElement {
+  return screen.getByRole('button', { name: providerCopy(en.editProvider, { provider, displayName }) }).closest('li')!
+}
 /** Render one pi-ai route's editor with the directory and credential facts the page already holds. */
 function renderPiAiEditor(
   provider: string,
@@ -621,6 +653,36 @@ describe('ModelsSection', () => {
     expect(screen.queryByRole('textbox', { name: en.customRoute })).toBeNull()
     expect(screen.queryByRole('option', { name: 'anthropic' })).toBeNull()
     expect(screen.getByRole('option', { name: 'plain' })).toBeTruthy()
+  })
+
+  it('does not offer a dormant browser sign-in route in the add card', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+      {
+        provider: 'xai-oauth', displayName: 'xAI Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai-oauth'],
+        nativeAuth: { env: [], oauth: true }, signIn: { kind: 'subscription', vendor: 'xAI' },
+      },
+    ]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole('option', { name: 'anthropic' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'xAI Plan' })).toBeNull()
+  })
+
+  it('names a sign-in route by its vendor with its kind as the tag', async () => {
+    await mountFace(signInRoutesFace())
+    const plan = signInRowOf('anthropic-oauth', 'Anthropic Plan')
+    expect(within(plan).getByText('Anthropic')).toBeTruthy()
+    expect(within(plan).getByText(en.planTag)).toBeTruthy()
+    expect(plan.textContent).not.toContain('Anthropic Plan')
+    // A sign-in route names no api-key reference, so the page draws no dot of its own.
+    expect(within(plan).queryByRole('img')).toBeNull()
+    const oauth = signInRowOf('openrouter-oauth', 'OpenRouter OAuth')
+    expect(within(oauth).getByText('OpenRouter')).toBeTruthy()
+    expect(within(oauth).getByText(en.oauthTag)).toBeTruthy()
+    expect(within(oauth).queryByText(en.planTag)).toBeNull()
+    expect(within(signInRowOf('openai', 'openai')).queryByText(en.planTag)).toBeNull()
   })
 
   it('shows a catalog diagnostic while keeping the provider editable', async () => {
