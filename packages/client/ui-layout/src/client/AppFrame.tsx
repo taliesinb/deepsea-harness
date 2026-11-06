@@ -19,7 +19,7 @@ import type { ReactNode } from 'react'
 import type {
   HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import { CENTER_MIN, clampWidth, computeColumns, RIGHTBAR_DEFAULT_RATIO, RIGHTBAR_MAX_RATIO, RIGHTBAR_MIN, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_DRAWER_BREAKPOINT } from './columns.ts'
+import { CENTER_MIN, clampWidth, computeColumns, RIGHTBAR_DEFAULT_RATIO, RIGHTBAR_MAX_RATIO, RIGHTBAR_MIN, SIDEBAR_ABSENT, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_DRAWER_BREAKPOINT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
@@ -167,20 +167,26 @@ export function AppFrame({
     }
   }, [actions])
 
+  // Embedded presentation: one Session for a framing document, so the left
+  // column (navigation) does not exist in any posture — no rail, drawer,
+  // centered sidebar, mask, handle, or toggle, and nothing made inert for it.
+  const embedded = layoutInfo.embedSessionId !== undefined
   const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
-  const drawer = viewport < SIDEBAR_DRAWER_BREAKPOINT && !windowsTitlebar
-  const centeredSidebar = foldedLandscape && viewport >= SIDEBAR_DRAWER_BREAKPOINT
-  const sidebarCollapsed = narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0
+  const drawer = !embedded && viewport < SIDEBAR_DRAWER_BREAKPOINT && !windowsTitlebar
+  const centeredSidebar = !embedded && foldedLandscape && viewport >= SIDEBAR_DRAWER_BREAKPOINT
+  const sidebarCollapsed = embedded || (narrow ? !layoutInfo.narrowExpanded : layoutInfo.sidebar === 0)
   const drawerOpen = drawer && !sidebarCollapsed
   // Entering drawer mode from a collapsed rail hides the backing immediately.
   const [sidebarTransition, setSidebarTransition] = useState({ drawer, collapsed: sidebarCollapsed, instant: true })
   if (sidebarTransition.drawer !== drawer || sidebarTransition.collapsed !== sidebarCollapsed) {
     setSidebarTransition({ drawer, collapsed: sidebarCollapsed, instant: drawer && sidebarCollapsed && sidebarTransition.collapsed })
   }
-  const sidebarPreference = sidebarCollapsed
-    ? 0
-    : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
+  const sidebarPreference = embedded
+    ? SIDEBAR_ABSENT
+    : sidebarCollapsed
+      ? 0
+      : layoutInfo.sidebar === 0 ? SIDEBAR_DEFAULT : layoutInfo.sidebar
   const rightbarPreference = layoutInfo.rightbar ?? viewport * RIGHTBAR_DEFAULT_RATIO
   // Desktop reopen controls occupy the frame's shell.leading seat (macOS) or
   // the Windows caption row; neither platform keeps an icon rail.
@@ -189,7 +195,7 @@ export function AppFrame({
   // Opening on a narrow frame collapses the left sidebar. Eligibility must
   // include that space before the occupant's first shown report arrives.
   const normal = computeColumns(
-    viewport, !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, collapsedWidth, centeredSidebar,
+    viewport, !embedded && !layoutInfo.rightbarShown && narrow ? 0 : sidebarPreference, rightbarPreference, collapsedWidth, centeredSidebar,
   )
   const cols = computeColumns(
     viewport, drawer ? 0 : sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0, collapsedWidth, centeredSidebar,
@@ -270,11 +276,11 @@ export function AppFrame({
   const sidebarWidth = drawer
     ? Math.min(layoutInfo.sidebar || SIDEBAR_DEFAULT, Math.max(0, viewport - 48))
     : cols.sidebar
-  const sidebar = useMemo(() => renderSlot('sidebar', {
+  const sidebar = useMemo(() => embedded ? null : renderSlot('sidebar', {
     collapsed: sidebarCollapsed,
     width: sidebarWidth,
     drawer,
-  }), [renderSlot, sidebarCollapsed, sidebarWidth, drawer])
+  }), [renderSlot, embedded, sidebarCollapsed, sidebarWidth, drawer])
   const main = useMemo(() => (
     <MainPanel usePanelInfo={usePanelInfo} renderSlot={renderSlot} />
   ), [usePanelInfo, renderSlot])
@@ -283,7 +289,7 @@ export function AppFrame({
   // Windows native captions keep their controls in the caption row instead.
   // AppFrame.module.css reserves clearance for the seat's rendered controls.
   const leading = useMemo(() => renderSlot('shell.leading', {}), [renderSlot])
-  const leadingMounted = drawer || darwin && sidebarCollapsed
+  const leadingMounted = !embedded && (drawer || darwin && sidebarCollapsed)
 
   return (
     <div
@@ -296,6 +302,7 @@ export function AppFrame({
           `${cols.sidebar}px minmax(${cols.rightbar === 0 ? 0 : CENTER_MIN}px, 1fr) minmax(0px, ${rightbarMax}px)`,
       }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
+      data-embedded={embedded || undefined}
       data-sidebar-drawer={drawer || undefined}
       data-sidebar-instant={drawer && sidebarCollapsed && sidebarTransition.instant || undefined}
       data-rightbar-collapsed={cols.rightbar === 0 || undefined}
@@ -311,11 +318,14 @@ export function AppFrame({
       />
       {drawer && <div className={css.drawerMask} data-sidebar-mask aria-hidden="true"
         onClick={drawerOpen ? () => { actions.toggleSidebar() } : undefined} />}
-      <div className={css.sidebarCol}
-        style={drawer ? { width: sidebarWidth } : undefined}
-        {...{ inert: drawer && sidebarCollapsed ? '' : undefined }}>
-        {sidebar}
-      </div>
+      {/* The embedded frame has no left column: its grid track is zero and the column is not drawn. */}
+      {!embedded && (
+        <div className={css.sidebarCol}
+          style={drawer ? { width: sidebarWidth } : undefined}
+          {...{ inert: drawer && sidebarCollapsed ? '' : undefined }}>
+          {sidebar}
+        </div>
+      )}
       <>
         <CenterColumn inert={drawerOpen}>{main}</CenterColumn>
         <RightbarColumn inert={drawerOpen}>
@@ -334,7 +344,7 @@ export function AppFrame({
         </div>
       )}
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!drawer && !centeredSidebar && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!embedded && !drawer && !centeredSidebar && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {layoutInfo.rightbarShown && !layoutInfo.rightbarFullscreen && normal.rightbar > 0 && (
         <DragHandle side="rightbar" left={viewport - normal.rightbar} onStart={onRightbarStart} onDrag={onRightbarDrag} onEnd={onDragEnd} />
       )}
