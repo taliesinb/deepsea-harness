@@ -105,11 +105,35 @@ export interface ModelReasoning {
   readonly defaultEffort?: string
 }
 
+/**
+ * What one exact model route offers, published so a Client can filter the
+ * catalog without its own model vocabulary. Every flag is display metadata;
+ * request admission does not read it.
+ */
+export interface ModelCapabilities {
+  /** The route accepts image input (its resolved input modalities include `image`). */
+  readonly images: boolean
+  /** The route exposes selectable reasoning levels. */
+  readonly reasoning: boolean
+  /**
+   * The route accepts declared tools. Every current chat adapter does; the flag
+   * keeps the contract open for one that does not.
+   */
+  readonly tools: boolean
+  /**
+   * Using the route costs nothing per token: a route served on this machine
+   * (`auth: local`), or one whose published list prices are zero for input and output.
+   */
+  readonly free: boolean
+}
+
 /** One model displayed inside its provider group. */
 export interface ModelCatalogModel {
   readonly id: string
   readonly name: string
   readonly description?: string
+  /** Filterable capabilities; absent from a Host that does not publish them. */
+  readonly capabilities?: ModelCapabilities
   readonly reasoning?: ModelReasoning
   /** Provider-authored label shown beside the name; display data only. */
   readonly badge?: LlmModelBadge
