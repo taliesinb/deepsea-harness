@@ -97,8 +97,11 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'job/kill': 'owner-only', // owner background jobs
   'job/list': 'owner-only', // owner background jobs
   'fileReferences/list': 'owner-only', // owner composer reference search
+  'session/copy': 'owner-only', // owner copies a Session into a Workspace
   'session/create': 'owner-only', // owner creates a Session
   'session/initializeDefaultModel': 'owner-only', // owner initializes a Session default model
+  'session/move': 'owner-only', // owner moves a Session to another Workspace
+  'session/moveMany': 'owner-only', // owner moves Sessions to another Workspace
   'session/openWorkspacePath': 'owner-only', // owner opens a Workspace path
   'session/search': 'owner-only', // owner searches across Sessions
   'session/selectModel': 'owner-only', // owner selects a Session model
