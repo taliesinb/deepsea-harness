@@ -177,7 +177,14 @@ export class ApiSessionList {
     return items
   }
 
-  private summarizeCold({ header, formatStatus }: SessionRecord): SessionSummary {
+  /**
+   * Build one stored-Session summary from its record and the persisted
+   * projection cache, without reading the log.
+   * @param record - stored header and format status of a Session that is not attached.
+   * @returns list metadata and any cached projections.
+   */
+  summarizeCold(record: SessionRecord): SessionSummary {
+    const { header, formatStatus } = record
     const projections = this.projectionsFor(header, undefined)
     const metadata = projections?.values.sessionListMetadata
     return {

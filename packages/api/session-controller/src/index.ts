@@ -21,6 +21,11 @@ import {
   type ApiSessionAgentResult,
 } from './agent.ts'
 import { SessionCommandController, hasPromptContent } from './commands.ts'
+import { SessionMoveController } from './move.ts'
+import { SessionCopyController } from './copy.ts'
+import {
+  importSessionArchive, storeSessionLogs, type SessionImportResult, type SessionImportTarget, type SessionLogFamily,
+} from './import.ts'
 import { SessionControlController } from './control.ts'
 import { HistoryController } from './history/controller.ts'
 import { StateController } from './state/controller.ts'
@@ -40,6 +45,8 @@ import type {
   SessionCancelRequest,
   SessionCancelValue,
   SessionControlFrame,
+  SessionCopyRequest,
+  SessionCopyValue,
   SessionCreateRequest,
   SessionCreateValue,
   SessionFollowFrame,
@@ -48,6 +55,10 @@ import type {
   SessionForkValue,
   SessionListRequest,
   SessionListValue,
+  SessionMoveManyRequest,
+  SessionMoveManyValue,
+  SessionMoveRequest,
+  SessionMoveValue,
   SessionOpenWorkspacePathRequest,
   SessionOpenWorkspacePathValue,
   SessionEventsPage, SessionPageRequest, SessionEventFrame, SessionObserveEventRequest,
@@ -67,6 +78,10 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+export type {
+  ImportedSession, ParsedSessionLog, SessionImportResult, SessionImportTarget, SessionLogFamily,
+} from './import.ts'
+export { FOREIGN_DELIVERY_EVENT_TYPE, SESSION_COPY_NOTICE_SOURCE, SESSION_IMPORT_NOTICE_SOURCE } from './import.ts'
 export { ApiSessionNotFound } from './agent.ts'
 export { SessionFileReferences } from './file-references.ts'
 export { SessionSkillCatalog } from './skill-catalog.ts'
@@ -162,6 +177,8 @@ export class SessionController extends TypertRemoteService {
   private commands!: SessionCommandController
   private controlState!: SessionControlController
   private listState!: ApiSessionList
+  private moves!: SessionMoveController
+  private copies!: SessionCopyController
   private readonly openPath: (path: string, signal: AbortSignal) => Promise<void>
   private readonly fileApplications: typeof nativeFileApplications
   private readonly openFileApplication: typeof openNativeFileApplication
@@ -210,6 +227,8 @@ export class SessionController extends TypertRemoteService {
     this.webController = new WebController(ctx, this.historyController, (observation) => { this.promote(observation) })
     this.listState = new ApiSessionList(ctx, this.listWorkSliceMs)
     await this.listState.initialize()
+    this.moves = new SessionMoveController(ctx, this.agents)
+    this.copies = new SessionCopyController(ctx)
     ctx.plugin(SessionFileReferences)
     ctx.plugin(SessionMediaReferences)
     ctx.plugin(SessionSkillCatalog)
@@ -223,6 +242,17 @@ export class SessionController extends TypertRemoteService {
     })
     ctx.on('session/disposed', (session) => {
       ctx.emit('api-session/removed', session.id)
+    })
+    // Cold storage changes (import, relocation): clients merge summaries by id.
+    // A writer that just folded the log into the projection cache has a record
+    // write in flight; the summary waits for it so the row lists with its title.
+    ctx.on('session-persistence/stored', (header) => {
+      if (ctx.sessions.get(header.id) !== undefined) return
+      const cache = ctx.get('sessionProjectionCache')
+      void (cache?.settled(header.id) ?? Promise.resolve()).then(() => {
+        if (ctx.sessions.get(header.id) !== undefined) return
+        ctx.emit('api-session/added', this.listState.summarizeCold({ header, live: false, persisted: true, formatStatus: 'current' }))
+      })
     })
     const publishAgentAvailability = ({ agent }: { agent: Agent }): undefined => {
       if (ctx.sessions.get(agent.id) === agent.session) {
@@ -453,6 +483,73 @@ export class SessionController extends TypertRemoteService {
       }
     }
     return this.commands.fork(request)
+  }
+
+  /**
+   * Move one Session, with its same-cwd subagent descendants, to another
+   * Workspace: relocate the stored log under the new cwd, re-account it in
+   * the Workspace registry, and leave its Agent a notice for the next step.
+   * A resident Agent is retired first; one running a turn is refused unless
+   * `stopLive` interrupts it.
+   * @param request - Session, destination Workspace or directory, and live policy.
+   * @returns the destination Workspace and every Session that moved.
+   */
+  @Remote('move')
+  move(request: SessionMoveRequest): Promise<SessionMoveValue> {
+    return this.moves.move(request)
+  }
+
+  /**
+   * Move several Sessions to one Workspace, reporting skips per Session
+   * instead of failing the batch.
+   * @param request - Sessions, destination, and live policy.
+   * @returns moved ids and skipped Sessions with reasons.
+   */
+  @Remote('moveMany')
+  moveMany(request: SessionMoveManyRequest): Promise<SessionMoveManyValue> {
+    return this.moves.moveMany(request)
+  }
+
+  /**
+   * Copy one Session, with its subagent descendants, into a Workspace as a new
+   * Session: the source's durable log is read and stored again under the
+   * destination cwd with fresh ids; the source, running or not, is untouched.
+   * A source running a turn is refused until the caller decides whether to
+   * drop the turn in progress (`truncate`) or keep it closed as interrupted.
+   * @param request - source, destination Workspace or directory, mid-turn policy, optional title.
+   * @returns the new root id, every stored id, and whether a turn was dropped.
+   */
+  @Remote('copy')
+  copy(request: SessionCopyRequest): Promise<SessionCopyValue> {
+    return this.copies.copy(request)
+  }
+
+  /**
+   * Store parsed Session logs, one root and its subagent descendants, as
+   * Sessions of this Host under a Workspace, and attach the root to it.
+   * Exported ids are kept when free; taken ones are replaced and the family
+   * re-identified. Attachments the logs reference must already be stored.
+   * @param logs - the root log and every descendant log, in any order.
+   * @param target - destination Workspace, origin label, and id and notice policy.
+   * @returns the stored root id and every stored Session.
+   */
+  storeSessionLogs(logs: SessionLogFamily, target: SessionImportTarget): Promise<SessionImportResult> {
+    return storeSessionLogs(this.ctx, logs, target)
+  }
+
+  /**
+   * Import the entries of one `session.export` archive into a Workspace:
+   * decode and validate every log (migrating historical generations), save
+   * its attachments, and store the logs as {@link storeSessionLogs} does.
+   * @param entries - archive path to entry bytes.
+   * @param target - destination Workspace, origin label, and id and notice policy.
+   * @returns the stored root id and every stored Session.
+   */
+  importSessionArchive(
+    entries: Readonly<Record<string, Uint8Array>>,
+    target: SessionImportTarget,
+  ): Promise<SessionImportResult> {
+    return importSessionArchive(this.ctx, entries, target)
   }
 
   /**
