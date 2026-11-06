@@ -228,6 +228,43 @@ describe('sessions', () => {
     await runtime.dispose()
   })
 
+  it('records move, batch move, and copy requests and reports them as succeeded', async () => {
+    const runtime = await runtimeWithFrame()
+    const sessionId = 's1' as SessionId
+    const workspaceId = 'w2' as WorkspaceId
+    const byId = { workspaceId }
+    const byPath = { path: '/elsewhere', title: 'Elsewhere' }
+    await expect(runtime.sessions.move({ sessionId, destination: byId })).resolves.toEqual({
+      ok: true, value: { sessionId, workspaceId, moved: [sessionId] },
+    })
+    await expect(runtime.sessions.move({ sessionId, destination: byPath, stopLive: true })).resolves.toEqual({
+      ok: true, value: { sessionId, workspaceId: '/elsewhere', moved: [sessionId] },
+    })
+    const sessionIds = [sessionId, 's2' as SessionId]
+    await expect(runtime.sessions.moveMany({ sessionIds, destination: byId })).resolves.toEqual({
+      ok: true, value: { workspaceId, moved: sessionIds, skipped: [] },
+    })
+    await expect(runtime.sessions.moveMany({ sessionIds, destination: byPath })).resolves.toEqual({
+      ok: true, value: { workspaceId: '/elsewhere', moved: sessionIds, skipped: [] },
+    })
+    await expect(runtime.sessions.copy({ sessionId, destination: byId, title: 'copy' })).resolves.toEqual({
+      ok: true,
+      value: { sessionId: 's1-copy', sourceSessionId: sessionId, workspaceId, copied: ['s1-copy'], truncated: false },
+    })
+    await expect(runtime.sessions.copy({ sessionId, destination: byPath })).resolves.toMatchObject({
+      ok: true, value: { workspaceId: '/elsewhere' },
+    })
+    expect(runtime.sessions.calls).toEqual([
+      { method: 'move', args: [{ sessionId, destination: byId }] },
+      { method: 'move', args: [{ sessionId, destination: byPath, stopLive: true }] },
+      { method: 'moveMany', args: [{ sessionIds, destination: byId }] },
+      { method: 'moveMany', args: [{ sessionIds, destination: byPath }] },
+      { method: 'copy', args: [{ sessionId, destination: byId, title: 'copy' }] },
+      { method: 'copy', args: [{ sessionId, destination: byPath }] },
+    ])
+    await runtime.dispose()
+  })
+
   it('resolves catalog addresses without retaining their parent', async () => {
     const runtime = await runtimeWithFrame()
     const parentId = 'parent' as SessionId

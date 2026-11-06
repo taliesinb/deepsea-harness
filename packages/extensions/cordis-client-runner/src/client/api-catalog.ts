@@ -677,7 +677,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ISessions',
-    declaration: 'export interface ISessions {\n    readonly list: ObservableSnapshot<SessionListState>;\n    retain(target: SessionTarget, options: SessionRetainOptions): SessionReference;\n    using<T>(target: SessionTarget, options: SessionRetainOptions, operation: (reference: SessionReference) => T | Promise<T>): Promise<T>;\n    retainInfo(id: SessionId): ObservableSnapshot<SessionRetainInfo>;\n    readonly searchResultLimit: number;\n    create(opts?: {\n        workspaceId?: WorkspaceId;\n        cwd?: string;\n        sessionId?: SessionId;\n        agentPreset?: string;\n    }): Promise<SessionId>;\n    subagentAddress(id: SessionId): SubagentAddress | undefined;\n    refreshProjections(sessionId: SessionId): Promise<void>;\n    refresh(): Promise<void>;\n    search(query: string, signal: AbortSignal): Promise<RemoteResult<{\n        items: SessionSearchResultItem[];\n        hasMore: boolean;\n    }>>;\n    fork(opts: {\n        sessionId: SessionId;\n        atSeq?: number;\n        increaseTitle?: boolean;\n        onCreated?: (childId: SessionId) => void;\n        allowMigration?: boolean;\n    }): Promise<SessionId>;\n    scope(id: SessionId): AgentContext | undefined;\n    scopeOf(ctx: Context): SessionId | undefined;\n    sessionOf(ctx: Context): SessionFace | undefined;\n    binding(id: SessionId): SessionBinding | undefined;\n}',
+    declaration: 'export interface ISessions {\n    readonly list: ObservableSnapshot<SessionListState>;\n    retain(target: SessionTarget, options: SessionRetainOptions): SessionReference;\n    using<T>(target: SessionTarget, options: SessionRetainOptions, operation: (reference: SessionReference) => T | Promise<T>): Promise<T>;\n    retainInfo(id: SessionId): ObservableSnapshot<SessionRetainInfo>;\n    readonly searchResultLimit: number;\n    create(opts?: {\n        workspaceId?: WorkspaceId;\n        cwd?: string;\n        sessionId?: SessionId;\n        agentPreset?: string;\n    }): Promise<SessionId>;\n    subagentAddress(id: SessionId): SubagentAddress | undefined;\n    refreshProjections(sessionId: SessionId): Promise<void>;\n    refresh(): Promise<void>;\n    search(query: string, signal: AbortSignal): Promise<RemoteResult<{\n        items: SessionSearchResultItem[];\n        hasMore: boolean;\n    }>>;\n    fork(opts: {\n        sessionId: SessionId;\n        atSeq?: number;\n        increaseTitle?: boolean;\n        onCreated?: (childId: SessionId) => void;\n        allowMigration?: boolean;\n    }): Promise<SessionId>;\n    move(opts: SessionMoveRequest): Promise<RemoteResult<SessionMoveValue>>;\n    moveMany(opts: SessionMoveManyRequest): Promise<RemoteResult<SessionMoveManyValue>>;\n    copy(opts: SessionCopyRequest): Promise<RemoteResult<SessionCopyValue>>;\n    scope(id: SessionId): AgentContext | undefined;\n    scopeOf(ctx: Context): SessionId | undefined;\n    sessionOf(ctx: Context): SessionFace | undefined;\n    binding(id: SessionId): SessionBinding | undefined;\n}',
   },
   {
     name: 'KeyedHooksSources',
@@ -892,6 +892,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionBinding {\n    readonly sessionId: SessionId;\n    readonly session: SessionFace;\n    readonly eventSource: SessionEventSource;\n    readonly ctx: AgentContext;\n}',
   },
   {
+    name: 'SessionCopyRequest',
+    declaration: 'export interface SessionCopyRequest {\n    readonly sessionId: SessionId;\n    readonly destination: SessionMoveDestination;\n    readonly truncate?: boolean;\n    readonly title?: string;\n    readonly notify?: boolean;\n}',
+  },
+  {
+    name: 'SessionCopyValue',
+    declaration: 'export interface SessionCopyValue {\n    readonly sessionId: SessionId;\n    readonly sourceSessionId: SessionId;\n    readonly workspaceId: WorkspaceId;\n    readonly copied: readonly SessionId[];\n    readonly truncated: boolean;\n}',
+  },
+  {
     name: 'SessionEventChange',
     declaration: 'export type SessionEventChange = {\n    readonly kind: \'replace\';\n    readonly entries: readonly SessionEventLikeEntry[];\n} | {\n    readonly kind: \'prepend\';\n    readonly entries: readonly SessionEventLikeEntry[];\n} | {\n    readonly kind: \'append\';\n    readonly entries: readonly SessionEventLikeEntry[];\n} | {\n    readonly kind: \'settle-assistant\';\n    readonly attemptId: LlmAttemptId;\n    readonly entry?: SessionAssistantSettlementEntry;\n};',
   },
@@ -926,6 +934,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionMaybeStandardProps',
     declaration: 'export interface SessionMaybeStandardProps {\n}',
+  },
+  {
+    name: 'SessionMoveDestination',
+    declaration: 'export type SessionMoveDestination = {\n    readonly workspaceId: WorkspaceId;\n} | {\n    readonly path: string;\n    readonly title?: string;\n};',
+  },
+  {
+    name: 'SessionMoveManyRequest',
+    declaration: 'export interface SessionMoveManyRequest {\n    readonly sessionIds: readonly SessionId[];\n    readonly destination: SessionMoveDestination;\n    readonly stopLive?: boolean;\n    readonly notify?: boolean;\n}',
+  },
+  {
+    name: 'SessionMoveManyValue',
+    declaration: 'export interface SessionMoveManyValue {\n    readonly workspaceId: WorkspaceId;\n    readonly moved: readonly SessionId[];\n    readonly skipped: readonly SessionMoveSkip[];\n}',
+  },
+  {
+    name: 'SessionMoveRequest',
+    declaration: 'export interface SessionMoveRequest {\n    readonly sessionId: SessionId;\n    readonly destination: SessionMoveDestination;\n    readonly stopLive?: boolean;\n    readonly notify?: boolean;\n}',
+  },
+  {
+    name: 'SessionMoveSkip',
+    declaration: 'export interface SessionMoveSkip {\n    readonly sessionId: SessionId;\n    readonly reason: \'live\' | \'missing\' | \'same-workspace\' | \'error\';\n    readonly message: string;\n    readonly blockers?: readonly SessionActivity[];\n}',
+  },
+  {
+    name: 'SessionMoveValue',
+    declaration: 'export interface SessionMoveValue {\n    readonly sessionId: SessionId;\n    readonly workspaceId: WorkspaceId;\n    readonly moved: readonly SessionId[];\n}',
   },
   {
     name: 'SessionProjectionSnapshot',
