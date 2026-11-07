@@ -37,6 +37,8 @@ kind: "package-reference"
 
 `watch(target, changed, signal)` 报告单个文件或目录直接子项的失效通知。观察就绪后，它返回调用方必须等待完成的异步关闭函数。signal 取消初始化；不支持监听的提供方直接拒绝，不使用轮询。
 
+`checkWrite(target, signal, sandboxPolicy)` 在不做变更的情况下询问提供方的沙箱围栏：在该策略下，写入或创建该目标、编辑或修补它、删除它，或把它作为移动的任一端，是否会被放行。提供方给出与其变更操作相同的决定：`allowed`、携带 `FS_SANDBOX_DENIED` 消息的 `denied`，或在不变更就无法判定时（基类即如此）返回 `unknown`，此时由变更本身判定。它从不提示用户，只读取该判定本身需要读取的内容。答案在变更前可能改变，变更会再次判定；防护、存在性与权限失败不在其范围内。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -61,7 +63,7 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 服务定义：抽象 `FileSystem` 类、`ctx.fs` 声明与 `fs/*` 事件词汇 |
-| [`src/types.ts`](src/types.ts) | 词汇：`FsTarget`/`FsTargetKey`、`FsVersion`、`FsObservation`、`FsWriteIntent`、`FsError` 及其错误码 |
+| [`src/types.ts`](src/types.ts) | 词汇：`FsTarget`/`FsTargetKey`、`FsVersion`、`FsObservation`、`FsWriteIntent`、`FsWriteCheck`、`FsError` 及其错误码 |
 
 ### 调用流程
 

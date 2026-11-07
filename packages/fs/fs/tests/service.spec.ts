@@ -96,6 +96,7 @@ describe('FileSystem provider seam', () => {
     const fs = ctx.fs as FakeFileSystem
     expect(fs.sandboxMode).toBeUndefined()
     expect(fs.processPathFromHostPath('/host/file')).toBeUndefined()
+    expect(await fs.checkWrite(await fs.resolve('a.txt'))).toEqual({ kind: 'unknown' })
     fs.files.set('a.txt', 'hi')
     const target = await fs.resolve('a.txt')
     expect((await fs.stat(target))?.type).toBe('file')

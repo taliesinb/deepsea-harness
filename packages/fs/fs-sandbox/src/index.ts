@@ -21,7 +21,8 @@
  * a mutation only when the target canonicalizes under the policy's workspace
  * root, an explicit additional writable root, or a platform temp area from the
  * shared `writableRoots` policy; `danger-full-access` delegates unfenced. A
- * denial throws the structured `FS_SANDBOX_DENIED`.
+ * denial throws the structured `FS_SANDBOX_DENIED`. `checkWrite` answers the
+ * same decision without mutating.
  *
  * @module @deepseek-ai/dsh-fs-sandbox
  */
@@ -30,7 +31,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type { Config as LocalConfig } from '@deepseek-ai/dsh-fs-local'
 import { FsError } from '@deepseek-ai/dsh-fs'
-import type { FsDeleteOutcome, FsMoveOutcome, FsEditOutcome, FsEditRequest, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import type { FsDeleteOutcome, FsMoveOutcome, FsEditOutcome, FsEditRequest, FsTarget, FsVersion, FsWriteCheck, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
@@ -64,6 +65,20 @@ export class SandboxedFileSystem extends LocalFileSystem {
   /** The deployment default mode — the capability fact the tool layer reads to advertise escalation. */
   override get sandboxMode(): SandboxMode {
     return this.defaultMode
+  }
+
+  /**
+   * Answer the mutation fence's decision for `target` without mutating. See
+   * {@link fence}.
+   * @param target - the resolved target a mutation would use.
+   * @param signal - aborts the re-canonicalization `workspace-write` performs.
+   * @param sandboxPolicy - the per-call mode and workspace root; omit to use
+   *   the deployment fallback.
+   * @returns `allowed`, or `denied` with the message a mutation would throw.
+   */
+  override async checkWrite(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsWriteCheck> {
+    const decision = await this.fence(target, sandboxPolicy, signal)
+    return 'denied' in decision ? { kind: 'denied', message: decision.denied } : { kind: 'allowed' }
   }
 
   /**
@@ -145,36 +160,39 @@ export class SandboxedFileSystem extends LocalFileSystem {
   /**
    * Enforce the per-call policy against `target` and return the EXACT target the
    * mutation must use, so the checked identity is the mutated one (no
-   * check-here-write-there TOCTOU). `read-only` denies; `workspace-write`
-   * re-canonicalizes NOW (`resolve` realpaths the deepest existing ancestor,
-   * reflecting a concurrently swapped symlink), requires containment under a
-   * writable root, and returns THAT fresh target; `danger-full-access` returns
-   * the caller's target unfenced. Throws the structured `FS_SANDBOX_DENIED` on
-   * refusal — the tool layer maps it to the model-facing `[sandbox: …]` marker
-   * and the escalation hint.
+   * check-here-write-there TOCTOU). Throws the structured `FS_SANDBOX_DENIED`
+   * on refusal — the tool layer maps it to the model-facing `[sandbox: …]`
+   * marker and the escalation hint.
    */
   private async checkedTarget(target: FsTarget, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsTarget> {
+    const decision = await this.fence(target, sandboxPolicy)
+    if ('denied' in decision) throw new FsError(decision.denied, 'FS_SANDBOX_DENIED')
+    return decision.target
+  }
+
+  /**
+   * The fence's one decision, shared by every mutation and {@link checkWrite}.
+   * `read-only` denies; `workspace-write` re-canonicalizes NOW (`resolve`
+   * realpaths the deepest existing ancestor, reflecting a concurrently swapped
+   * symlink), requires containment under a writable root, and allows THAT
+   * fresh target; `danger-full-access` allows the caller's target unfenced.
+   * An invalid writable root throws from `writableRoots`.
+   */
+  private async fence(
+    target: FsTarget, sandboxPolicy?: SandboxExecutionPolicy, signal?: AbortSignal,
+  ): Promise<{ target: FsTarget } | { denied: string }> {
     const policy = sandboxPolicy ?? this.ctx.sandboxPolicy.resolve()
     const { mode } = policy
-    if (mode === 'danger-full-access') return target
-    if (mode === 'read-only') {
-      throw new FsError(`cannot write "${target.displayPath}": file access denied under read-only mode`, 'FS_SANDBOX_DENIED')
-    }
+    if (mode === 'danger-full-access') return { target }
+    if (mode === 'read-only') return { denied: `cannot write "${target.displayPath}": file access denied under read-only mode` }
     // workspace-write: containment on the FRESH canonical path (catches a
     // symlink ancestor swapped since the tool resolved this target), and the
     // mutation delegates with THIS fresh target — never the stale one.
-    const fresh = await this.resolve(target.displayPath)
-    let contained = false
+    const fresh = await this.resolve(target.displayPath, signal === undefined ? undefined : { signal })
     for (const root of writableRoots(policy)) {
-      if (await isPathUnder(fresh.targetKey, root)) {
-        contained = true
-        break
-      }
+      if (await isPathUnder(fresh.targetKey, root)) return { target: fresh }
     }
-    if (!contained) {
-      throw new FsError(`cannot write "${target.displayPath}": file access denied under workspace-write mode`, 'FS_SANDBOX_DENIED')
-    }
-    return fresh
+    return { denied: `cannot write "${target.displayPath}": file access denied under workspace-write mode` }
   }
 }
 

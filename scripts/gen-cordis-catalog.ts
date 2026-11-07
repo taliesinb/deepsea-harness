@@ -598,6 +598,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   FsObservationActor: 'filesystem.md',
   FsTarget: 'filesystem.md',
   FsVersion: 'filesystem.md',
+  FsWriteCheck: 'filesystem.md',
   FsWriteIntent: 'filesystem.md',
   FsWriteOutcome: 'filesystem.md',
   CreateGoalRequest: 'goal.md',
