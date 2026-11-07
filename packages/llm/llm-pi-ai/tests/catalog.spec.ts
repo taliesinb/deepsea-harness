@@ -514,6 +514,23 @@ describe('catalog routes with per-model configuration', () => {
       .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
   })
 
+  it('serves no OpenRouter batch-only alias on either OpenRouter route', async () => {
+    // OpenRouter serves `<model>:batch` only at its batches endpoint and
+    // answers a chat request for one with 404.
+    const batch = getBuiltinModels('openrouter').find(model => model.id.endsWith(':batch'))
+    if (batch === undefined) throw new Error('the installed catalog ships no OpenRouter batch alias')
+    const ctx = await harness({ providers: { openrouter: { apiKeyEnv: KEY_ENV }, 'openrouter-oauth': {} } })
+
+    for (const route of ['openrouter', 'openrouter-oauth']) {
+      const listed = (await ctx.llm.listModels(route)).map(model => model.id)
+      expect(listed).toContain(batch.id.slice(0, -':batch'.length))
+      expect(listed.filter(id => id.endsWith(':batch'))).toEqual([])
+      expect(catalogModels(route).has(batch.id)).toBe(false)
+    }
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openrouter' }))
+      .resolves.not.toContainEqual(expect.objectContaining({ id: batch.id }))
+  })
+
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {
     const server = await mockServer([])
     const [catalogModel] = getBuiltinModels('deepseek')
