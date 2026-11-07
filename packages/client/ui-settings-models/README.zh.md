@@ -31,7 +31,7 @@ kind: "package-reference"
 
 提供方列表中 DeepSeek 账号排第一，DeepSeek 排第二；第三方提供方保留目录中的相对顺序。
 
-从设置导航打开 Models 页面，即可看到每个已配置的提供方都有一行。其配置键未在任何位置配置的整分节提供方会渲染为其展开的设置卡片而非一行，但仅限首次运行姿态，且仅持续到用户关闭该卡片为止。每一类卡片各自持有自己的展开状态，因此关掉其中一张绝不会丢弃另一张里的草稿。手工声明的路由在名称后带 **自定义** 标签。浏览器登录路由（目录项带 `signIn`）的行以其厂商命名，并以 **套餐**（订阅套餐）或 **OAuth**（按量付费的登录）作为标签（“Anthropic [套餐]”）；其显示名（“Anthropic Plan”）仍在其他所有位置命名该路由，且该行没有 API 密钥圆点。
+从设置导航打开 Models 页面，即可看到每个已配置的提供方都有一行。其配置键未在任何位置配置的整分节提供方会渲染为其展开的设置卡片而非一行，但仅限首次运行姿态，且仅持续到用户关闭该卡片为止。每一类卡片各自持有自己的展开状态，因此关掉其中一张绝不会丢弃另一张里的草稿。手工声明的路由在名称后带 **自定义** 标签。浏览器登录路由（目录项带 `signIn`）的行以其厂商命名，并以 **套餐**（订阅套餐）或 **OAuth**（按量付费的登录）作为标签（“Anthropic [套餐]”）；其显示名（“Anthropic Plan”）仍在其他所有位置命名该路由，且该行没有 API 密钥圆点（登录插件可把其状态圆点放进行的状态席位，见下文）。
 
 存在已存储目录错误的提供商仍显示诊断以及编辑、删除入口。添加操作只面向已注册的 settings 命名空间，因此不可用的命名空间不会留下无法打开编辑器的按钮。保存被拒绝时，编辑器保持打开并展示 Host 诊断。
 
@@ -75,7 +75,7 @@ pi-ai 容量字段为空时，上下文窗口显示 `1M`，最大输出 token �
 
 ### 扩展 slot
 
-本分区为仓库外分发的插件声明两个席位，类型定义在 [`src/client/slot-contract.ts`](src/client/slot-contract.ts) 并从 `./client` 导出。`settings.models.provider-card`（keyed）渲染在每张展示目录行的卡片内部——已保存行的卡片、其首次运行 setup 形态、以及「添加提供商」草稿卡——以 `entryKey = settingsNs` 分发，owner props 携带该行的 `ConfigurableProviderView`、其 configured 状态与已确认的 api-key 凭据状态，因此以某适配器家族的 namespace 注册一次即可收到该家族的全部卡片，含手工声明的路由；手工声明的草稿卡尚无目录行，保存之前不分发。`settings.models.footer`（list）渲染在行列表与新增控件之后。注册方通过 `ctx.slots.inject` 激活，并以 type-only import 引入本包 `/client` 入口；没有注册方时两个席位均不渲染任何内容。
+本分区为仓库外分发的插件声明四个席位，类型定义在 [`src/client/slot-contract.ts`](src/client/slot-contract.ts) 并从 `./client` 导出。`settings.models.provider-card`（keyed）渲染在每张展示目录行的卡片内部——已保存行的卡片、其首次运行 setup 形态、以及「添加提供商」草稿卡——以 `entryKey = settingsNs` 分发，owner props 携带该行的 `ConfigurableProviderView`、其 configured 状态与已确认的 api-key 凭据状态，因此以某适配器家族的 namespace 注册一次即可收到该家族的全部卡片，含手工声明的路由；手工声明的草稿卡尚无目录行，保存之前不分发。另有两个 keyed 席位位于已保存行的行头，以相同的 key 与 owner props 分发：`settings.models.provider-status` 在名称、其标签与本页自己的凭据圆点之后（例如登录路由的状态圆点），`settings.models.provider-actions` 在 **编辑** 之前（例如 **登录** / **退出登录**）；setup 卡片与「添加提供商」草稿卡没有行头，两者均不分发。`settings.models.footer`（list）渲染在行列表与新增控件之后。注册方通过 `ctx.slots.inject` 激活，并以 type-only import 引入本包 `/client` 入口；没有注册方时这些席位均不渲染任何内容。
 
 Models 页面包含 **DeepSeek 账号**（`deepseek-account`，英文为 **DeepSeek Account**）。该行显示 **已登录** 状态，不提供编辑器：模型来自账号的模型列表，[模型覆盖](../../llm/llm-deepseek-account/README.zh.md#use-this-package)写在 `cordis.patch.yml` 中。账号可用模型目录为空时隐藏账号行，包括登录前和退登后；账号模型恢复可用时重新显示。
 
