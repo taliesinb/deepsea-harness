@@ -6,14 +6,16 @@
  * opening a turn on an idle one under the default `wakeup` delivery, unbounded
  * unless `maxConsecutiveWakes` caps it per owner. A notice carries the job's
  * output and result when it fits `inlineOutputBytes`, and `job_output`
- * withdraws a notice still pending.
+ * withdraws a notice still pending. Each `job_output` wait is announced on
+ * `tool-jobs/wait-started` with its deadline and a `release` that ends it
+ * early without touching the job.
  * @module @deepseek-ai/dsh-tool-jobs
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { boundContextSummary, createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { ContextFormed, MessageId } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed, MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-output-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -26,6 +28,47 @@ import type { PublicJobSnapshot } from './render.ts'
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'tool-jobs': { kind: 'tool-jobs' } & ContextFormed
+  }
+}
+
+/**
+ * One running `job_output` wait, announced on `tool-jobs/wait-started`. A
+ * holder may end the wait early; the job itself is never touched.
+ */
+export interface JobOutputWait {
+  /** The waiting `job_output` call. */
+  readonly callId: ToolCallId
+  /** The agent the call runs for; absent for an execution without one. */
+  readonly agent?: Agent
+  /** The job being waited on. */
+  readonly jobId: JobId
+  /** Epoch milliseconds when the wait began. */
+  readonly startedAt: number
+  /** Epoch milliseconds when the timeout ends the wait: `timeout_ms` after the configured default and cap. */
+  readonly deadline: number
+  /** Resolves once the wait has ended, whatever ended it; never rejects. */
+  readonly ended: Promise<void>
+  /**
+   * End the wait now. The call returns as on timeout: the output since the
+   * previous read and the job's current status, which keeps running.
+   * @param detail - text appended to the status line of a job that is still
+   * running, telling the model why the wait ended early; omitted, the
+   * result matches a timeout's.
+   * @returns false when the wait had already ended, true otherwise.
+   */
+  release(detail?: string): boolean
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /**
+     * A `job_output` call began waiting on a job. Dispatched to every listener
+     * (not scope-filtered), before the wait can end, with each listener's
+     * failure contained and logged.
+     * @param wait - the running wait, with its deadline and release.
+     * @mode emit
+     */
+    'tool-jobs/wait-started'(wait: JobOutputWait): void
   }
 }
 
@@ -429,6 +472,24 @@ export function apply(ctx: Context, config: Config): void {
     deliverSettlement(event)
   })
 
+  /**
+   * Announce a wait to `tool-jobs/wait-started` listeners, containing each failure.
+   * @param wait - the wait just registered.
+   */
+  const announceWait = (wait: JobOutputWait): void => {
+    const report = (error: unknown): void => {
+      ctx.logger.warn(`tool-jobs: tool-jobs/wait-started listener failed (${wait.callId}): ${String(error)}`)
+    }
+    for (const callback of ctx.events.dispatch('emit', ['tool-jobs/wait-started', wait])) {
+      try {
+        const returned: unknown = (callback as (payload: JobOutputWait) => unknown)(wait)
+        void Promise.resolve(returned).catch(report)
+      } catch (error: unknown) {
+        report(error)
+      }
+    }
+  }
+
   ctx.tools.register(defineTool({
     name: 'job_output',
     description: 'Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.',
@@ -459,8 +520,8 @@ export function apply(ctx: Context, config: Config): void {
       const id = validateJobId(args.job_id)
       const jobs = ctx.jobs
       const agent = exec.agent
-      // A wait this execution ends on next-step input claims the read that
-      // follows it: the claim stays open until that read commits, so a
+      // A wait this execution ends early, on next-step input or through its
+      // announced `release`, claims the read that follows it: the claim stays open until that read commits, so a
       // settlement landing first is delivered by the result, not a notice.
       // The registry keeps its own abort semantics; this tool's input
       // controller only ends the wait early, and the catch below reads the
@@ -470,6 +531,18 @@ export function apply(ctx: Context, config: Config): void {
       try {
         if (args.wait === true) {
           const input = new AbortController()
+          let waiting = true
+          // Both early ends, next-step input and a `JobOutputWait.release`,
+          // take this path; the first one names the status detail.
+          const release = (detail?: string): boolean => {
+            if (!waiting) return false
+            if (endReleasedRead === undefined) {
+              endReleasedRead = beginReleasedRead(id)
+              releasedBy = detail
+            }
+            input.abort()
+            return true
+          }
           // FIXME: this treats an inbox insertion whose source is `user` as a
           // user steer, but the source only says who authored the message: hooks,
           // subagents, and future hosts also deliver current-step input, and a
@@ -483,11 +556,7 @@ export function apply(ctx: Context, config: Config): void {
             // inputs — completion notices and injected context — stay queued for
             // the next step instead of interrupting a wait the user did not.
             if (agent === undefined || !agent.inbox.nextStep.some(message => message.source.kind === 'user')) return
-            if (endReleasedRead === undefined) {
-              endReleasedRead = beginReleasedRead(id)
-              releasedBy = 'user steered'
-            }
-            input.abort()
+            release('user steered')
           }
           // Subscribe before reading pending input; each parallel wait owns its
           // listener. The notification follows the durable insertion commit.
@@ -498,9 +567,24 @@ export function apply(ctx: Context, config: Config): void {
           const unsubscribe = agent === undefined ? () => {} : ctx.on('agent/inbox/inserted', ({ agent: subject }) => {
             if (subject === agent) checkInput()
           })
+          const ended = Promise.withResolvers<void>()
           try {
             checkInput()
-            await jobs.wait(id, Math.min(args.timeout_ms ?? waitDefault, waitCap), agent?.id, AbortSignal.any([exec.signal, input.signal]))
+            const timeoutMs = Math.min(args.timeout_ms ?? waitDefault, waitCap)
+            const startedAt = Date.now()
+            const waited = jobs.wait(id, timeoutMs, agent?.id, AbortSignal.any([exec.signal, input.signal]))
+            // An unknown, foreign, or settled job, or released input, ends the wait at once: nothing to announce.
+            const status = jobs.list(agent?.id).find(job => job.id === id)?.status
+            if (!input.signal.aborted && (status === 'running' || status === 'stopping')) announceWait({
+              callId: exec.callId,
+              ...agent === undefined ? {} : { agent },
+              jobId: id,
+              startedAt,
+              deadline: startedAt + timeoutMs,
+              ended: ended.promise,
+              release,
+            })
+            await waited
           } catch (error) {
             // The registry reports every abort as a cancellation. A wait this
             // tool released with its own input controller ends the same way,
@@ -511,12 +595,14 @@ export function apply(ctx: Context, config: Config): void {
             // and the claim's release delivers the settlement it withheld.
             if (exec.signal.aborted) throw new Error('wait aborted')
           } finally {
+            waiting = false
             unsubscribe()
+            ended.resolve()
           }
         }
         const body = readBody(jobs.read(id, exec.agent?.id))
         // This result carries any settlement the released wait suppressed.
-        if (releasedBy !== undefined) suppressedSettlements.delete(id)
+        if (endReleasedRead !== undefined) suppressedSettlements.delete(id)
         const notice = pending.get(id)
         if (notice !== undefined) {
           pending.delete(id)
@@ -526,7 +612,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         // The result, not the schema, explains an interruption: the model sees
         // why a running job came back early beside its unchanged progress line.
-        if (releasedBy !== undefined && (body.job.status === 'running' || body.job.status === 'stopping')) {
+        if (releasedBy !== undefined && releasedBy !== '' && (body.job.status === 'running' || body.job.status === 'stopping')) {
           body.job.detail = body.job.detail === undefined ? releasedBy : `${body.job.detail}; ${releasedBy}`
         }
         return body
