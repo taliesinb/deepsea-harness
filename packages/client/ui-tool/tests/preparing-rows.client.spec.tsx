@@ -94,6 +94,9 @@ describe('tool preparation', () => {
     expect(view.getByText('1KB')).toBeTruthy()
     fireEvent.click(view.getByText('hello.txt'))
     expect(props.openFile).not.toHaveBeenCalled()
+    expect(view.container.querySelector('[data-diff]')?.textContent).toContain('hello')
+    fireEvent.click(view.getAllByText('hello.txt')[0]!)
+    expect(view.container.querySelector('[data-diff]')).toBeNull()
     const started: StartedToolCall = {
       phase: 'start', args: PartialArguments.fromText('{"file_path":"hello.txt","content":"hello"}'), callId: 'call', name: 'write', turn: 1, step: 1, time: 2, subCalls: [],
       argsRaw: '{"file_path":"hello.txt","content":"hello"}',
