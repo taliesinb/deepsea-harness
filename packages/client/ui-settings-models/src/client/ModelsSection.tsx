@@ -25,7 +25,7 @@ import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { LlmNativeAuth, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type { LlmNativeAuth, LlmSignInRoute, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: pulls this package's SlotMap merge (the two Models child slots).
 import type {} from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
@@ -34,7 +34,7 @@ import type { ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
-import type { en } from './locales.ts'
+import type { en, ModelsKey } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
 /** Injected dependencies of {@link ModelsSection} (slot `inject`). */
@@ -98,6 +98,8 @@ interface EditorTarget extends ProviderIdentity {
   baseURLEnv?: readonly string[]
   /** The route's native authentication (see {@link ProviderEditorProps.nativeAuth}). */
   nativeAuth?: LlmNativeAuth
+  /** The route is a browser sign-in route (directory `signIn`); it picks the deletion copy. */
+  signIn?: LlmSignInRoute
 }
 
 /** A dormant directory row the add card can adopt, with its registered namespace. */
@@ -215,6 +217,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     ...row.entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: row.entry.defaultBaseURL },
     ...row.entry.baseURLEnv === undefined ? {} : { baseURLEnv: row.entry.baseURLEnv },
     ...row.entry.nativeAuth === undefined ? {} : { nativeAuth: row.entry.nativeAuth },
+    ...row.entry.signIn === undefined ? {} : { signIn: row.entry.signIn },
   }
 }
 
@@ -228,6 +231,32 @@ export function providerTargetLabel(target: ProviderIdentity): string {
 /** Replace the one provider placeholder in localized destructive-action copy. */
 export function providerCopy(template: string, target: ProviderIdentity): string {
   return template.replace('{provider}', () => providerTargetLabel(target))
+}
+
+/**
+ * Replace the one provider placeholder with the display name alone, for copy
+ * that is already about one provider (the deletion dialog's title), where the
+ * route id would only lengthen it.
+ * @param template - localized copy with a `{provider}` placeholder.
+ * @param target - the provider it names.
+ * @returns the copy.
+ */
+function providerNameCopy(template: string, target: ProviderIdentity): string {
+  return template.replace('{provider}', () => target.displayName)
+}
+
+/**
+ * The deletion dialog's description for one target: a plan or another sign-in
+ * route by its kind, else a provider by whether the deletion also removes its
+ * page-managed key.
+ * @param target - the provider being deleted.
+ * @returns the copy key.
+ */
+function deleteDescriptionKey(target: Pick<EditorTarget, 'credentialRef' | 'signIn'>): ModelsKey {
+  if (target.signIn !== undefined) {
+    return target.signIn.kind === 'subscription' ? 'deletePlanDescription' : 'deleteSignInDescription'
+  }
+  return target.credentialRef === undefined ? 'deleteDescription' : 'deleteDescriptionWithCredential'
 }
 
 /**
@@ -728,16 +757,9 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
       <Modal
         open={deleteTarget !== undefined}
         onClose={closeDelete}
-        title={deleteTarget === undefined ? '' : providerCopy(t('deleteTitle'), deleteTarget)}
+        title={deleteTarget === undefined ? '' : providerNameCopy(t('deleteTitle'), deleteTarget)}
         closeLabel={t('close')}
-        description={deleteTarget === undefined
-          ? ''
-          : providerCopy(
-            deleteTarget.credentialRef === undefined
-              ? t('deleteDescription')
-              : t('deleteDescriptionWithCredential'),
-            deleteTarget,
-          )}
+        description={deleteTarget === undefined ? '' : t(deleteDescriptionKey(deleteTarget))}
         className={styles['deleteDialog'] as string}
         footer={(
           <>
@@ -750,9 +772,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               disabled={deleting}
               onClick={confirmDelete}
             >
-              {deleteTarget === undefined
-                ? ''
-                : providerCopy(deleting ? t('deleting') : t('deleteConfirm'), deleteTarget)}
+              {t(deleting ? 'deleting' : 'deleteConfirm')}
             </Button>
           </>
         )}
