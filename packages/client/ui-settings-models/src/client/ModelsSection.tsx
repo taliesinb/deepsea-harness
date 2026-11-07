@@ -26,8 +26,8 @@ import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { LlmNativeAuth, LlmSignInRoute, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-// Type-only: pulls this package's SlotMap merge (the two Models child slots).
-import type {} from './slot-contract.ts'
+// Type-only: pulls this package's SlotMap merge (the Models child slots).
+import type { ProviderCardExtrasOwnerProps } from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable, reasoningLevelChoices } from './store.ts'
 import type { ModelsSettingsStore, ProviderRow } from './store.ts'
@@ -60,7 +60,11 @@ export interface ModelsSectionInjected {
 type AddMode = 'catalog' | 'custom'
 
 /** The child slots this section declares and dispatches (see ./slot-contract.ts). */
-type ModelsChildSlots = 'settings.models.provider-card' | 'settings.models.footer'
+type ModelsChildSlots =
+  | 'settings.models.provider-card'
+  | 'settings.models.provider-status'
+  | 'settings.models.provider-actions'
+  | 'settings.models.footer'
 
 /** The child-slot dispatch function the renderer binds for the section. */
 type ModelsRenderSlot = PropsRenderSlots<ModelsChildSlots>['renderSlot']
@@ -197,6 +201,11 @@ function keyConfiguredOf(row: ProviderRow): boolean {
   return row.apiKeyEnv !== undefined
     ? row.credential?.configured === true
     : row.derivedCredential?.configured === true
+}
+
+/** The owner share every provider-card seat (body, status, actions) of one row is dispatched with. */
+function cardExtrasOf(row: ProviderRow): ProviderCardExtrasOwnerProps {
+  return { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) }
 }
 
 function targetOf(row: ProviderRow): EditorTarget {
@@ -478,11 +487,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   readOnly: !state.writable,
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
-                {renderSlot(
-                  'settings.models.provider-card',
-                  { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
-                  { entryKey: row.entry.settingsNs },
-                )}
+                {renderSlot('settings.models.provider-card', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
               </li>
             )
           }
@@ -535,8 +540,10 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                         />
                       )
                       : null}
+                  {renderSlot('settings.models.provider-status', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
                 </span>
                 <span className={styles['rowActions']}>
+                  {renderSlot('settings.models.provider-actions', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
                   {/* The account catalog comes from the account listing; its model overrides live in cordis.patch.yml. */}
                   {row.entry.provider === 'deepseek-account'
                     ? null
@@ -580,11 +587,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
               </div>
               {error}
-              {renderSlot(
-                'settings.models.provider-card',
-                { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
-                { entryKey: row.entry.settingsNs },
-              )}
+              {renderSlot('settings.models.provider-card', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
               {open
                 ? renderProviderEditor({
                   target,
@@ -691,11 +694,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     />
                     {addRow === undefined
                       ? null
-                      : renderSlot(
-                        'settings.models.provider-card',
-                        { provider: addRow.entry, configured: addRow.configured, keyConfigured: keyConfiguredOf(addRow) },
-                        { entryKey: addRow.entry.settingsNs },
-                      )}
+                      : renderSlot('settings.models.provider-card', cardExtrasOf(addRow), { entryKey: addRow.entry.settingsNs })}
                   </div>
                 )
                 : null}

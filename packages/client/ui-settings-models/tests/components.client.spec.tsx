@@ -326,9 +326,30 @@ function authHelpText(): string | null {
 /** One recorded child-slot dispatch: seat name, owner share, kind options. */
 type RenderSlotCall = [name: string, owner: Record<string, unknown>, opts?: { entryKey?: string }]
 
-/** Child-slot dispatch stub: records every seat occurrence, renders nothing. */
+/** The row-head seats, which the stub marks where they render. */
+const HEAD_SEATS = new Set(['settings.models.provider-status', 'settings.models.provider-actions'])
+
+/**
+ * Child-slot dispatch stub: records every seat occurrence; renders an empty
+ * marker naming a row-head seat where it is dispatched, and nothing else.
+ */
 function stubRenderSlot() {
-  return vi.fn((..._call: RenderSlotCall) => null)
+  return vi.fn((...call: RenderSlotCall) => HEAD_SEATS.has(call[0]) ? <i data-seat={call[0]} /> : null)
+}
+
+/** The row-head seat dispatches recorded, as (seat, route id, configured, keyConfigured, entryKey). */
+function headSeatCalls(
+  renderSlot: ReturnType<typeof stubRenderSlot>,
+): Array<[string, string, boolean, boolean, string | undefined]> {
+  return renderSlot.mock.calls
+    .filter(call => HEAD_SEATS.has(call[0]))
+    .map(call => [
+      call[0],
+      (call[1] as { provider: { provider: string } }).provider.provider,
+      (call[1] as { configured: boolean }).configured,
+      (call[1] as { keyConfigured: boolean }).keyConfigured,
+      call[2]?.entryKey,
+    ])
 }
 
 /** The provider-card seat dispatches a stub recorded, as (route id, configured, keyConfigured, entryKey). */
@@ -752,6 +773,34 @@ describe('ModelsSection', () => {
     expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.models.footer')).toEqual([
       ['settings.models.footer', {}],
     ])
+  })
+
+  it('dispatches the head seats in each saved row: status after the name and its tag, actions before Edit', async () => {
+    const { renderSlot } = await mountFace(signInRoutesFace())
+    const calls = headSeatCalls(renderSlot)
+    expect(calls).toContainEqual(['settings.models.provider-status', 'anthropic-oauth', true, false, 'llm-pi-ai'])
+    expect(calls).toContainEqual(['settings.models.provider-actions', 'anthropic-oauth', true, false, 'llm-pi-ai'])
+    expect(calls).toContainEqual(['settings.models.provider-status', 'openai', true, true, 'llm-pi-ai'])
+    expect(calls).toContainEqual(['settings.models.provider-actions', 'openrouter-oauth', true, false, 'llm-pi-ai'])
+    const plan = signInRowOf('anthropic-oauth', 'Anthropic Plan')
+    const tag = within(plan).getByText(en.planTag)
+    const status = plan.querySelector('[data-seat="settings.models.provider-status"]')!
+    const actions = plan.querySelector('[data-seat="settings.models.provider-actions"]')!
+    const edit = within(plan).getByRole('button', { name: providerCopy(en.editProvider, { provider: 'anthropic-oauth', displayName: 'Anthropic Plan' }) })
+    // The status sits with the name and its tag; the actions sit with Edit, before it.
+    expect(status.parentElement).toBe(tag.parentElement)
+    expect(tag.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(actions.parentElement).toBe(edit.parentElement)
+    expect(actions.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('dispatches no head seat on the first-run setup card or the add-provider draft', async () => {
+    const { renderSlot } = await mountFirstRun()
+    expect(headSeatCalls(renderSlot).map(call => call[1])).not.toContain('deepseek-official')
+    renderSlot.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(cardSeatCalls(renderSlot).map(call => call[0])).toContain('anthropic')
+    expect(headSeatCalls(renderSlot).map(call => call[1])).not.toContain('anthropic')
   })
 
   it('dispatches the provider-card seat inside the first-run setup card', async () => {
