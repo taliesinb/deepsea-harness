@@ -685,6 +685,25 @@ describe('ModelsSection', () => {
     expect(within(signInRowOf('openai', 'openai')).queryByText(en.planTag)).toBeNull()
   })
 
+  it('asks to delete a plan or a sign-in by its display name, in its own words, with a bare Delete', async () => {
+    const { mutate } = await mountFace(signInRoutesFace())
+    const plan = { provider: 'anthropic-oauth', displayName: 'Anthropic Plan' }
+    fireEvent.click(screen.getByRole('button', { name: providerCopy(en.removeProvider, plan) }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete Anthropic Plan?' })
+    expect(dialog.textContent).toContain('Deleting this plan removes its configuration.')
+    expect(dialog.textContent).not.toContain('anthropic-oauth')
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.cancel }))
+
+    const oauth = { provider: 'openrouter-oauth', displayName: 'OpenRouter OAuth' }
+    fireEvent.click(screen.getByRole('button', { name: providerCopy(en.removeProvider, oauth) }))
+    const signIn = screen.getByRole('dialog', { name: 'Delete OpenRouter OAuth?' })
+    expect(signIn.textContent).toContain(en.deleteSignInDescription)
+    fireEvent.click(within(signIn).getByRole('button', { name: en.deleteConfirm }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(mutate.mock.calls[0]).toEqual(['llm-pi-ai', [{ op: 'unset', path: ['providers', 'openrouter-oauth'] }], undefined])
+  })
+
   it('shows a catalog diagnostic while keeping the provider editable', async () => {
     const scripted = scriptedFace()
     const failure = 'llm-pi-ai: provider "openai" model "111" needs an api'
@@ -876,7 +895,7 @@ describe('ModelsSection', () => {
   it('uses one stable provider identity in action copy', () => {
     const target = { provider: 'deepseek-official', displayName: 'DeepSeek' }
     expect(providerTargetLabel(target)).toBe('DeepSeek (deepseek-official)')
-    expect(providerCopy(en.deleteTitle, target)).toBe('Delete DeepSeek (deepseek-official)?')
+    expect(providerCopy(en.removeProvider, target)).toBe('Delete DeepSeek (deepseek-official)')
     expect(providerTargetLabel(OPENAI_TARGET)).toBe('openai')
   })
 
@@ -2180,9 +2199,9 @@ describe('ModelsSection', () => {
     const { unset, mutate } = await mountSection()
     const target = { provider: 'zombie', displayName: 'zombie' }
     fireEvent.click(screen.getByRole('button', { name: providerCopy(en.removeProvider, target) }))
-    const dialog = screen.getByRole('dialog', { name: providerCopy(en.deleteTitle, target) })
-    expect(dialog.textContent).toContain(providerCopy(en.deleteDescription, target))
-    fireEvent.click(within(dialog).getByRole('button', { name: providerCopy(en.deleteConfirm, target) }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete zombie?' })
+    expect(dialog.textContent).toContain(en.deleteDescription)
+    fireEvent.click(within(dialog).getByRole('button', { name: en.deleteConfirm }))
     await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
     expect(unset).not.toHaveBeenCalled()
     expect(mutate.mock.calls[0]).toEqual([
