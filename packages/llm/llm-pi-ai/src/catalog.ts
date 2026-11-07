@@ -260,7 +260,21 @@ export function catalogProviderIds(): readonly string[] {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * Whether one installed catalog model answers interactive requests. OpenRouter
+ * lists a `<model>:batch` alias that its model listing serves only at
+ * `/api/v1/batches`; pi-ai's catalog keeps the alias as a chat model, and
+ * OpenRouter answers a Chat Completions or Messages request for it with 404.
+ * @param catalogId - the native catalog provider id.
+ * @param model - one installed catalog model of that provider.
+ * @returns false for a batch-only alias.
+ */
+function servesRequests(catalogId: string, model: Model<Api>): boolean {
+  return !(catalogId === 'openrouter' && model.id.endsWith(':batch'))
+}
+
+/**
+ * The installed catalog models for one route, indexed by model id. Batch-only
+ * aliases are left out, so no route serves or lists them.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route {@link catalogProvider} does not return.
  */
@@ -268,7 +282,7 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
   const catalogId = catalogProvider(provider)?.id
   if (catalogId === undefined) return new Map()
   const models = getBuiltinModels(catalogId as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  return new Map(models.filter(model => servesRequests(catalogId, model)).map(model => [model.id, model]))
 }
 
 /**
