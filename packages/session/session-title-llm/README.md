@@ -35,7 +35,9 @@ Every request carries `currentTitle`, the latest accepted title snapshot the ser
 
 ### Route and failure contract
 
-`provider` and `model` overrides are optional but must be supplied together as non-empty strings. Without that pair, the function uses the exact provider/model route captured from the current session's logged `request/header`, so an explicit refresh before any route exists needs overrides. It measures the final prepared user input against `maxInputBytes` before logging or dispatch instead of truncating it, and rechecks timeout and caller cancellation while consuming the stream and after it completes, so a late successful result cannot be accepted even if an interceptor or adapter ignores abort. It records the exact request in `session/title-llm-request` and returns the assembled content blocks plus the terminal finish and the used model identity. Operational errors, aborts, and unsupported finish reasons reject; `stop`, `tool-calls`, and `max-tokens` return to the provider for its own acceptance decision. The title request uses `maxOutputTokens` independently of the conversation's cap. Its route must have a registered adapter so preparation can resolve the request before it is recorded.
+<a id="route-and-failure-contract"></a>
+
+`provider` and `model` overrides are optional but must be supplied together as non-empty strings. Without that pair, the function uses the exact provider/model route captured from the current session's logged `request/header`, so an explicit refresh before any route exists needs overrides. It measures the final prepared user input against `maxInputBytes` before logging or dispatch instead of truncating it, and rechecks timeout and caller cancellation while consuming the stream and after it completes, so a late successful result cannot be accepted even if an interceptor or adapter ignores abort. It records the exact request in `session/title-llm-request` and returns the assembled content blocks plus the terminal finish and the used model identity. A dispatched attempt that fails operationally is retried once after 1.5 s with its own deadline and record, because a provider that serves one request at a time (a single on-device model) fails the title request that runs beside the main one; caller cancellation, an expired `timeoutMs`, and failures before dispatch are not retried. Operational errors that persist, aborts, and unsupported finish reasons reject; `stop`, `tool-calls`, and `max-tokens` return to the provider for its own acceptance decision. The title request uses `maxOutputTokens` independently of the conversation's cap. Its route must have a registered adapter so preparation can resolve the request before it is recorded.
 
 ### Configuration
 
@@ -49,6 +51,12 @@ Every execution field is required except the paired route override; there are no
 | `maxOutputTokens` | required | Title output-token cap, independent of conversation requests |
 | `timeoutMs` | required | End-to-end deadline within the runtime timer limit |
 | `provider`, `model` | optional | Explicit route; both or neither |
+
+### Slug titles
+
+<a id="slug-titles"></a>
+
+Setting `style: slug` on a provider row (`session-title-first-prompt-llm`, or the experimental `session-title-all-prompts-llm`) asks the model for a lowercase hyphenated identifier (`fix-login-redirect`) instead of a phrase. The provider takes its instruction from `slugTitleInstruction` and passes the reply through `slugifyTitle`, which coerces quotes, Title Case, sentences and accents into that shape, capped at `targetWords` words held between 2 and 6. Meant for sidebars that also use a hand-typed `slug: prompt` naming convention, and for small on-device title models whose free-form summaries are unreliable. The default `natural` style is unchanged.
 
 -----
 
