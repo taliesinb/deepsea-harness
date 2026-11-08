@@ -1237,3 +1237,9 @@ it('resolves the exact pi-ai image budget for screenshot coordinates', () => {
     .toEqual({ width: 100, height: 100, maxBytes: 50_000 })
   expect(() => adapter.imageRequestTarget('missing', 'deepseek-flash', IMAGE_REF)).toThrow('does not own provider')
 })
+
+it('caps the long edge of screenshot coordinates like the request image', () => {
+  const adapter = adapterOf({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', requestImageMaxDimension: 2000 } })
+  expect(adapter.imageRequestTarget('deepseek', 'deepseek-flash', { ...IMAGE_REF, width: 4572, height: 860 }))
+    .toMatchObject({ width: 2000, height: 376 })
+})
