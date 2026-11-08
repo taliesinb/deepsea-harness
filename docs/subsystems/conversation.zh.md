@@ -251,7 +251,7 @@ export function apply(ctx: ClientContext): void {
 
 match 结果带 `exclusive: true` 时，即在该 Definition 的 target 上认领这个事件。Assembler 先求出该事件的全部 match，再逐个接收，因此结果与注册顺序无关：被认领 target 上的其他 Definition 不为该事件建立 Context，该 target 的未匹配事件 fallback 也不运行；其他 target 的 Definition 与没有 target 的 Definition 照常接收。同一 target 被认领两次，或没有 target 的 Definition 发起认领，都会在分发时抛错；fallback 自身返回的认领不起作用。业务 Definition 用认领来呈现某一类消息，而同一 target 上的通用 Definition 原本也会呈现它，例如迟到的问题回答。
 
-`buildLocationData(context, scope)` 可以把 Definition 拥有的数据发布到引擎拥有的 Turn 或 Step 上。通过 declaration merging 为每个 key 指定精确 value 类型。同一 Location 内的另一个 Node 可以使用受限 slot hook（例如 `useTurnData(key)`）读取该值，无须取得 Session，也无须扫描 `snapshot.chat.nodes`。
+`buildLocationData(context, scope)` 可以把 Definition 拥有的数据发布到引擎拥有的 Turn 或 Step 上。通过 declaration merging 为每个 key 指定精确 value 类型。同一 Location 内的另一个 Node 可以使用受限 slot hook（例如 `useTurnData(key)`）读取该值，无须取得 Session，也无须扫描 `snapshot.chat.nodes`。需要其 Location 之外某个 Node 的 renderer 按 key 读取这一个 Node：`ctx.uiConversation.contextKey(kind, id)` 给出它的 key，target 的按键 store 返回该 Node。
 
 `target` 与 `buildViewNode(context)` 必须同时声明一项由 target 拥有的渲染贡献。把 `context.key` 保留为 React 侧身份，根据持久排序证据选择 `anchorSeq`，并且只返回 renderer 可以直接使用的数据。某个 target Node 一旦发布，就要继续返回同一个 key；需要暂时离开可见流时使用 `visibility: 'hidden'`，不要改为返回 `null` 撤回它。
 
