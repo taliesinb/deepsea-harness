@@ -105,6 +105,10 @@ Workspace 和 Session 的启动基线均就绪后，空安装环境调用 `works
 
 本包是一条组合：两个目标 slot 都由其他插件声明，因此 `apply` 使用 `slots.inject()` 在各自的声明生命周期内完成注册，并在目标 slot 的声明恢复后重新注册。
 
+另有两个 root 作用域的 `list` seat，让插件添加并非本地目录的另一类 Workspace。`sidebar.workspaces.headerAction` 在“添加工作区”旁渲染图标按钮，搜索展开时与其他标题操作一同隐藏；`sidebar.workspaces.extra` 在同一列表区域内本地树的下方渲染分组，仅在侧边栏展开且没有进行搜索时渲染，其条目自行确定尺寸，使本地树占据剩余高度。二者的所有者共享为该列的 `wide` 状态。
+
+`ctx.uiWorkspace.handleSessionDrop(handler)` 让插件接收用户在分组树中拖到另一个 Workspace 分组上的 Session 行。注册了处理器时，该分组会在被拖动的行下方高亮，放下时以 `{ sessionId, displayTitle, workspaceId }` 调用处理器；放下的含义（例如移动该 Session）由插件决定。没有处理器时，行仍只能在自己的分组内移动。注册归调用方的 fiber 所有；有多个时，最后注册的接收放下。
+
 浏览器入口为每个 Session 行声明三个 root 作用域的 `list` 子 slot：`sidebar.session.row.leading`、`sidebar.session.row.trailing` 和 `sidebar.session.row.hover`。三者只接收 `sessionId`，占用方据此读取自己的数据，不建立 Session 绑定。Session 作用域的 slot 会激活并保留列表中每个 Session。
 
 前置 slot 仅在该行主状态为 idle 时占用状态单元，归档行留空。尾部 slot 按 `order` 升序放置非交互图标，位置在时间标签之后、置顶标记之前。空白行不渲染尾部 slot；空 slot 不增加间距。悬浮 slot 仅在该行的悬浮卡片打开时挂载。
