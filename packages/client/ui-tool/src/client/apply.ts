@@ -16,6 +16,7 @@ import { readToolview } from './tool/toolviews/read-row.tsx'
 import { readImageToolview } from './tool/toolviews/read-image-row.tsx'
 import { searchToolview } from './tool/toolviews/search-row.tsx'
 import { detailsToolview } from './tool/toolviews/details-row.tsx'
+import { jobToolview } from './tool/toolviews/job-row.tsx'
 import { todoToolview } from './tool/toolviews/todo-row.tsx'
 import { webToolview } from './tool/toolviews/web-row.tsx'
 
@@ -52,5 +53,6 @@ export function apply(ctx: ClientContext): void {
   ctx.plugin(webToolview)
   ctx.plugin(todoToolview)
   ctx.plugin(detailsToolview)
+  ctx.plugin(jobToolview)
   ctx.plugin(askQuestionToolview)
 }

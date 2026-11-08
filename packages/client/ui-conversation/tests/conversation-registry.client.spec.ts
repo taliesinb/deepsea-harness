@@ -448,6 +448,33 @@ describe('Conversation registries', () => {
     rebuild.mockRestore()
   })
 
+  it('names a materialized Node by its Definition kind and business id', async () => {
+    const { uiConversation, binding, events, views } = await bootRegistries()
+    const nodes: ConversationViewNode[] = []
+    views.register({
+      target: 'chat',
+      create: () => ({
+        empty: null,
+        replace: (input) => { nodes.push(...input.nodes); return null },
+        apply: (input) => { nodes.push(...input.upserts); return null },
+      }),
+    })
+    events.register({
+      kind: 'job',
+      target: 'chat',
+      match: event => event.type === 'turn/start' ? { id: `turn-${event.data.turn}`, role: 'start' } : null,
+      start: () => null,
+      update: context => context.state,
+      buildViewNode: context => ({ key: context.key, kind: 'job', id: context.id, target: 'chat', data: null }),
+    })
+    await Promise.resolve()
+    uiConversation.binding(binding).activate('chat')
+    const source = binding.eventSource as MutableSessionEventSource
+    source.append({ type: 'event', event: { type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 4 } } })
+    expect(nodes.map(node => node.key)).toEqual([uiConversation.contextKey('job', 'turn-4')])
+    expect(uiConversation.contextKey('ab', 'c')).not.toBe(uiConversation.contextKey('a', 'bc'))
+  })
+
   it('activates each target on explicit selection or first use and never deactivates it', async () => {
     const { uiConversation, binding, views } = await bootRegistries()
     const chat = viewDefinition('chat')
