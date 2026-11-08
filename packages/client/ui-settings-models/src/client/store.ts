@@ -9,7 +9,7 @@
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {
-  CredentialInfo, LlmConfigurableProvider, LlmNativeAuth, LlmProviderInfo, SettingsNamespaceView,
+  CredentialInfo, LlmConfigurableProvider, LlmNativeAuth, LlmProviderInfo, LlmSignInRoute, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -33,6 +33,8 @@ export interface ProviderDirectoryEntry {
   readonly defaultBaseURL?: string
   readonly baseURLEnv?: readonly string[]
   readonly nativeAuth?: LlmNativeAuth
+  /** Present when the route signs in through a browser; signing in creates it. */
+  readonly signIn?: LlmSignInRoute
   readonly error?: string
 }
 
@@ -58,6 +60,7 @@ export function joinProviderDirectory(
     ...entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: entry.defaultBaseURL },
     ...entry.baseURLEnv === undefined ? {} : { baseURLEnv: entry.baseURLEnv },
     ...entry.nativeAuth === undefined ? {} : { nativeAuth: entry.nativeAuth },
+    ...entry.signIn === undefined ? {} : { signIn: entry.signIn },
     ...entry.error === undefined ? {} : { error: entry.error },
   }))
   for (const provider of registered) {

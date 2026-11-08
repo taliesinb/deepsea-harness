@@ -19,11 +19,11 @@
  * @module dsh-llm-pi-ai/provider
  */
 
-import type { Api, ApiKeyAuth, Model, Provider, ProviderStreams } from '@earendil-works/pi-ai'
+import type { Api, ApiKeyAuth, Model, Provider, ProviderStreams, TranscriptContext } from '@earendil-works/pi-ai'
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
-import { catalogProvider, PiAiCatalogError } from './catalog.ts'
+import { catalogProvider, oauthCatalogProvider, PiAiCatalogError } from './catalog.ts'
 import { createProvider } from './models.ts'
 
 /**
@@ -129,6 +129,7 @@ export interface ProviderSpec {
  * @returns the auth to construct this route's provider with.
  */
 function routeAuth(spec: ProviderSpec, catalog: Provider | undefined): Provider['auth'] {
+  if (oauthCatalogProvider(spec.provider) !== undefined) return catalog?.auth.oauth === undefined ? {} : { oauth: catalog.auth.oauth }
   if (catalog === undefined) return { apiKey: harnessApiKeyAuth(spec.displayName) }
   if (catalog.auth.apiKey !== undefined || !spec.namesCredential) return catalog.auth
   return { ...catalog.auth, apiKey: harnessApiKeyAuth(spec.displayName) }
@@ -145,6 +146,15 @@ function reuseCatalogProvider(base: Provider, spec: ProviderSpec): Provider {
   // Provider-level `baseUrl` is display metadata: pi-ai routes every request
   // through `Model.baseUrl`, which model resolution has already overridden.
   const baseUrl = spec.baseURL ?? base.baseUrl
+  const oauthAlias = oauthCatalogProvider(spec.provider) !== undefined
+  // Native transports branch on provider identity (notably Copilot headers).
+  // The route still owns auth/storage; translate only at the dispatch boundary.
+  const nativeModel = (model: Model<Api>): Model<Api> => oauthAlias ? { ...model, provider: base.id } : model
+  const nativeContext = (context: TranscriptContext): TranscriptContext => oauthAlias ? {
+    ...context,
+    messages: context.messages.map(message => message.role === 'assistant' && message.provider === spec.provider
+      ? { ...message, provider: base.id } : message),
+  } : context
   return {
     id: spec.provider,
     name: spec.displayName,
@@ -153,8 +163,8 @@ function reuseCatalogProvider(base: Provider, spec: ProviderSpec): Provider {
     getModels: () => spec.models,
     // Delegated rather than copied: the catalog provider stays the receiver, so
     // an implementation holding state on itself keeps working.
-    stream: (model, context, options) => base.stream(model, context, options),
-    streamSimple: (model, context, options) => base.streamSimple(model, context, options),
+    stream: (model, context, options) => base.stream(nativeModel(model), nativeContext(context), options),
+    streamSimple: (model, context, options) => base.streamSimple(nativeModel(model), nativeContext(context), options),
   }
 }
 
