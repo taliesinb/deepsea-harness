@@ -122,6 +122,8 @@ dsh web --dump-config
 dsh web --help
 ```
 
+The served page accepts one presentation selector: `/?embed=<sessionId>` renders that Session chrome-less (no navigation sidebar, selection pinned, persisted browser state namespaced per embedded Session) for a document that frames the GUI; it is a query parameter because the shell resolves every Host URL relative to the served document's directory.
+
 The production Web runner needs built package and frontend artifacts (`pnpm run build`). It prints the advertised `--public-url` when configured, otherwise the listener's bind-address URL with the listener's scheme (default `http://127.0.0.1:3080`, or `https://` when TLS is configured). The Host/Origin fence accepts the bind IP directly; a proxy or DNS authority still needs `--trusted-host`. The startup line and default-browser handoff wait for the complete Loader tree. A non-empty inherited `SSH_CONNECTION` or `SSH_TTY` suppresses browser opening, not the startup line. Immediately before a browser handoff it prints `dsh web: opening the default browser; pass --no-open to disable`; if the operating-system handoff fails, stderr names the reason and points to the startup URL while the server keeps running.
 
 Process shutdown gives the plugin tree up to five seconds to dispose. The first `SIGINT`/`SIGTERM` starts that graceful drain — `SIGTERM` is a supervisor's ordinary stop request and exits 0 on every surface, `SIGINT` reports 130; a second signal forces immediate exit. If one-shot normal completion is already stuck in disposal, the first `Ctrl+C` is the escalation and exits immediately instead of being swallowed.
