@@ -8,7 +8,7 @@ import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/cl
 import type { ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { contextMenuHook, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { ToolCallOwnerProps, ToolTreeProps } from '../src/client/contract/slots.ts'
+import type { ToolCallOwnerProps, ToolCallStatusOwnerProps, ToolTreeProps } from '../src/client/contract/slots.ts'
 import { ToolCallTree } from '../src/client/tool/ToolCallTree.tsx'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
@@ -23,14 +23,23 @@ const root = (callId: string, call: ToolResultNode['call']): ToolResultNode => (
   content: [], isError: false, subCalls: [],
 })
 
+/** One recorded `tool.call.status` dispatch. */
+interface StatusDispatch { owner: ToolCallStatusOwnerProps; entryKey: string | undefined }
+
 function props(
   block: ToolCallBlock,
   home?: string,
   owners?: ToolCallOwnerProps[],
+  statuses?: StatusDispatch[],
 ): ToolTreeProps {
   const snapshot = {} as SessionSnapshot
   const useSession = ((selector: (value: SessionSnapshot) => unknown) => selector(snapshot)) as ToolTreeProps['useSession']
-  const renderSlot = ((_key: string, owner: ToolCallOwnerProps, options?: { fallback?: React.ReactNode }) => {
+  type Owner = ToolCallOwnerProps & ToolCallStatusOwnerProps
+  const renderSlot = ((key: string, owner: Owner, options?: { fallback?: React.ReactNode; entryKey?: string }) => {
+    if (key === 'tool.call.status') {
+      statuses?.push({ owner, entryKey: options?.entryKey })
+      return <span data-testid={`status-${owner.callId}`} />
+    }
     owners?.push(owner)
     return options?.fallback ?? null
   }) as unknown as ToolTreeProps['renderSlot']
@@ -197,6 +206,25 @@ describe('ToolCallTree', () => {
     expect(inspect).toBeDefined()
     inspect?.()
     expect(treeProps.inspectCall).toHaveBeenCalledExactlyOnceWith('running')
+  })
+
+  it('dispatches the status slot by wire name for running calls only', () => {
+    const statuses: StatusDispatch[] = []
+    const args = PartialArguments.fromText('{"job_id":"j1","wait":true}')
+    const running: ToolCallBlock = {
+      phase: 'start' as const, args, callId: 'running', name: 'job_output', argsRaw: '{"job_id":"j1","wait":true}',
+      turn: 1, step: 0, time: 1_000,
+      subCalls: [root('settled-child', { name: 'job_output', argsRaw: '{}' })],
+    }
+    const view = render(<ToolCallTree {...props(running, undefined, undefined, statuses)} />)
+    expect(statuses).toEqual([{ owner: { callId: 'running', toolName: 'job_output', args, startedAt: 1_000 }, entryKey: 'job_output' }])
+    expect(view.getByTestId('status-running').closest('[data-chat-call-id]')?.getAttribute('data-chat-call-id')).toBe('running')
+    statuses.length = 0
+    render(<ToolCallTree {...props({
+      phase: 'preparing', args: PartialArguments.EMPTY, callId: 'preparing', name: 'job_output', turn: 1, step: 1, time: 1, subCalls: [],
+    }, undefined, undefined, statuses)} />)
+    render(<ToolCallTree {...props(root('settled', { name: 'job_output', argsRaw: '{}' }), undefined, undefined, statuses)} />)
+    expect(statuses).toEqual([])
   })
 
   it('abbreviates a POSIX home path in the generic tool summary', () => {

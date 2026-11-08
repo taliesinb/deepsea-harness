@@ -268,3 +268,86 @@ describe('next-step input during a background result wait', () => {
     } finally { await h.dispose() }
   })
 })
+
+describe('releasing an announced background result wait', () => {
+  /** Collect `tool-jobs/wait-started` announcements on the root context. */
+  function collect(ctx: Context): ToolJobs.JobOutputWait[] {
+    const waits: ToolJobs.JobOutputWait[] = []
+    ctx.on('tool-jobs/wait-started', (wait) => { waits.push(wait) })
+    return waits
+  }
+
+  it('announces the wait with its clamped deadline and returns as on timeout when released', async () => {
+    const h = await setup()
+    try {
+      const waits = collect(h.ctx)
+      const before = Date.now()
+      const pending = executeToolFixture(h.ctx, { name: 'job_output', callId: ToolCallId('release'), arguments: { job_id: h.id, wait: true, timeout_ms: 3_600_000 }, agent: h.agent, signal: new AbortController().signal })
+      await h.registered.promise
+      expect(waits).toHaveLength(1)
+      const wait = waits[0]!
+      expect(wait.callId).toBe('release')
+      expect(wait.agent).toBe(h.agent)
+      expect(wait.jobId).toBe(h.id)
+      expect(wait.startedAt).toBeGreaterThanOrEqual(before)
+      expect(wait.deadline - wait.startedAt).toBe(600_000)
+      expect(wait.release()).toBe(true)
+      const result = await pending
+      await wait.ended
+      expect(result.isError).not.toBe(true)
+      expect(JSON.stringify(result.content)).toContain('ready output\\n[status: running]')
+      expect(wait.release()).toBe(false)
+      expect(h.ctx.jobs.get(h.id, h.agent.id).status).toBe('running')
+      expect(h.cancel).not.toHaveBeenCalled()
+      // The job keeps running and its settlement is still announced once.
+      h.done.resolve({ status: 'completed' })
+      await setImmediate()
+      expect(h.agent.inbox.nextStep.filter(m => m.source.kind === 'tool-jobs')).toHaveLength(1)
+    } finally { await h.dispose() }
+  })
+
+  it('appends the release detail to a running job status', async () => {
+    const h = await setup()
+    try {
+      const waits = collect(h.ctx)
+      const pending = executeToolFixture(h.ctx, { name: 'job_output', callId: ToolCallId('detail'), arguments: { job_id: h.id, wait: true }, agent: h.agent, signal: new AbortController().signal })
+      await h.registered.promise
+      expect(waits[0]!.deadline - waits[0]!.startedAt).toBe(30_000)
+      waits[0]!.release('wait ended early by the user')
+      const result = await pending
+      expect(JSON.stringify(result.content)).toContain('[status: running, wait ended early by the user]')
+    } finally { await h.dispose() }
+  })
+
+  it('ends the announcement when the job settles and announces nothing without a wait', async () => {
+    const h = await setup()
+    try {
+      const waits = collect(h.ctx)
+      const plain = await executeToolFixture(h.ctx, { name: 'job_output', callId: ToolCallId('plain'), arguments: { job_id: h.id }, agent: h.agent, signal: new AbortController().signal })
+      expect(plain.isError).not.toBe(true)
+      expect(waits).toHaveLength(0)
+      const pending = executeToolFixture(h.ctx, { name: 'job_output', callId: ToolCallId('settles'), arguments: { job_id: h.id, wait: true }, agent: h.agent, signal: new AbortController().signal })
+      await h.registered.promise
+      h.done.resolve({ status: 'completed', result: 'final output' })
+      expect(JSON.stringify((await pending).content)).toContain('final output')
+      await waits[0]!.ended
+      expect(waits[0]!.release()).toBe(false)
+      const settled = await executeToolFixture(h.ctx, { name: 'job_output', callId: ToolCallId('settled'), arguments: { job_id: h.id, wait: true }, agent: h.agent, signal: new AbortController().signal })
+      expect(settled.isError).not.toBe(true)
+      expect(waits).toHaveLength(1)
+    } finally { await h.dispose() }
+  })
+
+  it('contains a failing listener', async () => {
+    const h = await setup()
+    try {
+      h.ctx.on('tool-jobs/wait-started', () => { throw new Error('listener failure') })
+      const waits = collect(h.ctx)
+      const pending = executeToolFixture(h.ctx, { name: 'job_output', callId: ToolCallId('contained'), arguments: { job_id: h.id, wait: true }, agent: h.agent, signal: new AbortController().signal })
+      await h.registered.promise
+      expect(waits).toHaveLength(1)
+      waits[0]!.release()
+      expect((await pending).isError).not.toBe(true)
+    } finally { await h.dispose() }
+  })
+})

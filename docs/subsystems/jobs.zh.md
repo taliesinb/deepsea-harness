@@ -551,4 +551,27 @@ abstract attachController(name: string): () => void
 Types: [SessionId](core.zh.md)
 
 Source: [`packages/jobs/jobs/src/index.ts`](../../packages/jobs/jobs/src/index.ts)
+
+<a id="tool-jobs-events"></a>
+
+### `tool-jobs/*` events
+
+<a id="tool-jobswait-started--emit"></a>
+
+#### `tool-jobs/wait-started` — emit
+
+A `job_output` call began waiting on a job. Dispatched to every listener (not scope-filtered), before the wait can end, with each listener's failure contained and logged.
+
+```ts cordis-catalog
+/**
+ * A `job_output` call began waiting on a job. Dispatched to every listener
+ * (not scope-filtered), before the wait can end, with each listener's
+ * failure contained and logged.
+ * @param wait - the running wait, with its deadline and release.
+ * @mode emit
+ */
+'tool-jobs/wait-started'(wait: JobOutputWait): void
+```
+
+Source: [`packages/jobs/tool-jobs/src/index.ts`](../../packages/jobs/tool-jobs/src/index.ts)
 <!-- END GENERATED cordis-surface -->

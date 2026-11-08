@@ -1,7 +1,9 @@
 /** Root/subcall Tool composition with one keyed atomic dispatch path. */
 import { memo, useCallback, useMemo, type ReactNode } from 'react'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { ToolCallOwnerProps, ToolCallPhaseProps, ToolTreeProps } from '../contract/slots.ts'
+import type {
+  ToolCallOwnerProps, ToolCallPhaseProps, ToolCallStatusOwnerProps, ToolTreeProps,
+} from '../contract/slots.ts'
 import { toolRowModel } from './models/tool-call-model.ts'
 import { GenericToolCard } from './toolviews/GenericToolCard.tsx'
 import css from './ToolCallTree.module.css'
@@ -38,6 +40,9 @@ const ToolCall = memo(function ToolCall({
     useDisclosure,
     inspect: inspectCall === undefined ? undefined : () => { inspectCall(callId) },
   }), [callId, toolName, call, openFile, cwd, home, loadImage, inspectCall, useDisclosure])
+  const status: ToolCallStatusOwnerProps | null = useMemo(() => call.phase === 'start'
+    ? { callId, toolName, args: call.block.args, startedAt: call.block.time }
+    : null, [callId, toolName, call])
   const autoReviewDenied = useMemo(
     () => call.phase === 'result' && toolRowModel(toolName, call.block).autoReviewDenial !== null,
     [toolName, call],
@@ -54,6 +59,7 @@ const ToolCall = memo(function ToolCall({
           entryKey: toolName,
           fallback: renderFallback(owner),
         })}
+      {status !== null && renderSlot('tool.call.status', status, { entryKey: toolName })}
       {children}
     </div>
   )

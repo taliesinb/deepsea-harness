@@ -156,6 +156,7 @@ Factory: conversation.content [ConversationContent]
 │     │        │  └─ conversation.chat.reasoning.body [DefaultReasoningBody]
 │     │        │     └─ calls Factory: conversation.chat.reasoning.content
 │     │        ├─ key=tool-call [ToolCallTree]
+│     │        │  ├─ tool.call.status [keyed]
 │     │        │  └─ tool.call.toolview
 │     │        │     └─ key=read_image [ReadImageRow / ToolRow]
 │     │        │        └─ tool.call.images [MessageImages]
