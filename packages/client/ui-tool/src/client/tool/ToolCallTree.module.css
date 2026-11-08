@@ -1,5 +1,33 @@
+/* One call: its view and subcalls span the row; while the call runs, the
+   tool.call.status cell sits over the right end of the view's head line, on
+   the conversation background, fading in over a head line long enough to
+   reach it. Slot anchors are display:contents, so the grid items are the
+   occupants' own roots. With no status the second column takes no width. */
 .callRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   border-radius: var(--dsw-radius-sm);
+}
+
+.callRow > *,
+.callRow > [data-slot] > * {
+  grid-column: 1 / -1;
+}
+
+/* The view's head shares the first row with the status cell; auto-placement
+   would move a spanning item below the explicitly placed cell. */
+.callRow > [data-slot='tool.call.toolview'] > :first-child {
+  grid-row: 1;
+}
+
+/* Positioned so it paints above the head row, which is position: relative. */
+.callRow > [data-slot='tool.call.status'] > * {
+  grid-area: 1 / 2;
+  align-self: start;
+  position: relative;
+  z-index: 1;
+  padding-left: 24px;
+  background: linear-gradient(to right, transparent, var(--dsw-alias-bg-base) 24px);
 }
 
 .subCalls {

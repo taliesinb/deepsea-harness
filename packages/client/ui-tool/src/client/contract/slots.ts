@@ -26,6 +26,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: ToolCallOwnerProps
     }
     /**
+     * Live status of a running Tool call, keyed by wire name like the toolview
+     * and rendered over the right end of the row's head line, from dispatch
+     * until the result: a countdown, progress, or a control for the call.
+     * The row stays its toolview's; an unclaimed key renders nothing.
+     */
+    'tool.call.status': {
+      kind: 'keyed'
+      scope: 'session'
+      owner: ToolCallStatusOwnerProps
+    }
+    /**
      * Durable images of a settled image-bearing Tool call, rendered through
      * the attachment presentation plugin. The Tool layer never imports an
      * attachment implementation: a toolview declares this slot as a child and
@@ -40,6 +51,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'tool.call.images': { kind: 'single'; scope: 'session'; owner: ToolImagesOwnerProps }
   }
+}
+
+/** Owner currency of the running-call status slot. */
+export interface ToolCallStatusOwnerProps {
+  /** Call identity, as on the toolview. */
+  callId: string
+  /** Wire Tool name and keyed dispatch value. */
+  toolName: string
+  /** The dispatched call's complete arguments. */
+  args: StartedToolCall['args']
+  /** Unix epoch ms of the call's dispatch (`tool/call`). */
+  startedAt: number
 }
 
 /** Owner currency of the Tool image gallery slot: references plus the loader. */
@@ -149,6 +172,6 @@ export type ToolHostInfoInjected = {
 
 /** Full props of the Tool call-tree renderer registered as a tool-call Chat Node. */
 export type ToolTreeProps = PropsRuntime<'conversation.chat.node', 'tool-call'>
-  & PropsRenderSlots<'tool.call.toolview'>
+  & PropsRenderSlots<'tool.call.toolview' | 'tool.call.status'>
   & PropsLocale<'conversation'>
   & InjectFace<ToolHostInfoInjected & ToolFileInjected>
