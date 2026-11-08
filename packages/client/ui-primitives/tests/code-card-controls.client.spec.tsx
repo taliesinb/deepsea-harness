@@ -18,10 +18,32 @@ afterEach(() => {
 })
 
 describe('code-card controls', () => {
-  it.each([undefined, 'unregistered'])('labels the %s language with the localized code title', (lang) => {
-    render(<CodeBlock code="plain source" lang={lang} {...labels} />)
-    expect(screen.getByText('Code block')).toBeTruthy()
+  it.each([undefined, '', '  '])('shows no language label for a fence without one (%j)', (lang) => {
+    const view = render(<CodeBlock code="plain source" lang={lang} {...labels} />)
+    expect(screen.queryByText('Code block')).toBeNull()
+    expect(view.container.querySelector('[data-code-block-banner]')?.textContent).toBe('')
     expect(screen.getByRole('button', { name: 'Copy' }).textContent).toBe('')
+  })
+
+  it('labels an unhighlighted language as written, not with the code title', () => {
+    render(<CodeBlock code="plain source" lang="unregistered" {...labels} />)
+    expect(screen.getByText('unregistered')).toBeTruthy()
+    expect(screen.queryByText('Code block')).toBeNull()
+  })
+
+  it('floats the toolbar over the source and reserves its width beside the first line', () => {
+    const view = render(<CodeBlock code="first line" lang="ts" {...labels} />)
+    const toolbar = view.container.querySelector('[data-code-block-banner]')
+    expect(toolbar?.getAttribute('data-code-toolbar-floating')).toBe('true')
+    const space = view.container.querySelector('[data-code-block-content] > [aria-hidden]')
+    expect(space?.getAttribute('data-lang')).toBe('ts')
+    expect(space?.getAttribute('data-actions')).toBe('wrap-copy')
+    expect(space?.textContent).toBe('')
+    view.rerender(<CodeBlock code="first line" {...labels} wrap />)
+    expect(view.container.querySelector('[data-code-block-content] > [aria-hidden]')?.getAttribute('data-actions')).toBe('copy')
+    view.rerender(<CodeBlock code="first line" {...labels} showHeader={false} />)
+    expect(view.container.querySelector('[data-code-block-banner]')).toBeNull()
+    expect(view.container.querySelector('[data-code-block-content] > [aria-hidden]')).toBeNull()
   })
 
   it('keeps a known grammar name while its highlighter is not yet visible', () => {
