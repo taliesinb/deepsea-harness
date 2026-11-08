@@ -30,6 +30,22 @@
   background: linear-gradient(to right, transparent, var(--dsw-alias-bg-base) 24px);
 }
 
+/* A call reached from another row's summary link (reveal-call.ts). */
+.callRow[data-tool-call-reveal] {
+  animation: callReveal 1.6s ease-out;
+}
+
+@keyframes callReveal {
+  from, 30% { background: var(--dsw-alias-interactive-bg-hover-accent); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .callRow[data-tool-call-reveal] {
+    animation-timing-function: step-end;
+  }
+}
+
 .subCalls {
   display: flex;
   flex-direction: column;
