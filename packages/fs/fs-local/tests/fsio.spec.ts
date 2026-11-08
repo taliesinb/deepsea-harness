@@ -791,6 +791,7 @@ describe('writeFileAtomic — temp-file safety', () => {
     })
 
     expect(await readFile(file, 'utf8')).toBe('new')
+    if (posixModes) expect((await stat(file)).mode & 0o777).toBe(0o600)
   })
 
   it('recreates a vanished Windows target with the already-protected temp', async () => {
@@ -892,9 +893,44 @@ describe('writeFileAtomic — temp-file safety', () => {
     expect(await readFile(file, 'utf8')).toBe('ours')
   })
 
-  it.skipIf(!posixModes)('creates new files owner-only by default', async () => {
+  async function withUmask(mask: number, run: () => Promise<void>): Promise<void> {
+    const previous = process.umask(mask)
+    try {
+      await run()
+    } finally {
+      process.umask(previous)
+    }
+  }
+
+  it.skipIf(!posixModes)('creates new files with the open() mode under the umask while staging stays owner-only', async () => {
+    for (const [mask, expected] of [[0o022, 0o644], [0o077, 0o600], [0o002, 0o664]] as const) {
+      const file = join(dir, `new-${mask.toString(8)}.txt`)
+      let tempMode: number | undefined
+      await withUmask(mask, async () => {
+        const umask = vi.spyOn(process, 'umask')
+        try {
+          await writeFileAtomic(file, 'hello', undefined, undefined, {
+            inspectTemp: async ({ tempPath }) => { tempMode = (await stat(tempPath)).mode & 0o777 },
+          })
+          expect(umask).not.toHaveBeenCalled()
+        } finally {
+          umask.mockRestore()
+        }
+      })
+      expect(tempMode).toBe(0o600)
+      expect((await stat(file)).mode & 0o777).toBe(expected)
+    }
+  })
+
+  it.skipIf(!posixModes)('publishes a guarded create with the open() mode under the umask', async () => {
     const file = join(dir, 'a.txt')
-    await writeFileAtomic(file, 'hello', undefined, undefined)
+    await withUmask(0o022, () => writeFileAtomic(file, 'hello', undefined, undefined, {}, { createIfAbsent: true }))
+    expect((await stat(file)).mode & 0o777).toBe(0o644)
+  })
+
+  it.skipIf(!posixModes)('applies a given mode regardless of the umask', async () => {
+    const file = join(dir, 'a.txt')
+    await withUmask(0o022, () => writeFileAtomic(file, 'hello', 0o600, undefined))
     expect((await stat(file)).mode & 0o777).toBe(0o600)
   })
 
