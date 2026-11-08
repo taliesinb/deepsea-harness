@@ -98,6 +98,14 @@ export interface ComposerKeyboard {
   /** Dismiss the popupSelect shell (any interaction outside the box). */
   dismissPopup(): void
   /**
+   * Refill an entirely empty plain draft with the last prompt this Session's
+   * composer submitted: its text, reference chips, command chip, quotes, and,
+   * while the browser still holds their files, its attachments.
+   * @returns whether the draft was refilled; false when the draft holds any
+   * content or attachment, the input is busy, or no prompt is remembered.
+   */
+  recallPrompt(): boolean
+  /**
    * Bind the mounted composer's file action and live intake availability.
    * @param picker - availability query and native file-dialog opener.
    * @returns the unbind disposer.

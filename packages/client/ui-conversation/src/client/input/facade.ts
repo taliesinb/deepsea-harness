@@ -74,6 +74,16 @@ export interface SessionInputDeps {
   quoteInsertionAllowed?: () => boolean
   /** Current localized quote removal copy. */
   quoteRemoveLabel?: () => string
+  /**
+   * Browser files behind the last submitted prompt's attachments. `capture`
+   * reads the files of ordered live draft ids when the prompt is submitted;
+   * `readmit` registers them again as new draft attachments when the prompt is
+   * recalled. Absent, a recalled prompt carries no attachments.
+   */
+  promptAttachments?: {
+    capture(ids: readonly DraftAttachmentId[]): readonly File[]
+    readmit(files: readonly File[]): readonly DraftAttachmentId[]
+  } | undefined
   /** Command-plane attachment plumbing (the hub owns the conversation face and the copy). */
   commandAttachments: {
     /** Resolve ordered draft ids to wire payloads without sending them; rejects when an id no longer resolves. */
@@ -112,6 +122,12 @@ function projectionContentChanged(prev: EditorProjection, next: EditorProjection
     const old = prev.occurrences[i]
     return old === undefined || old.occurrenceId !== occ.occurrenceId || old.invalid !== occ.invalid
   })
+}
+
+/** One submitted prompt as the composer showed it: semantic document plus the browser files of its attachments. */
+export interface SubmittedPrompt {
+  readonly draft: DraftSnapshot
+  readonly files: readonly File[]
 }
 
 /** Message of a failure surfaced as a composer notice. */
@@ -169,8 +185,16 @@ export class SessionInputShell implements SessionInput {
   private disposed = false
   /** Conversation store writer for the current semantic document. */
   private persistDraft: ((draft: DraftSnapshot) => void) | undefined
+  /** Conversation store writer for the last submitted prompt's semantic document. */
+  private persistPrompt: ((prompt: DraftSnapshot) => void) | undefined
+  /** The prompt the in-flight attempt carries, remembered once the attempt commits. */
+  private pendingPrompt: SubmittedPrompt | undefined
+  /** The last prompt whose attempt committed (or the persisted one seeded at construction), recalled by ArrowUp. */
+  private lastPrompt: SubmittedPrompt | undefined
   /** A restored draft's command token waiting for the trigger pipeline, with the revision its restore produced. */
   private pendingCommand: { readonly token: string; readonly rev: number } | undefined
+  /** Count of whole-draft writes; a write's deferred command restore applies only while it is the latest. */
+  private draftWrites = 0
   /** The in-flight claim resolution for a restored command chip. */
   private commandRestore: AbortController | undefined
   /** The mounted composer's file-picker opener (scoped pick-files event target). */
@@ -218,16 +242,22 @@ export class SessionInputShell implements SessionInput {
    * Replace the whole draft (persisted-draft seed and programmatic writes).
    * Placeholder-sanitized; newlines split paragraphs; the caret lands at the
    * end. Merged into history so a seed is not an undoable step of its own.
+   * Called inside an editor update (a keyboard command), the write commits
+   * with that update, and a command chip restore starts at that commit.
    * @param text - plain text or the complete semantic document.
    */
   setDraft(text: DraftInput): void {
     const draft = resolveDraftInput(text)
     this.cancelCommandRestore()
-    if (draft.references.length === 0 && (draft.quotes?.length ?? 0) === 0) this.draftEditor.setDraft(draft.text)
-    else this.draftEditor.restoreDraft(draft.text, draft.references, draft.quotes, { remove: this.deps.quoteRemoveLabel?.() ?? '' })
-    if (draft.command === undefined) return
-    this.pendingCommand = { token: draft.command.token, rev: this.rev }
-    this.restoreCommand()
+    const write = ++this.draftWrites
+    const command = draft.command
+    const committed = command === undefined ? undefined : (): void => {
+      if (write !== this.draftWrites) return
+      this.pendingCommand = { token: command.token, rev: this.rev }
+      this.restoreCommand()
+    }
+    if (draft.references.length === 0 && (draft.quotes?.length ?? 0) === 0) this.draftEditor.setDraft(draft.text, committed)
+    else this.draftEditor.restoreDraft(draft.text, draft.references, draft.quotes, { remove: this.deps.quoteRemoveLabel?.() ?? '' }, committed)
   }
 
   /** @param text - selected transcript text. @returns whether the editable draft accepted the quote. */
@@ -289,9 +319,41 @@ export class SessionInputShell implements SessionInput {
     return value
   }
 
-  /** Persist the latest document without changing the editor or binding a writer. */
+  /** Persist the latest document and the remembered prompt without changing the editor or binding a writer. */
   persistCurrentDraft(): void {
     this.persistDraft?.(this.draftSnapshot)
+    if (this.lastPrompt !== undefined) this.persistPrompt?.(this.lastPrompt.draft)
+  }
+
+  /**
+   * Seed the prompt ArrowUp recalls before the first lookup returns: a
+   * previous shell's remembered prompt, or the persisted document without files.
+   * A prompt this shell submitted later replaces it.
+   * @param prompt - the last submitted prompt, or undefined.
+   */
+  seedLastPrompt(prompt: SubmittedPrompt | undefined): void {
+    this.lastPrompt = prompt === undefined ? undefined : { draft: resolveDraftInput(prompt.draft), files: prompt.files }
+  }
+
+  /** The prompt ArrowUp would recall, for a successor shell of the same Session. */
+  get rememberedPrompt(): SubmittedPrompt | undefined {
+    return this.lastPrompt
+  }
+
+  /**
+   * Refill an entirely empty plain draft with the last committed prompt. The
+   * caret lands at the end; a command chip is rebuilt like a restored draft's,
+   * and attachment files are registered again as new drafts.
+   * @returns whether the draft was refilled.
+   */
+  recallPrompt(): boolean {
+    const prompt = this.lastPrompt
+    if (prompt === undefined || this.disposed || this.core.state.phase !== 'plain') return false
+    if (this.projection.clipboardText !== '' || this.attachmentIds.length > 0) return false
+    this.setDraft(prompt.draft)
+    const attachments = this.deps.promptAttachments
+    if (prompt.files.length > 0 && attachments !== undefined) this.addAttachments(attachments.readmit(prompt.files))
+    return true
   }
 
   /**
@@ -407,15 +469,25 @@ export class SessionInputShell implements SessionInput {
       this.notify('error', this.deps.commandAttachments.unsupportedNotice(before.claim?.token ?? before.draft))
       return
     }
+    const wasFrozen = frozen(before.phase)
+    const prompt = this.draftSnapshot
+    const attachmentIds = [...this.attachmentIds]
     this.dispatchRun({
       type: 'enter',
       mode,
       draft: this.projection.clipboardText,
       occurrences: [...this.projection.occurrences],
       quotes: [...this.projection.quotes],
-      attachmentIds: [...this.attachmentIds],
+      attachmentIds,
       submission,
     })
+    if (!wasFrozen && frozen(this.snapshot.phase)) {
+      // The attempt holds the one in-flight slot, so its commit-draft effect is the next one.
+      this.pendingPrompt = {
+        draft: prompt,
+        files: attachmentIds.length === 0 ? [] : this.deps.promptAttachments?.capture(attachmentIds) ?? [],
+      }
+    }
     if (frozen(this.snapshot.phase)) {
       this.deps.popup?.()?.dismiss()
       this.deps.inputTriggers?.()?.track(this.projection.detectText, 0, { tier: 'frozen' }, this.rev)
@@ -610,14 +682,21 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Bind the Conversation store writer without importing or saving content.
+   * Bind the Conversation store writers without importing or saving content.
    * @param write - semantic draft writer; persistCurrentDraft flushes the initial value.
-   * @returns the unbind disposer.
+   * @param writePrompt - writer of the last submitted prompt's semantic document, called when an attempt commits.
+   * @returns the unbind disposer, which unbinds both writers.
    */
-  bindDraftPersistence(write: (draft: DraftSnapshot) => void): () => void {
+  bindDraftPersistence(
+    write: (draft: DraftSnapshot) => void,
+    writePrompt?: (prompt: DraftSnapshot) => void,
+  ): () => void {
     this.persistDraft = write
+    this.persistPrompt = writePrompt
     return () => {
-      if (this.persistDraft === write) this.persistDraft = undefined
+      if (this.persistDraft !== write) return
+      this.persistDraft = undefined
+      this.persistPrompt = undefined
     }
   }
 
@@ -690,11 +769,18 @@ export class SessionInputShell implements SessionInput {
   }
 
   /**
-   * Execute the commit-draft effect: clear the committed content (retaining
-   * a pure typed-during-flight suffix when the snapshot allows) and cut the
-   * undo history so sent content cannot resurrect.
+   * Execute the commit-draft effect: remember the committed prompt for
+   * recall, clear the committed content (retaining a pure typed-during-flight
+   * suffix when the snapshot allows), and cut the undo history so sent
+   * content cannot resurrect.
    */
   private commitDraft(retainSuffixOf: string | null): void {
+    const prompt = this.pendingPrompt
+    if (prompt !== undefined) {
+      this.pendingPrompt = undefined
+      this.lastPrompt = prompt
+      this.persistPrompt?.(prompt.draft)
+    }
     this.draftEditor.clearCommittedDraft((clip) => {
       if (retainSuffixOf !== null && clip !== retainSuffixOf && clip.startsWith(retainSuffixOf)) {
         return retainSuffixOf.length

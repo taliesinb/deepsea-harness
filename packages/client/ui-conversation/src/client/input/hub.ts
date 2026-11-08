@@ -1,8 +1,8 @@
 /**
  * Session-bound input registry and default-send routing for Conversation.
  * Each retained Session binding owns one shell, its input listeners, and its
- * catalog subscription. Saved drafts enter the model before the first lookup
- * returns; Session-scope disposal releases the shell and its resources.
+ * catalog subscription. Saved drafts and the last submitted prompt enter the
+ * model before the first lookup returns; Session-scope disposal releases the shell and its resources.
  */
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
@@ -23,10 +23,10 @@ import type {
 import type { ComposerKeyboard } from '../contract/draft-editor.ts'
 import type { ComposerBlocks } from '../contract/composer-blocks.ts'
 import type { InputSubmitMode } from '../contract/composer-submission.ts'
-import type { PopupDismissFace } from './facade.ts'
+import type { PopupDismissFace, SubmittedPrompt } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 import { reportMessageSubmission } from './submission-analytics.ts'
-import { readConversationDraft } from '../stores.ts'
+import { readConversationDraft, readConversationLastPrompt } from '../stores.ts'
 
 /** Structural command face for per-session popup resolution. */
 interface CommandFace {
@@ -52,11 +52,18 @@ interface ConversationAttachmentFace {
   ): Promise<SubmitOutcome>
   serializeDraftAttachments(attachmentIds: readonly DraftAttachmentId[]): Promise<DraftAttachmentSerializationResult>
   releaseDraftAttachment(id: DraftAttachmentId): void
+  resolveDraftAttachments(ids: readonly DraftAttachmentId[]): readonly { readonly file: File }[]
+  createDrafts(sessionId: SessionId, files: readonly File[], uploadImages: boolean): readonly { readonly id: DraftAttachmentId }[]
 }
 
 /** Session-addressed input facade registry (SessionInputResolver face + composer-layer extras). */
 export class InputHub implements SessionInputResolver {
   private readonly shells = new WeakMap<SessionBinding, SessionInputShell>()
+  /**
+   * Remembered prompts of retired shells, with their attachment files, so
+   * recall stays exact when a Session's scope is recreated in this page.
+   */
+  private readonly retiredPrompts = new Map<SessionId, SubmittedPrompt>()
 
   /**
    * @param ctx - client root context (services resolved lazily per call — boot order stays free).
@@ -134,6 +141,14 @@ export class InputHub implements SessionInputResolver {
           && this.conversation().blocks.storeFor(session.sessionId).getSnapshot() === undefined
       },
       steerQueue: () => { void this.steerQueue(session, shell) },
+      promptAttachments: {
+        capture: ids => this.conversation().resolveDraftAttachments(ids).map(attachment => attachment.file),
+        // Recalled files upload again under the same rule as a fresh intake:
+        // the Host stages uploads for ordinary Sessions only.
+        readmit: files => this.conversation()
+          .createDrafts(session.sessionId, files, session.getSnapshot().subagent === null)
+          .map(attachment => attachment.id),
+      },
       commandAttachments: {
         serialize: async (ids) => {
           const result = await this.conversation().serializeDraftAttachments(ids)
@@ -168,6 +183,8 @@ export class InputHub implements SessionInputResolver {
       ]
       return () => {
         for (const off of offs) off()
+        const prompt = shell.rememberedPrompt
+        if (prompt !== undefined) this.retiredPrompts.set(binding.sessionId, prompt)
         const drafts = shell.dispose()
         this.shells.delete(binding)
         const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
@@ -181,6 +198,8 @@ export class InputHub implements SessionInputResolver {
       }, 'conversation.input: reference catalogs')
     })
     shell.setDraft(readConversationDraft(binding.sessionId))
+    const stored = readConversationLastPrompt(binding.sessionId)
+    shell.seedLastPrompt(this.retiredPrompts.get(binding.sessionId) ?? (stored === undefined ? undefined : { draft: stored, files: [] }))
     return shell
   }
 

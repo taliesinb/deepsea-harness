@@ -481,7 +481,7 @@ describe('Conversation inject API', () => {
     }, { discrete: true })
     const off = registerComposerKeymap(editor, {
       arbitrate: () => 'pass', space: () => false, dismissPopup: () => {},
-      canSubmit: () => true, submit: () => {}, pasteText: (text) => { composer.keyboard!.paste(text) },
+      canSubmit: () => true, submit: () => {}, pasteText: (text) => { composer.keyboard!.paste(text) }, recall: () => false,
       intakeFiles: (files, directories) => { expect(composer.addFiles?.(files, directories)).toBeNull() },
     })
     onTestFinished(off)
@@ -571,6 +571,59 @@ describe('Conversation inject API', () => {
     expect(b.inputApi(other).state.getSnapshot().draft).toBe('carry me')
     await vi.waitFor(() => { expect(targetUpload).toHaveBeenCalledOnce() })
     expect(b.inputApi(other).state.getSnapshot().attachmentIds).toHaveLength(1)
+    await b.runtime.dispose()
+  })
+
+  it('recalls the last accepted prompt with freshly uploaded attachments and persists it in the Session store', async () => {
+    const b = await bench()
+    const composer = b.composerApi(ROOT)
+    const { state, actions } = b.inputApi(ROOT)
+    const { instance, injected } = b.conversationApi(ROOT)
+    const unbind = injected.bindDraftPersistence(instance.actions.setDraft, instance.actions.setLastPrompt)
+    onTestFinished(unbind)
+    onTestFinished(() => { localStorage.removeItem(`dsh.conversation.${ROOT}`) })
+    expect(composer.addFiles?.([new File([Uint8Array.of(1)], 'draft.pdf', { type: 'application/pdf' })])).toBeNull()
+    const sentId = state.getSnapshot().attachmentIds[0]
+    await vi.waitFor(() => { expect(b.rootUpload).toHaveBeenCalledOnce() })
+    actions.setDraft('read this')
+    actions.submit()
+    await vi.waitFor(() => { expect(state.getSnapshot()).toMatchObject({ phase: 'plain', draft: '', attachmentIds: [] }) })
+    expect(instance.store.getSnapshot().lastPrompt).toEqual({ text: 'read this', references: [] })
+
+    expect(composer.keyboard!.recallPrompt()).toBe(true)
+    expect(state.getSnapshot().draft).toBe('read this')
+    const [recalledId] = state.getSnapshot().attachmentIds
+    expect(recalledId).toBeDefined()
+    expect(recalledId).not.toBe(sentId)
+    expect(composer.resolveDraftAttachments?.([recalledId!])[0]?.file.name).toBe('draft.pdf')
+    await vi.waitFor(() => { expect(b.rootUpload).toHaveBeenCalledTimes(2) })
+
+    // A Session scope recreated in the same page recalls the same prompt, files included.
+    actions.setDraft('')
+    unbind()
+    b.rootReference.release()
+    await vi.waitFor(() => { expect(b.runtime.sessions.scope(ROOT)).toBeUndefined() })
+    const reopened = b.runtime.sessions.retain(ROOT)
+    onTestFinished(() => { reopened.release() })
+    await reopened.ready
+    const successor = b.inputApi(ROOT)
+    expect(successor.actions).not.toBe(actions)
+    expect(b.composerApi(ROOT).keyboard!.recallPrompt()).toBe(true)
+    expect(successor.state.getSnapshot().draft).toBe('read this')
+    const [reopenedId] = successor.state.getSnapshot().attachmentIds
+    expect(b.composerApi(ROOT).resolveDraftAttachments?.([reopenedId!])[0]?.file.name).toBe('draft.pdf')
+    await b.runtime.dispose()
+  })
+
+  it('recalls a prompt persisted by an earlier page without its attachments', async () => {
+    localStorage.setItem(`dsh.conversation.${ROOT}`, JSON.stringify({
+      draft: '', view: null, viewRequest: null, lastPrompt: { text: 'from before reload', references: [] },
+    }))
+    onTestFinished(() => { localStorage.removeItem(`dsh.conversation.${ROOT}`) })
+    const b = await bench()
+    const { state } = b.inputApi(ROOT)
+    expect(b.composerApi(ROOT).keyboard!.recallPrompt()).toBe(true)
+    expect(state.getSnapshot()).toMatchObject({ draft: 'from before reload', attachmentIds: [] })
     await b.runtime.dispose()
   })
 

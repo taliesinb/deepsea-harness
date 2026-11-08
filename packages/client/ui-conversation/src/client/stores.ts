@@ -10,13 +10,14 @@ const CONVERSATION_STORE_KEY = 'dsh.conversation'
 /** Declared write set for the Conversation shell. */
 type ConversationActions = {
   setDraft: (draft: ConversationStoreState, text: DraftInput) => void
+  setLastPrompt: (draft: ConversationStoreState, prompt: DraftSnapshot) => void
   setView: (draft: ConversationStoreState, view: string) => void
   openView: (draft: ConversationStoreState, view: string, focus: string) => void
   completeViewRequest: (draft: ConversationStoreState) => void
 }
 
 /**
- * Declare per-session draft persistence and View selection.
+ * Declare per-session draft and last-prompt persistence and View selection.
  * @returns the store handle.
  */
 export function createConversationStore(): EngineStoreHandle<ConversationStoreState, ConversationActions> {
@@ -25,6 +26,7 @@ export function createConversationStore(): EngineStoreHandle<ConversationStoreSt
     persist: CONVERSATION_STORE_KEY,
     actions: {
       setDraft: (d, text: DraftInput) => { d.draft = text },
+      setLastPrompt: (d, prompt: DraftSnapshot) => { d.lastPrompt = prompt },
       setView: (d, view: string) => { d.view = view },
       openView: (d, view: string, focus: string) => {
         d.view = view
@@ -41,17 +43,29 @@ export function createConversationStore(): EngineStoreHandle<ConversationStoreSt
  * @returns saved semantic content, or an empty document when storage is absent or invalid.
  */
 export function readConversationDraft(sessionId: SessionId): DraftSnapshot {
-  const empty: DraftSnapshot = { text: '', references: [] }
-  if (typeof localStorage === 'undefined') return empty
+  return readStoredDocument(sessionId, 'draft') ?? { text: '', references: [] }
+}
+
+/**
+ * Read a Session's last submitted prompt before its input source is published to React.
+ * @param sessionId - Session-scoped persistence suffix.
+ * @returns the saved semantic document, or undefined when storage holds no valid prompt.
+ */
+export function readConversationLastPrompt(sessionId: SessionId): DraftSnapshot | undefined {
+  return readStoredDocument(sessionId, 'lastPrompt')
+}
+
+function readStoredDocument(sessionId: SessionId, field: 'draft' | 'lastPrompt'): DraftSnapshot | undefined {
+  if (typeof localStorage === 'undefined') return undefined
   try {
     const raw = localStorage.getItem(`${CONVERSATION_STORE_KEY}.${sessionId}`)
-    if (raw === null) return empty
+    if (raw === null) return undefined
     const stored: unknown = JSON.parse(raw)
-    if (typeof stored !== 'object' || stored === null || !('draft' in stored)) return empty
-    return parseStoredDraft(stored.draft) ?? empty
+    if (typeof stored !== 'object' || stored === null || !(field in stored)) return undefined
+    return parseStoredDraft((stored as Record<typeof field, unknown>)[field])
   } catch (_error: unknown) {
-    // Unavailable browser storage or malformed JSON has no usable saved draft.
-    return empty
+    // Unavailable browser storage or malformed JSON has no usable saved document.
+    return undefined
   }
 }
 
