@@ -2,7 +2,9 @@
  * Session-bound input registry and default-send routing for Conversation.
  * Each retained Session binding owns one shell, its input listeners, and its
  * catalog subscription. Saved drafts and the last submitted prompt enter the
- * model before the first lookup returns; Session-scope disposal releases the shell and its resources.
+ * model before the first lookup returns. Session-scope disposal releases the
+ * shell; its draft attachments stay registered for the Session's next shell in
+ * this page until the Host removes the Session or the hub stops.
  */
 import type {} from '@deepseek-ai/dsh-client-product-analytics/client'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/types'
@@ -52,7 +54,7 @@ interface ConversationAttachmentFace {
   ): Promise<SubmitOutcome>
   serializeDraftAttachments(attachmentIds: readonly DraftAttachmentId[]): Promise<DraftAttachmentSerializationResult>
   releaseDraftAttachment(id: DraftAttachmentId): void
-  resolveDraftAttachments(ids: readonly DraftAttachmentId[]): readonly { readonly file: File }[]
+  resolveDraftAttachments(ids: readonly DraftAttachmentId[]): readonly { readonly id: DraftAttachmentId; readonly file: File }[]
   createDrafts(sessionId: SessionId, files: readonly File[], uploadImages: boolean): readonly { readonly id: DraftAttachmentId }[]
 }
 
@@ -64,6 +66,14 @@ export class InputHub implements SessionInputResolver {
    * recall stays exact when a Session's scope is recreated in this page.
    */
   private readonly retiredPrompts = new Map<SessionId, SubmittedPrompt>()
+  /**
+   * Draft attachment ids of retired shells. They stay registered, uploads
+   * included, and return to the Session's next shell; Session removal and
+   * {@link stopParking} release them.
+   */
+  private readonly parkedAttachments = new Map<SessionId, readonly DraftAttachmentId[]>()
+  /** Host-list membership at the last ready list snapshot. */
+  private listedSessions: ReadonlySet<SessionId> | undefined
 
   /**
    * @param ctx - client root context (services resolved lazily per call — boot order stays free).
@@ -184,11 +194,18 @@ export class InputHub implements SessionInputResolver {
       return () => {
         for (const off of offs) off()
         const prompt = shell.rememberedPrompt
-        if (prompt !== undefined) this.retiredPrompts.set(binding.sessionId, prompt)
         const drafts = shell.dispose()
         this.shells.delete(binding)
-        const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
-        for (const attachmentId of drafts) conversation?.releaseDraftAttachment(attachmentId)
+        if (session.getSnapshot().removed) {
+          this.forget(binding.sessionId)
+          this.releaseDrafts(drafts)
+          return
+        }
+        if (prompt !== undefined) this.retiredPrompts.set(binding.sessionId, prompt)
+        // Includes the attachments of a message the Host has not accepted:
+        // an acceptance that lands later releases them from the registry, and
+        // the next shell adopts only the ids that still resolve.
+        if (drafts.length > 0) this.parkedAttachments.set(binding.sessionId, drafts)
       }
     }, 'conversation.input: session shell')
     actx.inject(['inputTriggers'], (scope) => {
@@ -198,9 +215,56 @@ export class InputHub implements SessionInputResolver {
       }, 'conversation.input: reference catalogs')
     })
     shell.setDraft(readConversationDraft(binding.sessionId))
+    const parked = this.parkedAttachments.get(binding.sessionId)
+    if (parked !== undefined) {
+      this.parkedAttachments.delete(binding.sessionId)
+      shell.addAttachments(this.conversation().resolveDraftAttachments(parked).map(attachment => attachment.id))
+    }
     const stored = readConversationLastPrompt(binding.sessionId)
     shell.seedLastPrompt(this.retiredPrompts.get(binding.sessionId) ?? (stored === undefined ? undefined : { draft: stored, files: [] }))
     return shell
+  }
+
+  /**
+   * Release the parked attachments and remembered prompts of Sessions that
+   * left the Host list since the previous ready snapshot. Sessions outside the
+   * Host list, such as subagent children, keep theirs until {@link stopParking}.
+   * @param list - current Session list state.
+   */
+  observeSessionList(list: Pick<ReturnType<ISessions['list']['getSnapshot']>, 'ids' | 'phase'>): void {
+    if (list.phase !== 'ready') return
+    const listed = new Set(list.ids)
+    const previous = this.listedSessions
+    this.listedSessions = listed
+    if (previous === undefined) return
+    for (const id of previous) {
+      if (!listed.has(id)) this.forget(id)
+    }
+  }
+
+  /** Release every parked attachment and remembered prompt; the hub's owner calls it when it stops. */
+  stopParking(): void {
+    for (const id of [...this.parkedAttachments.keys()]) this.forget(id)
+    this.retiredPrompts.clear()
+    this.listedSessions = undefined
+  }
+
+  /** Drop one Session's remembered prompt and release its parked attachments. */
+  private forget(id: SessionId): void {
+    this.retiredPrompts.delete(id)
+    const parked = this.parkedAttachments.get(id)
+    if (parked === undefined) return
+    this.parkedAttachments.delete(id)
+    this.releaseDrafts(parked)
+  }
+
+  /**
+   * Release draft attachments. Teardown may run after the conversation
+   * service unloaded, which already released its whole registry.
+   */
+  private releaseDrafts(ids: readonly DraftAttachmentId[]): void {
+    const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+    for (const attachmentId of ids) conversation?.releaseDraftAttachment(attachmentId)
   }
 
   /**

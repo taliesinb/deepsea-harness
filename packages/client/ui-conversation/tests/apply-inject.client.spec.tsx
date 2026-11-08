@@ -23,6 +23,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { createConversationStore } from '../src/client/stores.ts'
 import type { SessionInputShell } from '../src/client/input/facade.ts'
+import type { DraftAttachmentId } from '../src/client/contract/input.ts'
+import type { ConversationController } from '../src/client/service.ts'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -600,6 +602,7 @@ describe('Conversation inject API', () => {
 
     // A Session scope recreated in the same page recalls the same prompt, files included.
     actions.setDraft('')
+    composer.removeAttachment?.(recalledId!)
     unbind()
     b.rootReference.release()
     await vi.waitFor(() => { expect(b.runtime.sessions.scope(ROOT)).toBeUndefined() })
@@ -612,6 +615,89 @@ describe('Conversation inject API', () => {
     expect(successor.state.getSnapshot().draft).toBe('read this')
     const [reopenedId] = successor.state.getSnapshot().attachmentIds
     expect(b.composerApi(ROOT).resolveDraftAttachments?.([reopenedId!])[0]?.file.name).toBe('draft.pdf')
+    await b.runtime.dispose()
+  })
+
+  it('keeps a draft attachment and its upload across Session navigation and sends it after returning', async () => {
+    const b = await bench()
+    const upload = Promise.withResolvers<Awaited<ReturnType<typeof b.rootUpload>>>()
+    b.rootUpload.mockReturnValueOnce(upload.promise)
+    const composer = b.composerApi(ROOT)
+    const { state, actions } = b.inputApi(ROOT)
+    const { instance, injected } = b.conversationApi(ROOT)
+    const unbind = injected.bindDraftPersistence(instance.actions.setDraft, instance.actions.setLastPrompt)
+    onTestFinished(() => { localStorage.removeItem(`dsh.conversation.${ROOT}`) })
+    actions.setDraft('see attached')
+    expect(composer.addFiles?.([new File([Uint8Array.of(1)], 'draft.pdf', { type: 'application/pdf' })])).toBeNull()
+    const [id] = state.getSnapshot().attachmentIds
+    await vi.waitFor(() => { expect(b.rootUpload).toHaveBeenCalledOnce() })
+
+    unbind()
+    b.rootReference.release()
+    await vi.waitFor(() => { expect(b.runtime.sessions.scope(ROOT)).toBeUndefined() })
+    upload.resolve({
+      ok: true,
+      value: { receiptId: 'parked-receipt' as never, file: { attachmentId: 'parked-file' as never, name: 'draft.pdf', bytes: 1 } },
+    })
+    const reopened = b.runtime.sessions.retain(ROOT)
+    onTestFinished(() => { reopened.release() })
+    await reopened.ready
+    const returned = b.inputApi(ROOT)
+    expect(returned.state.getSnapshot()).toMatchObject({ draft: 'see attached', attachmentIds: [id] })
+    expect(b.composerApi(ROOT).resolveDraftAttachments?.([id!])[0]?.file.name).toBe('draft.pdf')
+
+    returned.actions.submit()
+    await vi.waitFor(() => {
+      expect(b.sessionFake.prompt).toHaveBeenCalledWith(
+        [{ type: 'file', receiptId: 'parked-receipt' }, { type: 'text', text: 'see attached' }],
+        'queue', expect.any(AbortSignal), expect.any(String),
+      )
+    })
+    expect(b.rootUpload).toHaveBeenCalledOnce()
+    await b.runtime.dispose()
+  })
+
+  it('releases parked draft attachments when the Host removes their Session or the plugin stops', async () => {
+    const b = await bench()
+    const other = 'parked-other' as SessionId
+    await b.runtime.sessions.add({ id: other, session: {} })
+    b.uploads.set(other, b.rootUpload)
+    const attach = (id: SessionId): DraftAttachmentId => {
+      expect(b.composerApi(id).addFiles?.([new File([Uint8Array.of(1)], `${id}.pdf`, { type: 'application/pdf' })])).toBeNull()
+      return b.inputApi(id).state.getSnapshot().attachmentIds[0]!
+    }
+    const conversation = b.runtime.ctx.get('conversation') as ConversationController
+    const resolves = (id: DraftAttachmentId): boolean => conversation.resolveDraftAttachments([id]).length === 1
+
+    // Retired, then removed by the Host: the list update releases it.
+    const rootDraft = attach(ROOT)
+    b.rootReference.release()
+    await vi.waitFor(() => { expect(b.runtime.sessions.scope(ROOT)).toBeUndefined() })
+    expect(resolves(rootDraft)).toBe(true)
+    await b.runtime.sessions.remove(ROOT)
+    expect(resolves(rootDraft)).toBe(false)
+
+    // Removed while open: teardown releases instead of parking.
+    const reference = b.runtime.sessions.retain(other)
+    await reference.ready
+    const openDraft = attach(other)
+    await b.runtime.sessions.remove(other)
+    reference.release()
+    await vi.waitFor(() => { expect(b.runtime.sessions.scope(other)).toBeUndefined() })
+    expect(resolves(openDraft)).toBe(false)
+
+    // Parked when the plugin stops: released with it.
+    const third = 'parked-third' as SessionId
+    await b.runtime.sessions.add({ id: third, session: {} })
+    b.uploads.set(third, b.rootUpload)
+    const thirdReference = b.runtime.sessions.retain(third)
+    await thirdReference.ready
+    const thirdDraft = attach(third)
+    thirdReference.release()
+    await vi.waitFor(() => { expect(b.runtime.sessions.scope(third)).toBeUndefined() })
+    expect(resolves(thirdDraft)).toBe(true)
+    await b.feature.dispose()
+    expect(resolves(thirdDraft)).toBe(false)
     await b.runtime.dispose()
   })
 

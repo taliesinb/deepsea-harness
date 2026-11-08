@@ -663,7 +663,7 @@ export class SessionInputShell implements SessionInput {
    * Teardown the shell, abort the in-flight attempt, and return every
    * browser-owned attachment the draft still holds, including those of a
    * message the Host has not accepted yet.
-   * @returns attachment ids the scope disposer must release.
+   * @returns attachment ids the scope disposer parks for the Session's next shell or releases.
    */
   dispose(): readonly DraftAttachmentId[] {
     if (this.disposed) return []

@@ -138,11 +138,12 @@ describe('ConversationController', () => {
     await b.runtime.dispose()
   })
 
-  it('releases draft previews when their session scope is disposed', async () => {
+  it('keeps a retired Session draft preview for its next input and releases it when the Host removes the Session', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-1')
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
     try {
+      b.hub.observeSessionList(b.runtime.sessions.list.getSnapshot())
       const [attachment] = b.root.createDrafts(b.runtime.sessions.binding('s1')!.session.sessionId, [
         new File([new Uint8Array(4)], 'a.png', { type: 'image/png' }),
       ], INLINE_IMAGES)
@@ -150,6 +151,20 @@ describe('ConversationController', () => {
       b.root.input.for(b.runtime.sessions.scope('s1')!).addAttachments([attachment.id])
       b.reference.release()
       await b.runtime.flush()
+      expect(b.runtime.sessions.scope('s1')).toBeUndefined()
+      expect(b.root.resolveDraftAttachments([attachment.id])).toHaveLength(1)
+      expect(revoked).not.toHaveBeenCalled()
+
+      const reopened = b.runtime.sessions.retain('s1' as SessionId)
+      await reopened.ready
+      expect(b.root.input.for(b.runtime.sessions.scope('s1')!).state.getSnapshot().attachmentIds).toEqual([attachment.id])
+      reopened.release()
+      await b.runtime.flush()
+
+      await b.runtime.sessions.remove('s1')
+      b.hub.observeSessionList({ ...b.runtime.sessions.list.getSnapshot(), phase: 'pending' })
+      expect(b.root.resolveDraftAttachments([attachment.id])).toHaveLength(1)
+      b.hub.observeSessionList(b.runtime.sessions.list.getSnapshot())
       expect(b.root.resolveDraftAttachments([attachment.id])).toEqual([])
       expect(revoked).toHaveBeenCalledWith('blob:draft-1')
     } finally {
@@ -159,7 +174,7 @@ describe('ConversationController', () => {
     await b.runtime.dispose()
   })
 
-  it('releases an unsettled send preview during structural Session teardown', async () => {
+  it('keeps an unsettled send preview through structural Session teardown until the hub stops', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:detached')
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
@@ -172,6 +187,9 @@ describe('ConversationController', () => {
       b.shell.submit()
       expect(b.shell.snapshot).toMatchObject({ phase: 'sending', attachmentIds: [attachment.id] })
       await b.runtime.sessions.disposeScopes()
+      expect(b.root.resolveDraftAttachments([attachment.id])).toHaveLength(1)
+      expect(revoked).not.toHaveBeenCalled()
+      b.hub.stopParking()
       expect(b.root.resolveDraftAttachments([attachment.id])).toEqual([])
       expect(revoked).toHaveBeenCalledWith('blob:detached')
     } finally {
