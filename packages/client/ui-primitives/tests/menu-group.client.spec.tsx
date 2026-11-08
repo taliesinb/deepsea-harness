@@ -126,6 +126,17 @@ describe('MenuGroup', () => {
     expect(first!.heading.nextElementSibling).toBe(within(first!.section).getByRole('button', { name: 'Model A' }))
   })
 
+  it('leads the heading with a decorative glyph that stays out of the group name', () => {
+    render(<MenuGroup label="Provider" icon={<svg data-testid="glyph" />}><button type="button">Model</button></MenuGroup>)
+    const group = screen.getByRole('group', { name: 'Provider' })
+    const heading = directChild(group, 'data-menu-group-heading')
+    expect(heading.hasAttribute('data-has-icon')).toBe(true)
+    expect(isInaccessible(screen.getByTestId('glyph'))).toBe(true)
+    expect(heading.firstElementChild?.contains(screen.getByTestId('glyph'))).toBe(true)
+    render(<MenuGroup label="Plain" />)
+    expect(directChild(screen.getByRole('group', { name: 'Plain' }), 'data-menu-group-heading').hasAttribute('data-has-icon')).toBe(false)
+  })
+
   it('renders a named group without rows', () => {
     render(<MenuGroup label="Empty provider" />)
     const group = screen.getByRole('group', { name: 'Empty provider' })
