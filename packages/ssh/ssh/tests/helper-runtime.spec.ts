@@ -6,7 +6,7 @@ import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import { LocalSubprocessRuntime } from '@deepseek-ai/dsh-subprocess-local'
 import { z } from 'zod'
 import { createHelperHarness as helper } from './fixtures/helper.ts'
-import { hunkSchema, moveOptionsSchema, moveResultSchema, deleteResultSchema, targetSchema, writeResultSchema, editResultSchema, infoSchema, entriesSchema } from '../src/schemas.ts'
+import { hunkSchema, moveOptionsSchema, moveResultSchema, deleteResultSchema, targetSchema, writeCheckSchema, writeResultSchema, editResultSchema, infoSchema, entriesSchema } from '../src/schemas.ts'
 
 
 const policy = (workspaceRoot: string) => ({ mode: 'workspace-write', workspaceRoot })
@@ -42,6 +42,21 @@ describe.skipIf(process.platform === 'win32')('SSH helper runtime', () => {
       await test.client.request('fs.edit', { target, edit: { oldString: 'third', newString: 'fourth', replaceAll: false }, policy: policy(test.root) }, editResultSchema)
       expect(await test.client.request('fs.readText', { target }, z.string())).toBe('fourth text')
       await expect(test.client.request('fs.write', { target, content: 'denied', policy: { mode: 'read-only', workspaceRoot: test.root } }, writeResultSchema)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    } finally { await test.close() }
+  })
+
+  it('answers write checks with the remote fence, without writing', async () => {
+    const test = await helper()
+    try {
+      const inside = await test.client.request('fs.resolve', { path: 'new/file.txt' }, targetSchema)
+      const outside = await test.client.request('fs.resolve', { path: '/dsh-ssh-check-write/file.txt' }, targetSchema)
+      expect(await test.client.request('fs.checkWrite', { target: inside, policy: policy(test.root) }, writeCheckSchema)).toEqual({ kind: 'allowed' })
+      expect(await test.client.request('fs.checkWrite', { target: outside, policy: policy(test.root) }, writeCheckSchema)).toEqual({
+        kind: 'denied', message: 'cannot write "/dsh-ssh-check-write/file.txt": file access denied under workspace-write mode',
+      })
+      expect(await test.client.request('fs.checkWrite', { target: inside, policy: { mode: 'read-only', workspaceRoot: test.root } }, writeCheckSchema)).toMatchObject({ kind: 'denied' })
+      expect(await test.client.request('fs.stat', { target: inside }, z.null())).toBeNull()
+      await expect(test.client.request('fs.checkWrite', { target: inside }, z.unknown())).rejects.toThrow()
     } finally { await test.close() }
   })
 
