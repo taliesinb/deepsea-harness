@@ -110,6 +110,72 @@
   overflow-wrap: anywhere;
 }
 
+/* Floating toolbar: the card's language and actions take no row of their own.
+   The banner strip stays sticky (so the actions stay in reach while a long
+   card scrolls) but overlaps the source by its own height, which also keeps
+   the floating toolbar inside the card when the strip stops at its end. The
+   strip passes pointer events through, so the source under it stays
+   selectable; the toolbar itself takes them (CodeCard.module.css). A pinned
+   strip may travel until its top meets the card's end, so the card clips at
+   its own edges: the toolbar leaves with the card instead of hanging over the
+   content after it. `clip`, unlike `hidden`, makes no scroll container, so
+   the strip still pins to the page's scrollport. */
+.floatingToolbar {
+  overflow: clip;
+}
+
+.floatingToolbar > .bannerWrap {
+  height: 36px;
+  margin-bottom: -36px;
+  background: none;
+  pointer-events: none;
+}
+
+.floatingToolbar.card :where(pre) {
+  padding: 14px 22px;
+}
+
+/* Reserve the toolbar's width beside the first line: a float as wide as the
+   language label plus the actions, as tall as the top padding and one line.
+   Wrapped source flows around it, which needs the pre to stay in the card's
+   block formatting context (no overflow clipping; wrapped lines do not
+   overflow). Unwrapped source scrolls sideways instead, so its first line
+   runs beneath the toolbar, whose fill covers it. */
+.toolbarSpace {
+  --dsl-code-block-toolbar-actions: 52px;
+
+  float: right;
+  height: calc(14px + 1lh);
+  padding-right: calc(14px + var(--dsl-code-block-toolbar-actions));
+  padding-left: 16px;
+  font: var(--dsl-code-block-content-font);
+  pointer-events: none;
+  user-select: none;
+}
+
+.toolbarSpace[data-actions='copy'] {
+  --dsl-code-block-toolbar-actions: 24px;
+}
+
+.toolbarSpace::before {
+  content: attr(data-lang);
+  padding-right: 8px;
+  font: 11px/18px var(--ds-font-family-code);
+  visibility: hidden;
+}
+
+.toolbarSpace[data-lang='']::before {
+  content: none;
+}
+
+.floatingToolbar[data-code-wrap='true'] :where(pre) {
+  overflow-x: visible;
+}
+
+.floatingToolbar[data-code-wrap='false'] .toolbarSpace {
+  display: none;
+}
+
 .card[data-code-wrap='false'] {
   --dsl-code-block-line-white-space: pre;
 }

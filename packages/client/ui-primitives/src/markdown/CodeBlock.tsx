@@ -36,8 +36,19 @@ export interface CodeBlockProps {
   copyLabel: string
   /** Copy-button label during the post-copy confirmation window. */
   copiedLabel: string
-  /** Enable the shared card toolbar and spacing; omit for custom toolbar layouts. */
+  /**
+   * Enable the shared card toolbar and spacing; omit for custom toolbar layouts.
+   * The toolbar floats at the card's top right (the language as written, then
+   * wrap and copy) and takes no row: wrapped source flows around it, and an
+   * unwrapped first line runs beneath it.
+   */
   toolbarLabels?: CodeToolbarLabels | undefined
+  /**
+   * With toolbarLabels, where the toolbar sits: `float` (the default) at the
+   * card's top right, or `row`, a header row above the source, for owners that
+   * scroll the source themselves so no scrolled line runs beneath the toolbar.
+   */
+  toolbarPlacement?: 'float' | 'row' | undefined
   /** With toolbarLabels, use the owner's wrapping preference and omit the toolbar's local wrap action. */
   wrap?: boolean | undefined
 }
@@ -69,7 +80,8 @@ function renderLine(line: readonly HighlightSpan[], index: number): ReactNode {
 }
 
 export function CodeBlock({
-  code, lang, streaming, className, contentRef, lineNumbers = false, showHeader = true, copyLabel, copiedLabel, toolbarLabels, wrap,
+  code, lang, streaming, className, contentRef, lineNumbers = false, showHeader = true, copyLabel, copiedLabel, toolbarLabels,
+  toolbarPlacement = 'float', wrap,
 }: CodeBlockProps) {
   const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code
   const sourceLines = lineNumbers ? trimmed.split('\n') : undefined
@@ -184,8 +196,11 @@ export function CodeBlock({
         <div dangerouslySetInnerHTML={{ __html: html }} />
       )
 
+  const floating = showHeader && toolbarLabels !== undefined && toolbarPlacement === 'float'
+  const language = lang?.trim() ?? ''
+
   return (
-    <div ref={rootRef} className={clsx(css.block, 'md-code-block', lineNumbers && css.numbered, toolbarLabels !== undefined && css.card, className)}
+    <div ref={rootRef} className={clsx(css.block, 'md-code-block', lineNumbers && css.numbered, toolbarLabels !== undefined && css.card, floating && css.floatingToolbar, className)}
       data-line-numbers={lineNumbers || undefined}
       data-code-wrap={toolbarLabels === undefined ? undefined : wrapped}
       style={sourceLines === undefined ? undefined : {
@@ -194,7 +209,7 @@ export function CodeBlock({
       {/* These paired attributes are stable semantic hooks for owner styling and DOM tests. */}
       {showHeader && <div className={css.bannerWrap}>
         {toolbarLabels !== undefined ? <CodeToolbar
-          lang={lang} labels={toolbarLabels} copyLabel={copyLabel} copiedLabel={copiedLabel}
+          lang={lang} floating={floating} labels={toolbarLabels} copyLabel={copyLabel} copiedLabel={copiedLabel}
           copied={copied} wrapped={wrapped} onCopy={onCopy}
           onWrap={wrap === undefined ? () => { setWrapped(value => !value) } : undefined}
         /> : <div className={css.banner} data-code-block-banner>
@@ -206,7 +221,13 @@ export function CodeBlock({
           </div>
         </div>}
       </div>}
-      <div ref={contentRef} className={css.content} data-code-block-content>{body}</div>
+      <div ref={contentRef} className={css.content} data-code-block-content>
+        {/* Reserves the floating toolbar's width beside the first line, so wrapped
+            source flows around it; the language is generated content, never selected or copied. */}
+        {floating && <span className={css.toolbarSpace} aria-hidden data-lang={language}
+          data-actions={wrap === undefined ? 'wrap-copy' : 'copy'} />}
+        {body}
+      </div>
     </div>
   )
 }
