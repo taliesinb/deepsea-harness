@@ -30,8 +30,8 @@ export interface ClientSessionContext {
   readonly sessionId: SessionId
 }
 
-/** Trigger character a source binds to. */
-export type TriggerChar = '/' | '@'
+/** Single-character token a source binds to. Built-ins use `/` and `@`; plugins may add punctuation triggers. */
+export type TriggerChar = string
 
 /** Where the trigger token sits in the draft: leading (trimmed draft starts with it) or inline. */
 export type TriggerPosition = 'leading' | 'inline'
@@ -45,6 +45,13 @@ export type PickAction = 'pick' | 'drill'
 /** Leading glyph token of one menu candidate, mapped to its reference SVG by the menu view. */
 export type InputTriggerCandidateIcon = 'file' | 'folder' | 'session'
 
+/** One piece of a structured candidate title. */
+export interface InputTriggerLabelSegment {
+  readonly text: string
+  /** Quiet ink, for separators and secondary pieces. */
+  readonly dim?: boolean
+}
+
 /** One menu candidate. Pure display data — zero behavior declaration. */
 export interface InputTriggerCandidate {
   /** Identity: the pick payload, the exact-match key, and the first search key. */
@@ -56,6 +63,12 @@ export interface InputTriggerCandidate {
    * findable by its command name).
    */
   readonly label?: string
+  /**
+   * Structured title rendered in place of `label`/`name`, each segment in
+   * normal or quiet ink. Display only: it neither searches nor decides the
+   * alias, which still follow `label`.
+   */
+  readonly labelSegments?: readonly InputTriggerLabelSegment[]
   readonly description?: string
   /** Reference glyph token, or an icon component from the shared icon set. */
   readonly icon?: InputTriggerCandidateIcon | ComponentType<IconProps>
@@ -243,6 +256,6 @@ export interface InputTriggerSource {
 
 /** Trigger availability tier, derived from the input phase by the wiring layer. */
 export interface TriggerGuard {
-  /** plain: '/' and '@' live; claimed: '/' suppressed, '@' live; frozen: none. */
+  /** plain: every registered trigger is live; claimed: only '/' is suppressed; frozen: none. */
   readonly tier: 'plain' | 'claimed' | 'frozen'
 }
