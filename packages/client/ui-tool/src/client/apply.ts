@@ -39,6 +39,7 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     children: {
       'tool.call.toolview': { kind: 'keyed', scope: 'session' },
+      'tool.call.status': { kind: 'keyed', scope: 'session' },
     },
     inject: toolInject,
   }, ToolCallTree))
