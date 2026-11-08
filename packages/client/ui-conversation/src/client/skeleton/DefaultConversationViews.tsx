@@ -6,7 +6,8 @@ import css from './ConversationRoot.module.css'
 
 /**
  * Renders the active Session view inside the resident scrollport and keeps
- * the input draft persisted while blank Hero chrome is visible.
+ * the input draft and last submitted prompt persisted while blank Hero chrome
+ * is visible.
  * @param props - Strict Session input/store, view ledger, and render shares.
  * @returns the active view area, or null while the Session remains blank.
  */
@@ -23,7 +24,7 @@ export function DefaultConversationViews({
   const viewRequest = useStore(s => s.viewRequest ?? null)
 
   useEffect(() => {
-    const unbindDraftPersistence = bindDraftPersistence(actions.setDraft)
+    const unbindDraftPersistence = bindDraftPersistence(actions.setDraft, actions.setLastPrompt)
     inputActions.persistDraft()
     return () => { unbindDraftPersistence() }
     // The Session input owns content before this persistence writer is attached.

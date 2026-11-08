@@ -97,6 +97,10 @@ function commandSource(
         if (desc?.input === undefined) return undefined
         return { claim: leadingClaim(desc) }
       },
+      matchClaim: (_session: ClientSessionContext, token: string): Promise<CommandClaim | undefined> => {
+        const desc = resolve(token.slice(1))
+        return Promise.resolve(desc?.input === undefined ? undefined : leadingClaim(desc))
+      },
       matchEnter: (_session: ClientSessionContext, line: string, _signal: AbortSignal, envelope: SubmitEnvelope): Promise<PickOutcome> => {
         envelopes.push(envelope)
         const trimmed = line.trim()
@@ -637,5 +641,57 @@ describe('scenario I: unknown /xyz + enter', () => {
     // Never a silent downgrade: draft retained, sink untouched.
     expect(b.shell.snapshot.draft).toBe('/plan 上线')
     expect(b.sink).not.toHaveBeenCalled()
+  })
+})
+
+describe('scenario R: ArrowUp in an empty composer recalls the last prompt', () => {
+  it('refills only an empty, idle composer whose command menu is closed', async () => {
+    const b = await bench()
+    const pending = Promise.withResolvers<SubmitOutcome>()
+    b.sink.mockReturnValueOnce(pending.promise)
+    const arrowUp = (): boolean => fireEvent.keyDown(b.textarea, { key: 'ArrowUp', keyCode: 38 })
+    b.type('ship it')
+    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    await vi.waitFor(() => { expect(b.shell.snapshot.phase).toBe('sending') })
+    expect(arrowUp()).toBe(true) // a message in flight keeps the key
+    act(() => { pending.resolve({ kind: 'success' }) })
+    await vi.waitFor(() => { expect(b.shell.snapshot.draft).toBe('') })
+
+    act(() => {
+      b.controller.toggleSource('command', {
+        trigger: '/', query: '', quoted: false, position: 'leading', span: { start: 0, end: 0, draftRev: b.shell.snapshot.draftRev },
+      })
+    })
+    await vi.waitFor(() => { expect(b.controller.menu.getSnapshot().open).toBe(true) })
+    act(() => { arrowUp() })
+    expect(b.shell.snapshot.draft).toBe('') // the open menu moved its highlight instead
+    act(() => { fireEvent.keyDown(b.textarea, { key: 'Escape' }) })
+    await vi.waitFor(() => { expect(b.controller.menu.getSnapshot().open).toBe(false) })
+
+    let consumed = false
+    act(() => { consumed = !arrowUp() })
+    expect(consumed).toBe(true)
+    expect(b.shell.snapshot.draft).toBe('ship it')
+    act(() => { consumed = !arrowUp() })
+    expect(consumed).toBe(false) // the refilled draft keeps ordinary caret movement
+    expect(b.shell.snapshot.draft).toBe('ship it')
+  })
+
+  it('rebuilds a recalled command chip from the keyboard gesture, caret after its arguments', async () => {
+    const b = await bench()
+    b.type('/goal')
+    await vi.waitFor(() => { expect(b.controller.menu.getSnapshot().open).toBe(true) })
+    await b.space()
+    b.append('发布 v1')
+    fireEvent.keyDown(b.textarea, { key: 'Enter' })
+    await vi.waitFor(() => { expect(b.execute).toHaveBeenCalledWith('/goal 发布 v1', []) })
+    await vi.waitFor(() => { expect(b.shell.snapshot).toMatchObject({ phase: 'plain', draft: '' }) })
+
+    act(() => { fireEvent.keyDown(b.textarea, { key: 'ArrowUp', keyCode: 38 }) })
+    await vi.waitFor(() => { expect(b.shell.snapshot.phase).toBe('claimed') })
+    expect(b.view.container.querySelector('[data-composer-command]')?.textContent).toBe('/goal')
+    expect(b.shell.snapshot.draft).toBe('/goal 发布 v1')
+    b.append('!')
+    expect(b.shell.snapshot.draft).toBe('/goal 发布 v1!')
   })
 })

@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { DraftSnapshot } from '../src/client/contract/draft-editor.ts'
-import { createConversationStore, readConversationDraft, readConversationViewPreference } from '../src/client/stores.ts'
+import {
+  createConversationStore, readConversationDraft, readConversationLastPrompt, readConversationViewPreference,
+} from '../src/client/stores.ts'
 
 const KEY = 'dsh.conversation'
 
@@ -96,6 +98,27 @@ describe('createConversationStore', () => {
     expect(readConversationDraft(sessionId)).toEqual({ text: '', references: [] })
     expect(createConversationStore().create(sessionId).getSnapshot().draft).toEqual({ text: '', references: [] })
     expect(readConversationViewPreference(sessionId)).toBe('trajectory')
+  })
+
+  it('persists the last submitted prompt beside the draft and reads back only a valid one', () => {
+    const sessionId = 'recall' as SessionId
+    expect(readConversationLastPrompt(sessionId)).toBeUndefined()
+    const prompt: DraftSnapshot = {
+      text: '/goal ship @file', command: { token: '/goal ' },
+      references: [{ source: 'reference', ref: '@file', label: 'file', clipboardText: '@file', offset: 11, length: 5 }],
+    }
+    const store = createConversationStore().create(sessionId)
+    store.actions.setDraft('unsent')
+    expect(readConversationLastPrompt(sessionId)).toBeUndefined()
+    store.actions.setLastPrompt(prompt)
+    expect(readConversationLastPrompt(sessionId)).toEqual(prompt)
+    expect(readConversationDraft(sessionId)).toEqual({ text: 'unsent', references: [] })
+    expect(createConversationStore().create(sessionId).getSnapshot().lastPrompt).toEqual(prompt)
+
+    localStorage.setItem(`${KEY}.${sessionId}`, JSON.stringify({ draft: '', view: null, lastPrompt: { text: 7 } }))
+    expect(readConversationLastPrompt(sessionId)).toBeUndefined()
+    localStorage.setItem(`${KEY}.${sessionId}`, '{invalid')
+    expect(readConversationLastPrompt(sessionId)).toBeUndefined()
   })
 
   it('reads a legacy draft without rewriting the saved record', () => {
