@@ -76,4 +76,10 @@ describe('web shell base.css', () => {
       `${literalContentSelectors.join(', ')} { text-autospace: no-autospace; }`,
     )
   })
+
+  it('pins the document: the root never becomes a user-scrollable viewport', () => {
+    expect(normalizedCss).toContain(
+      'html, body { overflow: hidden; overscroll-behavior: none; }',
+    )
+  })
 })
