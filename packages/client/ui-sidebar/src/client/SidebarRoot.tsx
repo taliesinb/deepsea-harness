@@ -165,7 +165,11 @@ export function SidebarRoot({
     return () => { window.clearTimeout(timer) }
   }, [collapsed, drawer])
   const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
+  const darwinDesktop = isDarwinDesktop()
   const wide = drawer || (windowsTitlebar ? !collapsed : !collapsed || !settled)
+  // A closed drawer and a collapsed macOS column show nothing of the sidebar:
+  // its controls are reachable only through the frame's header opener.
+  const hidden = collapsed && (drawer || darwinDesktop)
   // The Windows titlebar hosts the New Session controls while the sidebar is collapsed.
   const openNewSession = (): void => {
     trackEntryClick({ menu_name: 'new_session', position: windowsTitlebar && collapsed ? 'titlebar' : 'sidebar' })
@@ -197,11 +201,11 @@ export function SidebarRoot({
     const controlled = sidebarFocus.current?.getAttribute('aria-controls')?.split(/\s+/) ?? []
     const ownsMenuFocus = controlled.some(id => document.getElementById(id)?.contains(document.activeElement))
     if (sidebarFocus.current !== document.activeElement && !ownsMenuFocus) return
-    const opener = drawer
+    const opener = hidden
       ? column.current?.ownerDocument.querySelector<HTMLElement>('[data-sidebar-opener]')
       : column.current?.querySelector<HTMLElement>('[data-sidebar-toggle]')
     if (opener != null && !isBehindModal(opener)) focusWithoutRing(opener, { preventScroll: true })
-  }, [drawer, collapsed])
+  }, [hidden, collapsed])
   const [pointerInside, setPointerInside] = useState(false)
   const lingerTimer = useRef<number | undefined>(undefined)
   const armLinger = (): void => {
@@ -252,7 +256,6 @@ export function SidebarRoot({
     })
   }
 
-  const darwinDesktop = isDarwinDesktop()
   // Rail resting state is the whale mark; hovering swaps in the panel icon
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
@@ -288,6 +291,7 @@ export function SidebarRoot({
       aria-modal={drawer && !collapsed ? true : undefined}
       aria-label={drawer ? t('navigation.label') : undefined}
       tabIndex={drawer ? -1 : undefined}
+      {...{ inert: hidden ? '' : undefined }}
       className={clsx(
         css.root, !wide && css.collapsed, !wide && animateRail.current && css.railIn,
         !drawer && collapsed && wide && css.fading, !pointerInside && css.quietBars,
