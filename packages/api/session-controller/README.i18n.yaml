@@ -15,8 +15,13 @@
   en: 1fdf707322fb6996
   zh: 0204f7e9d4aa3cce
 /session-controller/use-this-package:
+<<<<<<< 9b7c6e8bf0b50ae439c04b6fb9b3c240fdc9e7af
   en: 70318db16df29814
   zh: 47753788ce8c2785
+=======
+  en: 3297e0ca7fda8a4b
+  zh: 36ebd35d6f87442b
+>>>>>>> 57a93611b004a39a005a9e7b4d1a317115ec8e33
 /session-controller/client-references:
   en: 41bdda1ac32df558
   zh: aa5d0e325924066b
