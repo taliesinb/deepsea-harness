@@ -197,7 +197,57 @@ function catalogProviders(): Map<string, Provider> {
  *   or ships without a chat model.
  */
 export function catalogProvider(provider: string): Provider | undefined {
-  return catalogProviders().get(provider)
+  return catalogProviders().get(provider) ?? oauthCatalogProvider(provider)
+}
+
+/**
+ * Resolve a dedicated OAuth route to its native catalog provider.
+ * @param route - isolated provider route id, including its `-oauth` suffix.
+ * @returns the OAuth-capable catalog provider, or undefined for other routes.
+ */
+export function oauthCatalogProvider(route: string): Provider | undefined {
+  if (!route.endsWith('-oauth') || catalogProviders().has(route)) return undefined
+  const provider = catalogProviders().get(route.slice(0, -'-oauth'.length))
+  return provider?.auth.oauth === undefined ? undefined : provider
+}
+
+/**
+ * How a dedicated OAuth route is paid for, from pi-ai's own `isSubscription` on
+ * the provider's OAuth auth: a plan (Claude Pro/Max, ChatGPT, Copilot, Kimi
+ * Code, Muse, SuperGrok) or, for a flow pi-ai does not mark as a
+ * subscription, an ordinary pay-per-use key the flow issues (OpenRouter,
+ * Radius). This is the one classification every surface reads; the
+ * `-oauth` route id only names the sign-in mechanism.
+ * @param route - provider route id.
+ * @returns `subscription` or `api-key` for a dedicated OAuth route, otherwise undefined.
+ */
+export function oauthRouteAuth(route: string): 'subscription' | 'api-key' | undefined {
+  const provider = oauthCatalogProvider(route)
+  if (provider === undefined) return undefined
+  return provider.auth.oauth?.isSubscription === true ? 'subscription' : 'api-key'
+}
+
+/**
+ * Display name of a dedicated OAuth route: "<Provider> Plan" for a
+ * subscription plan, "<Provider> OAuth" for a flow that issues a pay-per-use key.
+ * @param route - provider route id.
+ * @returns the name, or undefined for a route that is not a dedicated OAuth route.
+ */
+export function oauthRouteDisplayName(route: string): string | undefined {
+  const provider = oauthCatalogProvider(route)
+  if (provider === undefined) return undefined
+  return `${provider.name} ${oauthRouteAuth(route) === 'subscription' ? 'Plan' : 'OAuth'}`
+}
+
+/**
+ * Dedicated route ids for every OAuth flow shipped by the installed catalog.
+ * @returns OAuth-only provider route ids, distinct from native catalog ids.
+ */
+export function oauthProviderIds(): readonly string[] {
+  return catalogProviderIds().flatMap((id) => {
+    const route = `${id}-oauth`
+    return oauthCatalogProvider(route) === undefined ? [] : [route]
+  })
 }
 
 /**
@@ -210,14 +260,29 @@ export function catalogProviderIds(): readonly string[] {
 }
 
 /**
- * The installed catalog models for one route, indexed by model id.
+ * Whether one installed catalog model answers interactive requests. OpenRouter
+ * lists a `<model>:batch` alias that its model listing serves only at
+ * `/api/v1/batches`; pi-ai's catalog keeps the alias as a chat model, and
+ * OpenRouter answers a Chat Completions or Messages request for it with 404.
+ * @param catalogId - the native catalog provider id.
+ * @param model - one installed catalog model of that provider.
+ * @returns false for a batch-only alias.
+ */
+function servesRequests(catalogId: string, model: Model<Api>): boolean {
+  return !(catalogId === 'openrouter' && model.id.endsWith(':batch'))
+}
+
+/**
+ * The installed catalog models for one route, indexed by model id. Batch-only
+ * aliases are left out, so no route serves or lists them.
  * @param provider - provider route key.
  * @returns catalog models by id; empty for a route {@link catalogProvider} does not return.
  */
 export function catalogModels(provider: string): Map<string, Model<Api>> {
-  if (!catalogProviders().has(provider)) return new Map()
-  const models = getBuiltinModels(provider as BuiltinProvider) as Model<Api>[]
-  return new Map(models.map(model => [model.id, model]))
+  const catalogId = catalogProvider(provider)?.id
+  if (catalogId === undefined) return new Map()
+  const models = getBuiltinModels(catalogId as BuiltinProvider) as Model<Api>[]
+  return new Map(models.filter(model => servesRequests(catalogId, model)).map(model => [model.id, model]))
 }
 
 /**
@@ -899,6 +964,12 @@ export function resolveRouteModels(
     ? configured
     : [...defaults.values()].map(model => ({ id: model.id, ...overrides[model.id] }))
   if (entries.length === 0) {
+    // A sign-in route whose flow the installed pi-ai no longer ships (or an
+    // upgrade in progress): say that, not that it is a gateway missing models.
+    if (provider.endsWith('-oauth')) {
+      invalid(provider, 'is a sign-in route, but the installed pi-ai ships no sign-in for'
+        + ` "${provider.slice(0, -'-oauth'.length)}"; remove the route or install a pi-ai that ships it`)
+    }
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')
   }
