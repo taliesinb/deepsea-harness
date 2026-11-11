@@ -38,6 +38,8 @@ export interface ComposerImageAttachment {
   id: DraftAttachmentId
   file: File
   previewUrl: string
+  /** Present on an image the Host already stores (see {@link StoredDraft}). */
+  stored?: StoredDraft
   /** Intrinsic pixel width, filled asynchronously by the intake header probe. */
   width?: number
   /** Intrinsic pixel height, filled asynchronously by the intake header probe. */
@@ -49,7 +51,25 @@ export interface ComposerFileAttachment {
   kind: 'file'
   id: DraftAttachmentId
   file: File
+  /** Present on a file the Host already stores (see {@link StoredDraft}). */
+  stored?: StoredDraft
 }
+
+/**
+ * A draft whose bytes the Host already stores, staged for one Session under a
+ * receipt, as when an edited prompt returns to the composer. Its `file` is a
+ * name-only placeholder and an image's preview belongs to the history image
+ * cache; it cannot move to another Session.
+ */
+export interface StoredDraft {
+  /** Byte length of the stored object. */
+  readonly bytes: number
+}
+
+/** An attachment the Host already stores and has staged for one Session under a receipt. */
+export type StoredAttachmentDraft =
+  | { readonly type: 'image'; readonly receiptId: FileUploadReceiptId; readonly image: ImageAttachmentRef; readonly previewUrl: string }
+  | { readonly type: 'file'; readonly receiptId: FileUploadReceiptId; readonly file: FileAttachmentRef }
 
 /**
  * Upload lifecycle of one draft that uploads when it is added, not on send:

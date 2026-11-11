@@ -191,6 +191,8 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   private readonly matchedResults: ConversationMatchResult[] = []
   private hasMore = false
   private replacePending = true
+  /** A withdrawal removed Contexts: the next flush replaces views with surviving nodes, rebuilding only dirty ones. */
+  private withdrawalPending = false
   private timelineDirty = true
 
   /**
@@ -352,6 +354,64 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
   }
 
   /**
+   * Withdraw every input after `cursor`, as when the Host replaced the Session's history from there on.
+   * A Context left without matches is deleted with its nodes and Location data; a Context that keeps
+   * earlier matches replays from them; every other Context keeps its published nodes, so a view
+   * loses only the withdrawn nodes.
+   * @param cursor - last seq kept.
+   * @returns immediate publication when anything was withdrawn.
+   */
+  truncate(cursor: number): ConversationPublication {
+    const removed = new Set<number>()
+    for (const seq of this.inputs.keys()) if (seq > cursor) removed.add(seq)
+    if (removed.size === 0) return 'none'
+    this.revised.clear()
+    const affected = new Set<InternalContext>()
+    for (const seq of removed) {
+      this.inputs.delete(seq)
+      for (const context of this.contextsBySeq.get(seq) ?? []) affected.add(context)
+      this.contextsBySeq.delete(seq)
+    }
+    for (const context of affected) {
+      context.matches = context.matches.filter(match => !removed.has(match.event.seq))
+      if (context.matches.length > 0) continue
+      affected.delete(context)
+      this.deleteContext(context)
+    }
+    const previousTimeline = this.locationIndex.snapshot()
+    const changedLocations = this.locationIndex.rebuild(this.sortedInputs())
+    if (this.locationIndex.snapshot() !== previousTimeline) this.timelineDirty = true
+    for (const context of this.refreshMatchLocations(changedLocations)) affected.add(context)
+    this.replayContexts(affected)
+    this.replayRevisedDependents()
+    this.revised.clear()
+    this.withdrawalPending = true
+    return 'immediate'
+  }
+
+  /** Remove one Context from every index, its dependency edges, and its published Location data. */
+  private deleteContext(context: InternalContext): void {
+    this.contexts.delete(context.key)
+    const sameKind = this.contextsByKind.get(context.kind)
+    if (sameKind !== undefined) this.contextsByKind.set(context.kind, sameKind.filter(candidate => candidate !== context))
+    const target = context.definition.target
+    if (target !== undefined) {
+      this.contextsByTarget.get(target)?.delete(context)
+      this.dirtyByTarget.get(target)?.delete(context)
+    }
+    this.dirty.delete(context)
+    this.revised.delete(context)
+    this.replaceDependencies(context, new Map())
+    this.dependents.delete(context.key)
+    for (const scope of LOCATION_DATA_SCOPES) {
+      const previous = context.locationData[scope]
+      if (previous === null) continue
+      context.locationData[scope] = null
+      this.locationIndex.applyData([{ owner: context.key, previous, next: null }])
+    }
+  }
+
+  /**
    * Rebuild against the current Registry set after a low-frequency plugin change.
    * @returns immediate publication request.
    */
@@ -365,7 +425,32 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
    * @returns whether any view snapshot was rebuilt or incrementally applied.
    */
   flush(): boolean {
-    if (!this.replacePending && this.dirty.size === 0 && !this.timelineDirty) return false
+    if (!this.replacePending && !this.withdrawalPending && this.dirty.size === 0 && !this.timelineDirty) return false
+    if (this.withdrawalPending && !this.replacePending) {
+      this.withdrawalPending = false
+      this.applyDirtyLocationData()
+      const changedTurns = this.locationIndex.takeChangedTurns()
+      const updated: ViewState[] = []
+      for (const target of this.activeTargets) {
+        const view = this.views.get(target)
+        if (view === undefined || view.builder === undefined) continue
+        const dirty = this.dirtyByTarget.get(target)
+        const nodes: ConversationViewNode[] = []
+        for (const context of this.contextsByTarget.get(target) ?? []) {
+          const current = context.current.get(target)
+          const node = current === undefined || dirty?.has(context) === true ? this.buildNode(context, target) : current
+          context.current.set(target, node)
+          if (node !== null) nodes.push(node)
+        }
+        this.updateView(view, true, nodes, changedTurns)
+        updated.push(view)
+      }
+      this.dirty.clear()
+      this.dirtyByTarget.clear()
+      this.timelineDirty = false
+      return this.publishViews(updated)
+    }
+    this.withdrawalPending = false
     if (this.replacePending) {
       this.replaceLocationData()
       const updated: ViewState[] = []

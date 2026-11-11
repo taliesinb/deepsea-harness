@@ -78,6 +78,8 @@ kind: "package-reference"
 
 `relocate({ id, cwd, append })` 把一个冷会话移到另一个 cwd，也就是另一个项目目录。它在进程内写入认领与会话目录内核锁下，像写 open 一样读取当前 generation（先发布已准备的历史 generation），替换 header 的 `cwd`，把请求的事件盖上序号接在已存储尾部之后，并用严格的当前代际扫描器与已存储事件校验器校验完整结果。随后把旧会话目录（连同所有 generation 与锁文件）重命名为 `<root>/../session-move-backups/<encoded-id>-<time>`，并经实体化路径把校验通过的日志发布到新的项目目录下；发布失败时删除不完整的新目录并把旧目录改回原名。两次重命名之间发生崩溃时，会话只留在备份目录中，绝不会同时出现在两个项目目录。活跃会话以 `SessionAlreadyOwnedError` 拒绝。
 
+`replace({ id, expectedRevision, events })` 原地重写冷会话的当前 generation。它在进程内写入认领与会话目录内核锁下比较已存储的 revision，用严格的当前代际扫描器与已存储事件校验器校验替代日志，将其写入制品旁边一个已同步的临时文件，再重命名覆盖当前 generation（Windows 上使用带直写的 `MoveFileExW`），并同步目录。等待迁移的历史 generation 以 revision 冲突拒绝，活跃会话以 `SessionAlreadyOwnedError` 拒绝。
+
 当前代际扫描器在处理可恢复尾部之前，执行当前编解码器所有者的结构准入检查。已退役的必需 PTC 标签与 `request/header.header.system` 即使出现在较早的畸形行之后也会导致文件被拒绝；恢复绝不将它们作为普通损坏尾部数据截断。
 
 卸载后端时，会先等待经由 `sessionPersistence` 注入所触发的消费者卸载，再移除实时事件监听器、排空并关闭剩余句柄。消费者必须在该注入作用域中注册清理；无依赖关系的作用域，以及显式关闭的 Session 或句柄，各自遵循其生命周期。通过代码挂载时，使用插件命名空间（`import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'`）调用 `ctx.plugin`，并通过 `ctx.sessionPersistence` 访问存储。

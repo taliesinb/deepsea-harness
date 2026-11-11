@@ -28,6 +28,7 @@
     "src/list.ts",
     "src/media-references.ts",
     "src/move.ts",
+    "src/rewind.ts",
     "src/archived-session-gate.ts",
     "src/skill-catalog.ts"
   ],

@@ -46,6 +46,8 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 
 另有一个可选方法 `relocate({ id, cwd, append? })`，把一个冷的已存储会话移到另一个工作目录——工作目录即该会话的 Workspace 归属：替换 header 的 `cwd`，把给定事件盖上序号接在已存储尾部之后，并作为一次持久操作发布到新 cwd 对应的位置；id、创建时间、谱系与继承切点保持不变。旧制品被退役（JSONL 后端把它保留在 `<root>/../session-move-backups/` 下）。任何地方以写方式打开的会话以 `SessionAlreadyOwnedError` 拒绝。不支持搬迁的后端不定义该方法，Session Controller 的 `move` 则回答 `session/move-unsupported`。
 
+第二个可选方法 `replace({ id, expectedRevision, events })` 是仅追加存储的唯一刻意例外：为用户请求的历史回退，它在同一 header 与继承切点下，用一份完整且经过校验的替代日志原子地替换冷会话的当前日志。若 `stat()` 报告的已不再是 `expectedRevision`，它在任何改动之前以 `SessionRevisionConflictError` 拒绝；写方持有该会话时以 `SessionAlreadyOwnedError` 拒绝。完成即承诺替换已持久；发布之后的失败可能已经提交，因此调用方要丢弃常驻 Session 并从存储重建投影。迁移 generation 不受影响。不支持替换的后端不定义该方法，Session Controller 的 `rewind` 则回答 `session/rewind-unsupported`。
+
 本包还声明 `session-persistence/stored(header)` 事件。在实时存储之外存储会话（导入）或搬迁会话的组件，在变更持久化后发出该事件，列表所有者随之刷新该会话的行：Session Controller 把它作为 `api-session/added` 摘要发布给客户端。
 
 服务级 `flush()` 排空每个活跃写句柄已路由的事件并把其会话实体化，效果与各句柄自己的 `flush` 完全相同；失败按会话聚合为一个 `AggregateError` 而不中途放弃清扫，清扫途中被关闭的句柄视同已 flush，因为 close 本身会持久排空。

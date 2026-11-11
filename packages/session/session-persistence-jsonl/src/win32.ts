@@ -37,6 +37,7 @@ interface Win32ErrnoException extends NodeJS.ErrnoException {
 }
 
 const MOVEFILE_WRITE_THROUGH = 0x00000008
+const MOVEFILE_REPLACE_EXISTING = 0x00000001
 const WAIT_OBJECT_0 = 0
 const WAIT_TIMEOUT = 0x00000102
 const ERROR_FILE_NOT_FOUND = 2
@@ -137,6 +138,18 @@ export async function publishNewFileWin32(existing: string, replacement: string)
   if (ok === 0) throw win32Error('MoveFileExW', api.getLastError(), existing, replacement)
 }
 
+/**
+ * Atomically replace an existing artifact with a synced staging file, durably.
+ * @param existing - synced staging file on the same volume.
+ * @param replacement - existing artifact explicitly selected for destructive replacement.
+ */
+export async function replaceFileWin32(existing: string, replacement: string): Promise<void> {
+  const api = await win32()
+  const ok = api.moveFileExW(
+    toNamespacedPath(existing), toNamespacedPath(replacement), MOVEFILE_WRITE_THROUGH | MOVEFILE_REPLACE_EXISTING,
+  )
+  if (ok === 0) throw win32Error('MoveFileExW', api.getLastError(), existing, replacement)
+}
 /**
  * Acquire the session write lock as a named kernel semaphore (count 1) whose
  * name is derived from the canonical lock path. A kernel object never touches

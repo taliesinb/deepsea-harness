@@ -212,6 +212,31 @@ describe('Session tail-page seeding', () => {
     expect(session.projections.get('test/marks')).toEqual({ marks: ['pushed-9'] })
   })
 
+  it('a history trim withdraws only the tail and reseeds projections from the replaced log', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const first = plainTurn(SessionSeq(0), 0, 'a', 'b')
+    const second = plainTurn(SessionSeq(first.length), 1, 'c', 'd')
+    mock.stream(FOLLOW, followScript(ok({
+      records: entries([...first, ...second]) as never[], hasMore: false,
+      projections: { asOfSeq: first.length + second.length - 1, values: { 'test/marks': { marks: ['old'] } } },
+    } as never)))
+    await session.open()
+    const kept = session.eventSource.getSnapshot().entries.slice(0, first.length)
+    const changes: string[] = []
+    session.eventSource.subscribe(() => { changes.push(session.eventSource.getSnapshot().change.kind) })
+    mock.streams.push(FOLLOW, {
+      type: 'trimmed', cursor: first.length - 1,
+      projections: { asOfSeq: first.length - 1, values: { 'test/marks': { marks: ['rewound'] } } },
+    })
+    await mock.streams.drained(FOLLOW)
+    const window = session.eventSource.getSnapshot().entries
+    expect(window.map(entry => entry.event.seq)).toEqual(first.map(event => event.seq))
+    expect(window.every((entry, index) => entry === kept[index])).toBe(true)
+    expect(changes).toEqual(['truncate'])
+    expect(session.projections.get('test/marks')).toEqual({ marks: ['rewound'] })
+    expect(session.projections.seqOf('test/marks')).toBe(first.length - 1)
+  })
+
   it('treats a blockless response as no reset: pushed values survive', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     mock.stream(FOLLOW, followScript(ok({ cursor: 5, records: entries(plainTurn(SessionSeq(0), 0, 'a', 'b')) as never[], hasMore: false })))

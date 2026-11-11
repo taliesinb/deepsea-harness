@@ -3,12 +3,12 @@
 import type {} from '@deepseek-ai/dsh-agent/types'
 import type { NativeFileApplication } from '@deepseek-ai/dsh-native-command/types'
 import type {
-  ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
+  FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { LlmModelBadge, TextBlock } from '@deepseek-ai/dsh-llm'
-import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
+import type { ContentBlock, LlmModelBadge, TextBlock } from '@deepseek-ai/dsh-llm'
+import type { SessionEvent, SessionId, SessionSeq, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap, SessionProjectionSummaryExcluded, SessionProjectionSummaryValues } from '@deepseek-ai/dsh-session-projection/types'
 import type { Principal } from '@deepseek-ai/dsh-typert-protocol'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -193,6 +193,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'session/projections-unavailable': Record<string, never>
     'session/writer-held': { readonly sessionId: SessionId }
     'session/agent-busy': { readonly reason: string }
+    'session/rewind-invalid-target': { readonly sessionId: SessionId; readonly userEventSeq: SessionSeq }
+    'session/rewind-unsupported': Record<string, never>
+    'session/rewind-conflict': { readonly sessionId: SessionId }
+    'session/rewind-error': { readonly sessionId: SessionId }
     'session/invalid-time-zone': { readonly value: string }
     'session/workspace-attach-failed': { readonly sessionId: SessionId; readonly workspaceId: string }
     'agent-preset/conflict': {
@@ -679,7 +683,20 @@ export type SessionFollowFrame =
     readonly assistantStream?: SessionAssistantStreamBaseline
   }
   | SessionEventEntry
+  | SessionHistoryTrim
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
+
+/**
+ * The Session's stored history was replaced: every event after `cursor` is
+ * gone, and the event entries that follow continue from `cursor + 1`. The
+ * projection baseline describes the replaced log, including those entries.
+ */
+export interface SessionHistoryTrim {
+  readonly type: 'trimmed'
+  /** Seq of the last event kept from the previous history; -1 when none was kept. */
+  readonly cursor: number
+  readonly projections: SessionProjectionBaseline
+}
 
 /** Complete live control baseline emitted once per control stream generation. */
 export interface SessionControlBaseline {
@@ -777,6 +794,7 @@ export interface SessionObserveEventRequest {
 export type SessionEventFrame =
   | { readonly type: 'ready' }
   | SessionEventEntry
+  | SessionHistoryTrim
 
 /** Projection changes caused by one committed event of the observed Session. */
 export type SessionProjectionChange = { readonly type: 'projection' } & Omit<SessionProjectionUpdate, 'sessionId'>
@@ -822,7 +840,25 @@ declare module '@deepseek-ai/cordis' {
      * @param message - user-safe failure chain.
      */
     'api-session/error'(sessionId: SessionId, message: string): void
+    /**
+     * One Session's stored history was destructively replaced while no Agent was attached.
+     * Event subscribers deliver it as a {@link SessionHistoryTrim} followed by `tail`.
+     * @mode emit
+     * @param sessionId - Session whose history changed.
+     * @param trim - last kept seq, the replaced log's events after it, and its projection baseline.
+     */
+    'api-session/history-trimmed'(sessionId: SessionId, trim: SessionHistoryTrimmed): void
   }
+}
+
+/** Host-side payload of `api-session/history-trimmed`. */
+export interface SessionHistoryTrimmed {
+  /** Seq of the last event kept from the previous history; -1 when none was kept. */
+  readonly cursor: number
+  /** Events of the replaced log after `cursor`, contiguous from `cursor + 1`. */
+  readonly tail: readonly SessionEvent[]
+  /** Projection baseline of the complete replaced log. */
+  readonly projections: SessionProjectionBaseline
 }
 
 /** JSON-compatible projection value accepted by list consumers. */
@@ -830,3 +866,32 @@ export type SessionProjectionValue = JsonValue
 
 /** Application metadata returned by the serving desktop for one file. */
 export type SessionWorkspacePathApplication = NativeFileApplication
+
+/** Destructive history rewind at one human-authored prompt. */
+export interface SessionRewindRequest {
+  readonly sessionId: SessionId
+  /** Exact user/message event sequence in the currently stored history. */
+  readonly userEventSeq: SessionSeq
+  readonly action: 'edit' | 'replay' | 'delete'
+}
+
+/**
+ * One stored attachment of the removed prompt, staged again for a new prompt
+ * on the same Session: a prompt part `{ type: 'file', receiptId }` cites it
+ * without uploading its bytes again.
+ */
+export type SessionRewindAttachment =
+  | { readonly type: 'image'; readonly receiptId: Branded<'file-upload-receipt-id'>; readonly image: ImageAttachmentRef }
+  | { readonly type: 'file'; readonly receiptId: Branded<'file-upload-receipt-id'>; readonly file: FileAttachmentRef }
+
+/** Original prompt content after durable same-identity rewind. */
+export interface SessionRewindValue {
+  readonly sessionId: SessionId
+  readonly action: 'edit' | 'replay' | 'delete'
+  /** Exact stored parts, including durable attachment references; no text flattening. */
+  readonly content: readonly ContentBlock[]
+  /** For `edit`: the prompt's attachments in content order, staged again; otherwise empty. */
+  readonly attachments: readonly SessionRewindAttachment[]
+  /** For `replay`: whether the prompt was queued again after the rewind committed. */
+  readonly replayed?: boolean
+}

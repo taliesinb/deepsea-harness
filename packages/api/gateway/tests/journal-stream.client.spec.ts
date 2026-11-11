@@ -224,6 +224,68 @@ describe('RemoteJournalStream', () => {
     await fixture.journal.dispose()
   })
 
+  it('withdraws a truncated tail inside the window and continues from the cut', async () => {
+    const fixture = journalFixture(
+      [{
+        frames: [
+          opened(3, page('open', [1, 2, 3])),
+          { type: 'truncate', cursor: 5 },
+          { type: 'truncate', cursor: 1 },
+          { type: 'entry', entry: { seq: 2 } },
+        ],
+        hold: true,
+      }],
+      [page('older', [0])],
+    )
+
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(3) })
+    // A cut at or after the published tail withdraws nothing.
+    expect(fixture.changes.slice(1)).toEqual([{ type: 'truncate', cursor: 1 }, { type: 'append', entry: { seq: 2 } }])
+    await fixture.journal.prepend({})
+    expect(fixture.pageCursors).toEqual([2])
+    expect(fixture.failed).not.toHaveBeenCalled()
+    await fixture.journal.dispose()
+  })
+
+  it('reopens when a truncation cuts before the published window', async () => {
+    const fixture = journalFixture(
+      [
+        { frames: [opened(5, page('open', [4, 5], true)), { type: 'truncate', cursor: 2 }], hold: true },
+        { frames: [opened(2, page('replaced', [1, 2]))], hold: true },
+      ],
+      [],
+    )
+
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(3) })
+    expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'truncate', 'replace'])
+    expect(fixture.changes[2]).toMatchObject({ page: { marker: 'replaced' } })
+    expect(fixture.failed).not.toHaveBeenCalled()
+    await fixture.journal.dispose()
+  })
+
+  it('abandons a gap repair that a truncation overtakes and reopens on the replaced journal', async () => {
+    const repair = Promise.withResolvers<Page>()
+    const fixture = journalFixture(
+      [
+        {
+          frames: [opened(1, page('open', [0, 1])), { type: 'entry', entry: { seq: 4 } }, { type: 'truncate', cursor: 0 }],
+          hold: true,
+        },
+        { frames: [opened(0, page('replaced', [0]))], hold: true },
+      ],
+      [async () => repair.promise],
+    )
+
+    await fixture.journal.open({})
+    await vi.waitFor(() => { expect(fixture.changes).toHaveLength(2) })
+    expect(fixture.changes.map(change => change.type)).toEqual(['replace', 'replace'])
+    expect(fixture.changes[1]).toMatchObject({ page: { marker: 'replaced' } })
+    repair.resolve(page('stale', [0, 1, 2, 3, 4]))
+    expect(fixture.failed).not.toHaveBeenCalled()
+    await fixture.journal.dispose()
+  })
   it('defers notifications behind a durable gap until replacement commits', async () => {
     const repair = Promise.withResolvers<Page>()
     const fixture = journalFixture(

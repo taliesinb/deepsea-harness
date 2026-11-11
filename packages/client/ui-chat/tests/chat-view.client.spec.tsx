@@ -269,7 +269,9 @@ type ImageRenderer = (owner: MessageImagesOwnerProps) => React.ReactNode
 declare const userChainDispatch: PropsRenderSlots<'conversation.chat.user.before'>['renderSlotChain']
 type UserChainRenderer = typeof userChainDispatch<'conversation.chat.user.before'>
 type UserChainState = { readonly renderer: UserChainRenderer | undefined }
-type HarnessStandardProps = ChatViewSlotProps & PropsRenderFactories & Pick<React.ComponentProps<typeof AssistantNodeView>, 'fileMentions'>
+type HarnessStandardProps = ChatViewSlotProps & PropsRenderFactories
+  & Pick<React.ComponentProps<typeof UserMessageNodeView>, 'onRewind'>
+  & Pick<React.ComponentProps<typeof AssistantNodeView>, 'fileMentions'>
 
 function isImageOwner(owner: object): owner is MessageImagesOwnerProps {
   return 'images' in owner && Array.isArray(owner.images)
@@ -433,6 +435,7 @@ function makeHarness(
     read: () => savedScroll,
   }
   const forkAt = vi.fn()
+  const onRewind = vi.fn<React.ComponentProps<typeof UserMessageNodeView>['onRewind']>().mockResolvedValue(undefined)
   // Rows and the harness must observe the same chat-store instance.
   const chat = createChatStore().create()
   const transcriptView = createSnapshotStore<TranscriptViewMode>('compact')
@@ -550,6 +553,7 @@ function makeHarness(
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
+    onRewind,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
     t,
@@ -577,7 +581,7 @@ function makeHarness(
     setConnection: (state: ConnectionState) => { connection.set(state) },
     openFile, openUserFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, toolOwners,
+    chatScroll, forkAt, onRewind, toolOwners,
     setPerformanceUsage: (mode: 'compact' | 'detailed') => { performanceUsage.set(mode) },
     setGrouped: (value: ConversationGroupedView<ProcessGroupData> | undefined) => {
       grouped = value
@@ -3698,6 +3702,74 @@ describe('ChatView', () => {
     expect(h.forkAt).not.toHaveBeenCalled()
   })
 
+  it('offers all three rewind actions before copy only for idle durable prompts', () => {
+    const prompt = { ...user(1, 'question'), messageId: MessageId('rewind-prompt') }
+    const h = makeHarness({ nodes: [prompt, assistant(2, 'answer')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const actions = view.container.querySelector('[data-prompt-rewind-actions]')
+    expect(actions?.querySelectorAll('button')).toHaveLength(3)
+    expect(actions?.closest('[data-clock]')?.querySelectorAll('button')[3]?.getAttribute('aria-label')).toBe('复制')
+    expect(view.container.querySelector('[data-prompt-rewind]')?.getAttribute('tabindex')).toBe('0')
+    act(() => { h.set({ running: true }) })
+    expect(view.queryByRole('button', { name: zh['message.edit'] })).toBeNull()
+    expect(view.container.querySelector('[data-prompt-rewind-actions]')).toBeNull()
+    act(() => { h.set({ running: false }) })
+    expect(view.getByRole('button', { name: zh['message.replay'] })).toBeTruthy()
+  })
+
+  it('confirms each rewind action inline in place of the icons before running it', async () => {
+    const prompt = { ...user(1, 'question'), messageId: MessageId('rewind-confirm') }
+    const h = makeHarness({ nodes: [prompt, assistant(2, 'answer')] })
+    const view = render(<h.ChatView {...h.props} />)
+    for (const [key, action] of [['message.edit', 'edit'], ['message.replay', 'replay'], ['message.delete', 'delete']] as const) {
+      fireEvent.click(view.getByRole('button', { name: zh[key] }))
+      const confirmation = view.container.querySelector(`[data-prompt-rewind-confirm="${action}"]`) as HTMLElement
+      expect(confirmation.textContent).toContain(zh['message.rewind.warning'])
+      expect(view.container.querySelector('[data-prompt-rewind-actions]')).toBeNull()
+      expect(h.onRewind).not.toHaveBeenCalled()
+      fireEvent.click(within(confirmation).getByRole('button', { name: zh['message.rewind.cancel'] }))
+      expect(view.container.querySelector('[data-prompt-rewind-confirm]')).toBeNull()
+      expect(view.container.querySelector('[data-prompt-rewind-actions]')).not.toBeNull()
+    }
+    const settle = Promise.withResolvers<undefined>()
+    h.onRewind.mockReturnValueOnce(settle.promise)
+    fireEvent.click(view.getByRole('button', { name: zh['message.delete'] }))
+    const confirmation = view.container.querySelector('[data-prompt-rewind-confirm]') as HTMLElement
+    fireEvent.click(within(confirmation).getByRole('button', { name: zh['message.delete'] }))
+    expect(h.onRewind).toHaveBeenCalledExactlyOnceWith(1, 'delete')
+    for (const button of within(confirmation).getAllByRole('button')) expect((button as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => { settle.resolve(undefined) })
+    expect(view.container.querySelector('[data-prompt-rewind-confirm]')).toBeNull()
+  })
+
+  it('withdraws an unanswered inline confirmation when the Session becomes busy', () => {
+    const prompt = { ...user(1, 'question'), messageId: MessageId('rewind-withdrawn') }
+    const h = makeHarness({ nodes: [prompt] })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(view.getByRole('button', { name: zh['message.edit'] }))
+    expect(view.container.querySelector('[data-prompt-rewind-confirm]')).not.toBeNull()
+    act(() => { h.set({ running: true }) })
+    act(() => { h.set({ running: false }) })
+    expect(view.container.querySelector('[data-prompt-rewind-confirm]')).toBeNull()
+    expect(h.onRewind).not.toHaveBeenCalled()
+  })
+
+  it('omits rewind actions when the Session access snapshot excludes session/rewind', () => {
+    const prompt = { ...user(1, 'question'), messageId: MessageId('rewind-denied') }
+    const h = makeHarness({ nodes: [prompt] })
+    const useAccess = vi.fn((endpoint: string) => endpoint !== 'session/rewind')
+    Object.assign(h.props, { useAccess })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: zh['message.delete'] })).toBeNull()
+    expect(useAccess).toHaveBeenCalledWith('session/rewind')
+  })
+
+  it('keeps synthetic prompt rows copy-only', () => {
+    const h = makeHarness({ nodes: [user(1, 'synthetic')] })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.container.querySelector('[data-prompt-rewind-actions]')).toBeNull()
+  })
   it('omits the Turn Tail branch action when the Session access snapshot excludes session/fork', () => {
     const h = makeHarness({ nodes: [user(1, 'question'), assistant(2, 'answer')], turnEnds: new Map([[1, 3]]) })
     const useAccess = vi.fn((endpoint: string) => endpoint !== 'session/fork')

@@ -135,3 +135,12 @@ export function sessionFormatVersionRefusal(id: string, version: number): string
     ? `session "${id}" uses log format v${version}, but this harness reads only v${SESSION_FORMAT_VERSION}: the log was written by a newer harness — upgrade the harness to open it`
     : `session "${id}" uses log format v${version}, older than the supported v${SESSION_FORMAT_VERSION}, and this build ships no upgrade path for it`
 }
+
+/** Optimistic replacement refused because the stored log changed after observation. */
+export class SessionRevisionConflictError extends Error {
+  /** @param sessionId - Session whose replacement was refused without mutation. */
+  constructor(readonly sessionId: SessionId) {
+    super(`session "${sessionId}" changed before replacement; reread before retrying`)
+    this.name = 'SessionRevisionConflictError'
+  }
+}
