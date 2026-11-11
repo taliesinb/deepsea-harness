@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampWidth, computeColumns } from '../src/client/columns.ts'
+import { clampWidth, computeColumns, SIDEBAR_ABSENT } from '../src/client/columns.ts'
 
 describe('clampWidth', () => {
   it('clamps into the range and rounds', () => {
@@ -21,6 +21,11 @@ describe('computeColumns', () => {
   it('aligns an expanded sidebar to the fold midpoint without widening a collapsed rail', () => {
     expect(computeColumns(951, 280, 864, 56, true)).toEqual({ sidebar: 475.5, center: 475.5, rightbar: 0 })
     expect(computeColumns(951, 0, 0, 56, true)).toEqual({ sidebar: 56, center: 895, rightbar: 0 })
+  })
+
+  it('gives an absent sidebar no track, rail, or fold alignment', () => {
+    expect(computeColumns(1920, SIDEBAR_ABSENT, 864)).toEqual({ sidebar: 0, center: 1056, rightbar: 864 })
+    expect(computeColumns(951, SIDEBAR_ABSENT, 0, 56, true)).toEqual({ sidebar: 0, center: 951, rightbar: 0 })
   })
 
   it('clamps sidebar preferences and limits the right panel to 70% of the frame', () => {
