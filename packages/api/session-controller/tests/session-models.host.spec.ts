@@ -474,6 +474,38 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('copies each route\'s catalog provider, vendor and billing kind onto its group', async () => {
+    const { ctx } = await harness()
+    class RouteAdapter extends CatalogAdapter {
+      constructor(name: string, models: readonly LlmModelInfo[], private readonly route: Omit<LlmProviderInfo, 'id' | 'name'>) {
+        super(name, models)
+      }
+
+      override providerInfo(provider: string): LlmProviderInfo {
+        return { ...super.providerInfo(provider), ...this.route }
+      }
+    }
+    ctx.llm.registerAdapter(['vendor-oauth'], new RouteAdapter('Vendor Plan', [
+      { provider: 'vendor-oauth', id: 'seeing', name: 'Seeing' },
+    ], { catalogProvider: 'vendor', vendor: 'Vendor', auth: 'subscription' }))
+    ctx.llm.registerAdapter(['on-device'], new RouteAdapter('On Device', [
+      { provider: 'on-device', id: 'small', name: 'Small' },
+    ], { auth: 'local' }))
+    await createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const catalog = await buildModelCatalog(ctx)
+    const group = (id: string) => catalog.groups.find(entry => entry.id === id)
+    expect(group('vendor-oauth')).toEqual({
+      id: 'vendor-oauth', name: 'Vendor Plan', catalogProvider: 'vendor', vendor: 'Vendor', auth: 'subscription',
+      models: [{ id: 'seeing', name: 'Seeing' }],
+    })
+    expect(group('on-device')).toEqual({ id: 'on-device', name: 'On Device', auth: 'local', models: [{ id: 'small', name: 'Small' }] })
+    await ctx.fiber.dispose()
+  })
+
   it('rejects unlisted models and records validated selections for the next step', async () => {
     const { ctx, agent, sessionId } = await harness()
     const remote = await createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
