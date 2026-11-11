@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-tool-jobs`，可通过 `job_output`、`job_list` 与 `job_kill` 检查和控制后台命令、PTY 工作与 subagent。读取可在配置的超时内等待，而等待会因用户 steer 提前结束；列表结果标识各任务的 kind 与状态，而取消只有在工作停止后才结算。归属明确的工作完成时，agent（智能体）会收到携带简短输出的会话内通知：繁忙的 agent 在下一步收到，空闲的 agent 则由 follow-up 轮次唤醒。配置控制等待上限、完成投递与可选的连续唤醒上限。流输出只有一个读取方，待领通知无法在所有者释放后存活。
+使用 `dsh-tool-jobs`，可通过 `job_output`、`job_list` 与 `job_kill` 检查和控制后台命令、PTY 工作与 subagent。读取可在配置的超时内等待，用户 steer 或插件释放会提前结束等待；列表结果标识各任务的 kind 与状态，而取消只有在工作停止后才结算。归属明确的工作完成时，agent（智能体）会收到携带简短输出的会话内通知：繁忙的 agent 在下一步收到，空闲的 agent 则由 follow-up 轮次唤醒。配置控制等待上限、完成投递与可选的连续唤醒上限。流输出只有一个读取方，待领通知无法在所有者释放后存活。
 
 ## 目录
 
@@ -34,6 +34,17 @@ kind: "package-reference"
 - `job_kill(job_id, reason?)`——立即请求取消运行中的任务；任务在其工作真正停止后以 `killed` 结算。终止任务返回其当前快照，可选的原因会被记录并转发给任务。
 
 三个工具依次返回 `{ text, job }`、`PublicJobSnapshot[]` 与 `{ outcome: 'cancellation-requested' | 'already-finished', job }`。公共快照携带 id、kind、label、带实时进度行或终态 detail 的状态，以及开始／结束时间，并省略归属与环偏移。三个工具都通过通用 UI 卡片渲染：output 和 list 用 `read`，kill 用 `execute`。
+
+### 由插件结束等待
+
+每个针对运行中任务的 `job_output` 等待都会以 Cordis 事件 `tool-jobs/wait-started` 公布一个 `JobOutputWait`：`callId`、`agent`、`jobId`、`startedAt`，以及按配置的默认值与上限换算超时后得到的 `deadline`。`ended` 在等待结束时 resolve，无论是什么结束了它。`release(detail?)` 立即结束等待，调用按超时的方式返回：自上次读取以来的输出和任务的当前状态，任务继续运行。给出 `detail` 时，它会追加到运行中任务的状态行（`[status: running, <detail>]`）；不给时结果与超时完全相同。等待结束后 `release` 返回 `false`。该事件派发给所有监听器，不做 scope 过滤；抛出或 reject 的监听器只会被记录日志，不影响等待。为这类等待向用户提供“跳过”按钮的插件按 `callId` 保存公布的等待，并在自己的路由里调用 `release`。
+
+```ts
+ctx.on('tool-jobs/wait-started', (wait) => {
+  waits.set(wait.callId, wait)
+  void wait.ended.then(() => waits.delete(wait.callId))
+})
+```
 
 ### 完成通知
 
@@ -92,7 +103,7 @@ kind: "package-reference"
 
 ### 通知投递通道
 
-结算订阅（`{ owners: 'scope' }`）跳过注册表报告为 `awaited` 的结算、模型经 `job_kill` 杀停的任务、无所有者的任务与 teardown 结算，然后解析登记在拥有者会话下的 agent。`wakeup` 投递为空闲所有者开启一轮；设置了 `maxConsecutiveWakes` 时只在预算内开启，按确切 `Agent` 记录在 `WeakMap` 中，领取用户撰写的消息（`agent/inbox/claimed`）会重置该所有者的预算。繁忙的所有者——或超出所配预算的任何通知，以及 `quiet` 投递——改为注入 next-step inbox。注册表只计入结算时仍被欠着投影的等待，因此超时或中止的等待会让之后的结算照常通知；移除会把任务从模型杀停集合里删掉，该集合只保有模型杀停过的存活任务。本插件因 next-step 输入结束的等待，从被打断起持有一次占用，直到它自己的读取提交：落在这个窗口内的结算经该读取的终态与结果到达模型，因此不再发通知；而在读取报告任务仍在运行之后才发生的结算照常通知。工具通过中止自己的 controller 结束等待（注册表保持“中止即取消”的契约），因此被取消的调用会丢弃该次读取，被抑制的通知在占用释放时补发。
+结算订阅（`{ owners: 'scope' }`）跳过注册表报告为 `awaited` 的结算、模型经 `job_kill` 杀停的任务、无所有者的任务与 teardown 结算，然后解析登记在拥有者会话下的 agent。`wakeup` 投递为空闲所有者开启一轮；设置了 `maxConsecutiveWakes` 时只在预算内开启，按确切 `Agent` 记录在 `WeakMap` 中，领取用户撰写的消息（`agent/inbox/claimed`）会重置该所有者的预算。繁忙的所有者——或超出所配预算的任何通知，以及 `quiet` 投递——改为注入 next-step inbox。注册表只计入结算时仍被欠着投影的等待，因此超时或中止的等待会让之后的结算照常通知；移除会把任务从模型杀停集合里删掉，该集合只保有模型杀停过的存活任务。本插件提前结束的等待（因 next-step 输入或经 `release`），从被打断起持有一次占用，直到它自己的读取提交：落在这个窗口内的结算经该读取的终态与结果到达模型，因此不再发通知；而在读取报告任务仍在运行之后才发生的结算照常通知。工具通过中止自己的 controller 结束等待（注册表保持“中止即取消”的契约），因此被取消的调用会丢弃该次读取，被抑制的通知在占用释放时补发。
 
 完整输出流（`JobView.output.total`）超过 `inlineOutputBytes` 的任务无法放入通知，因此其读取留在注册表中。否则，通知会在结算时取走消费式读取。内联通知暂存该读取，直到它被记录为 `user/message`（`session/event`）；被某一步领取、但该步随后被拒绝或取消的通知不会被记录，因此 `job_output` 会返回其暂存的读取。读取放不下的通知会为 `job_output` 暂存该读取。`job_output` 还会将待领通知从为所有者会话注册的 agent 的 inbox 中移除。任务移除会丢弃该条目。插件重新加载会丢弃所有暂存读取，因此模型随后读取该任务时得到 `(no new output)`。
 

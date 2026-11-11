@@ -178,8 +178,11 @@ describe('DetailsRow', () => {
       for (const dispose of callback()) dispose()
     })
     detailsToolview.apply({ slots: { inject, register } } as never)
-    expect(register.mock.calls).toHaveLength(39)
+    expect(register.mock.calls).toHaveLength(37)
     const specs = register.mock.calls.map(([spec]) => spec)
+    // The job rows that name a job by its origin register in job-row.tsx.
+    expect(specs).not.toContainEqual(expect.objectContaining({ key: 'job_output' }))
+    expect(specs).not.toContainEqual(expect.objectContaining({ key: 'job_kill' }))
     expect(specs).toContainEqual({ name: 'tool.call.toolview', key: 'cordis_inspect_query', locale: 'conversation' })
     for (const key of ['schedule_create', 'schedule_list', 'schedule_view', 'schedule_edit', 'schedule_update', 'schedule_delete']) {
       expect(specs).toContainEqual({ name: 'tool.call.toolview', key, locale: 'conversation' })

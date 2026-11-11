@@ -12,9 +12,27 @@ import { CONVERSATION_NS as NS } from '../../locale.ts'
 import { ToolRow } from '../components/ToolRow.tsx'
 import { detailsCardModel } from '../models/details-card-model.ts'
 import { parsedToolCall } from '../models/raw-tool-call.ts'
-import { toolRowModel } from '../models/tool-call-model.ts'
+import { toolRowModel, type ToolTitleKey } from '../models/tool-call-model.ts'
 
-type DetailsRowProps = ToolCallViewProps & PropsLocale<'conversation'>
+/** The entity a row is about, presented by a label that leads to where it came from. */
+export interface DetailsSubject {
+  /** Verbatim identity; the label's tooltip and the expanded details keep it. */
+  readonly id: string
+  /** One-line display label in place of the identity. */
+  readonly label: string
+  /** Show where the entity came from; receives the label button. */
+  readonly reveal: (origin: HTMLElement) => void
+}
+
+/** Presentation a wrapping row chooses for a recorded-result row. */
+export interface DetailsRowPresentation {
+  /** Title in place of the tool's own. */
+  readonly titleKey?: ToolTitleKey | undefined
+  /** Label link in place of the identity at the head of the summary. */
+  readonly subject?: DetailsSubject | undefined
+}
+
+type DetailsRowProps = ToolCallViewProps & PropsLocale<'conversation'> & DetailsRowPresentation
 
 const LSP_TITLE_KEYS = {
   goToDefinition: 'tool.title.findDefinition',
@@ -43,14 +61,31 @@ function detailIcon(toolName: string) {
  * @param props - Tool call, row actions, and locale supplied by the keyed slot.
  * @returns A Tool row with structured details or generic input/output.
  */
-export function DetailsRow({ toolName, block, cwd, home, openFile, inspect, useDisclosure, t }: DetailsRowProps) {
+export function DetailsRow({
+  toolName, block, cwd, home, openFile, inspect, useDisclosure, t, titleKey: presentedTitleKey, subject,
+}: DetailsRowProps) {
   const model = toolRowModel(toolName, block, cwd, home)
   const locale = document.documentElement.lang
-  const details = useMemo(() => detailsCardModel(block, t, locale), [block, t, locale])
+  const recorded = useMemo(() => detailsCardModel(block, t, locale), [block, t, locale])
   const operation = toolName === 'lsp' ? parsedToolCall(block)?.args.operation : undefined
-  const titleKey = typeof operation === 'string' && Object.hasOwn(LSP_TITLE_KEYS, operation)
+  const titleKey = presentedTitleKey ?? (typeof operation === 'string' && Object.hasOwn(LSP_TITLE_KEYS, operation)
     ? LSP_TITLE_KEYS[operation as keyof typeof LSP_TITLE_KEYS]
-    : model.titleKey
+    : model.titleKey)
+  const summary = recorded?.summary ?? recorded?.items[0]?.title ?? recorded?.empty ?? model.summary
+  // A subject's summary is `<id> · <status>`; `· <status>` stays outside the link.
+  const lead = subject === undefined ? undefined : `${subject.id} · `
+  const suffix = lead !== undefined && summary.startsWith(lead) ? summary.slice(lead.length - 2) : null
+  const label = subject?.label
+  const details = useMemo(
+    () => recorded === null || label === undefined ? recorded : { ...recorded, expandedSummary: label },
+    [recorded, label],
+  )
+  const id = subject?.id
+  const reveal = subject?.reveal
+  const summaryLink = useMemo(
+    () => id === undefined || reveal === undefined ? undefined : { title: id, onActivate: reveal },
+    [id, reveal],
+  )
   return (
     <ToolRow
       useDisclosure={useDisclosure}
@@ -59,7 +94,9 @@ export function DetailsRow({ toolName, block, cwd, home, openFile, inspect, useD
       toolName={toolName}
       icon={detailIcon(toolName)}
       title={t(titleKey)}
-      summary={details?.summary ?? details?.items[0]?.title ?? details?.empty ?? model.summary}
+      summary={label ?? summary}
+      summarySuffix={suffix}
+      summaryLink={summaryLink}
       details={details}
       bodyRaw={model.bodyRaw}
       output={model.output}
@@ -102,8 +139,6 @@ export const detailsToolview = {
       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'send_message', locale: NS }, DetailsRow)
       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'interrupt_agent', locale: NS }, DetailsRow)
       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'job_list', locale: NS }, DetailsRow)
-      yield ctx.slots.register({ name: 'tool.call.toolview', key: 'job_output', locale: NS }, DetailsRow)
-      yield ctx.slots.register({ name: 'tool.call.toolview', key: 'job_kill', locale: NS }, DetailsRow)
       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'terminal_open', locale: NS }, DetailsRow)
       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'terminal_read', locale: NS }, DetailsRow)
       yield ctx.slots.register({ name: 'tool.call.toolview', key: 'terminal_list', locale: NS }, DetailsRow)
