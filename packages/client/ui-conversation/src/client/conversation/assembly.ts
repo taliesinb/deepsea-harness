@@ -198,6 +198,8 @@ export class UiConversation extends Service {
   readonly interactions: ConversationInteractionRegistry
   private readonly bindings = new WeakMapWithValues<SessionBinding, BindingRecord>()
   private readonly images: HistoricalImageCache
+  /** View selectors of the Conversation bodies created in this page, by Session. */
+  private readonly viewSelectors = new Map<SessionId, (view: string, focus: string) => boolean>()
 
   /**
    * @param ctx - owning Client context.
@@ -234,6 +236,30 @@ export class UiConversation extends Service {
         for (const record of [...this.bindings.values]) this.drop(record, true)
       }
     }, 'ui-conversation assembly')
+  }
+
+  /**
+   * Install the View selector of one Session's Conversation body; a later body of the same Session replaces it.
+   * @param sessionId - Session the body renders.
+   * @param select - selects a registered View and addresses a focus request to it; false for an unregistered View.
+   * @returns disposer removing the selector while it is still the installed one.
+   */
+  bindViewSelector(sessionId: SessionId, select: (view: string, focus: string) => boolean): () => void {
+    this.viewSelectors.set(sessionId, select)
+    return () => {
+      if (this.viewSelectors.get(sessionId) === select) this.viewSelectors.delete(sessionId)
+    }
+  }
+
+  /**
+   * Select a View in one Session's Conversation body, as its View tabs do, and address a focus request to it.
+   * @param sessionId - Session whose body selects the View.
+   * @param view - registered `conversation.view` entry id.
+   * @param focus - opaque focus identity for the View; empty for none.
+   * @returns false when no body of that Session was created in this page or the View is not registered.
+   */
+  openView(sessionId: SessionId, view: string, focus: string = ''): boolean {
+    return this.viewSelectors.get(sessionId)?.(view, focus) ?? false
   }
 
   /**
