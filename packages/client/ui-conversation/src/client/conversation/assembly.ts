@@ -9,9 +9,9 @@ import { WeakMapWithValues } from '@deepseek-ai/dsh-util-values'
 import {
   createSnapshotStore, type ObservableSnapshot, type SnapshotStore,
 } from '@deepseek-ai/dsh-client-store'
-import type {
-  ConversationPublication, ConversationViewSnapshotMap,
-  ConversationViewSnapshotStore,
+import {
+  conversationContextKey, type ConversationPublication, type ConversationViewSnapshotMap,
+  type ConversationViewSnapshotStore,
 } from '../contract/conversation.ts'
 import type { ConversationSnapshot } from '../contract/snapshot.ts'
 import type {
@@ -330,6 +330,19 @@ export class UiConversation extends Service {
     system: SystemPromptNode | undefined,
   ): RequestPromptInspection {
     return inspectRequestPrompt(previous, event, system)
+  }
+
+  /**
+   * Name the Node a Definition materializes for one business identity, so a
+   * renderer can read another Node from its target's keyed store without
+   * scanning it. Exposed as a service method because cross-plugin value
+   * imports are forbidden in client bundles.
+   * @param kind - Definition kind.
+   * @param id - Definition-local business identity returned by its `match`.
+   * @returns the engine-owned Context key, which is also the Node's `key`.
+   */
+  contextKey(kind: string, id: string): string {
+    return conversationContextKey(kind, id)
   }
 
   private drop(record: BindingRecord, releaseScope: boolean): void {
