@@ -65,6 +65,12 @@ describe('registration', () => {
     expect(fs.processPathFromHostPath('image.png')).toBeUndefined()
   })
 
+  it('answers every write check allowed, because it fences no mutation', async () => {
+    const outside = await fs.resolve(join(parse(dir).root, 'dsh-fs-check-write', 'x.txt'))
+    expect(await fs.checkWrite(outside)).toEqual({ kind: 'allowed' })
+    expect(await fs.checkWrite(outside, undefined, { mode: 'read-only', workspaceRoot: dir })).toEqual({ kind: 'allowed' })
+  })
+
   it('rejects non-positive, fractional, unsafe, or unallocatable diff-basis limits', async () => {
     const maxDiffBasisBytes = Math.min(
       bufferConstants.MAX_LENGTH,

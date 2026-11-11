@@ -254,6 +254,76 @@ describe('FsError identity', () => {
   })
 })
 
+describe('checkWrite', () => {
+  /** The write's own outcome for `path`: allowed, or the refusal it threw. */
+  async function writeDecision(path: string): Promise<unknown> {
+    try {
+      await fs.writeText(await target(path), 'x')
+      return { kind: 'allowed' }
+    } catch (error: unknown) {
+      if (error instanceof FsError && error.code === 'FS_SANDBOX_DENIED') return { kind: 'denied', message: error.message }
+      throw error
+    }
+  }
+
+  it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)('answers what the write then decides under %s, writing nothing itself', async (mode) => {
+    await boot(mode)
+    await symlink(outside, join(workspace, 'link'))
+    const paths = [
+      join(workspace, 'inside.txt'),
+      join(workspace, 'nested', 'new.txt'),
+      join(outside, 'escape.txt'),
+      join(workspace, 'link', 'newdir', 'deep.txt'),
+    ]
+    const answers = []
+    for (const path of paths) {
+      const answer = await fs.checkWrite(await target(path))
+      answers.push(answer.kind)
+      expect(existsSync(path)).toBe(false)
+      expect(existsSync(join(workspace, 'nested'))).toBe(false)
+      expect(existsSync(join(outside, 'newdir'))).toBe(false)
+      expect(answer).toEqual(await writeDecision(path))
+      await rm(join(workspace, 'nested'), { recursive: true, force: true })
+      await rm(join(outside, 'newdir'), { recursive: true, force: true })
+    }
+    expect(answers).toEqual({
+      'read-only': ['denied', 'denied', 'denied', 'denied'],
+      'workspace-write': ['allowed', 'allowed', 'denied', 'denied'],
+      'danger-full-access': ['allowed', 'allowed', 'allowed', 'allowed'],
+    }[mode])
+  })
+
+  it('reports the refusal message the mutation throws', async () => {
+    await boot('workspace-write')
+    const path = join(outside, 'escape.txt')
+    expect(await fs.checkWrite(await target(path))).toEqual({
+      kind: 'denied', message: `cannot write "${path}": file access denied under workspace-write mode`,
+    })
+  })
+
+  it('decides under the per-call policy, else the deployment fallback', async () => {
+    await boot('read-only')
+    const inside = await target(join(workspace, 'inside.txt'))
+    expect((await fs.checkWrite(inside)).kind).toBe('denied')
+    expect(await fs.checkWrite(inside, undefined, { mode: 'workspace-write', workspaceRoot: workspace })).toEqual({ kind: 'allowed' })
+  })
+
+  it('checks the fresh canonical path, as the mutation does', async () => {
+    await boot('workspace-write')
+    const stale: FsTarget = { displayPath: join(workspace, 'landed.txt'), targetKey: FsTargetKey(join(outside, 'escaped.txt')) }
+    expect(await fs.checkWrite(stale)).toEqual({ kind: 'allowed' })
+  })
+
+  it('throws what the mutation throws for an invalid writable root, and honors cancellation', async () => {
+    await boot('workspace-write')
+    const policy = { mode: 'workspace-write' as const, workspaceRoot: workspace, additionalWritableRoots: ['relative'] }
+    const path = join(workspace, 'x.txt')
+    await expect(fs.checkWrite(await target(path), undefined, policy)).rejects.toMatchObject({ code: 'SANDBOX_INVALID_ROOT' })
+    await expect(fs.writeText(await target(path), 'x', undefined, undefined, policy)).rejects.toMatchObject({ code: 'SANDBOX_INVALID_ROOT' })
+    await expect(fs.checkWrite(await target(path), AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
+  })
+})
+
 describe('patch, delete, and move fences', () => {
   it.each(['read-only', 'workspace-write', 'danger-full-access'] as const)('fences every new mutation under %s', async (mode) => {
     await boot(mode)

@@ -284,6 +284,22 @@ interface FsEditOutcome {
 }
 ```
 
+`checkWrite(target, signal, sandboxPolicy)` 在不做变更的情况下报告：在该策略下，提供方的沙箱围栏对该目标的变更——写入或创建、编辑、补丁、删除，或作为移动的任一端——会作出什么决定。`dsh-fs-sandbox` 通过其变更所运行的同一段代码回答，`dsh-fs-local` 回答 `allowed`，`dsh-fs-ssh` 询问辅助进程的沙箱提供方，基类回答 `unknown`，即把决定留给变更本身。该回答不预留任何东西；变更会再次判定。
+
+```ts type-equiv
+/**
+ * A provider's answer to {@link FileSystem.checkWrite}. `allowed` and `denied`
+ * are the decision the provider's own mutations make for that target and
+ * policy; `denied` carries the `FS_SANDBOX_DENIED` message a mutation would
+ * throw. `unknown` means the provider cannot decide without mutating, so the
+ * mutation decides.
+ */
+type FsWriteCheck =
+  | { readonly kind: 'allowed' }
+  | { readonly kind: 'denied'; readonly message: string }
+  | { readonly kind: 'unknown' }
+```
+
 ## fs 策略事件（提供方约定词汇）
 
 `dsh-fs` 为变更消费方与观察策略定义四个事件。消费方在操作前分发意图，并记录已完成的效果，无需依赖策略插件。它们只携带 `dsh-fs` 词汇加一个不透明的 `object` actor，不含面向模型的概念，也不含 agent/会话所有者结构。
@@ -383,7 +399,7 @@ type FsErrorCode = typeof FS_ERROR_CODES[number]
 
 ## 服务与插件
 
-`FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`processPath`、`processPathFromHostPath`、`fileUrl`、`contains`、`stat`、`lstat`、`readText`、`streamText`、`readBytes`、`listDir`、`writeText`、`editText`、`patchText`、`deleteFile` 与 `moveFile`。`dsh-fs-observation-policy` **不注册服务**。它通过 `fs/*` 事件门禁添加策略，根据未见、缺失或存在状态对写入、编辑与删除意图 waterfall 作出决策，并记录 `FsObservation` 值。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取、写入或编辑，分发 waterfall，并 emit 记录事件。下方生成的 [`ctx.fs` 小节](#ctxfs--filesystem-abstract-seam) 展示确切的 `ctx.fs` 签名。
+`FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`processPath`、`processPathFromHostPath`、`fileUrl`、`contains`、`stat`、`lstat`、`readText`、`streamText`、`readBytes`、`listDir`、`checkWrite`、`writeText`、`editText`、`patchText`、`deleteFile` 与 `moveFile`。`dsh-fs-observation-policy` **不注册服务**。它通过 `fs/*` 事件门禁添加策略，根据未见、缺失或存在状态对写入、编辑与删除意图 waterfall 作出决策，并记录 `FsObservation` 值。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取、写入或编辑，分发 waterfall，并 emit 记录事件。下方生成的 [`ctx.fs` 小节](#ctxfs--filesystem-abstract-seam) 展示确切的 `ctx.fs` 签名。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -409,6 +425,26 @@ Abstract filesystem provider. Targets must preserve identity across aliases; rea
  * @throws when the provider does not support watching or cannot initialize the watcher.
  */
 watch(target: FsTarget, changed: (error?: Error) => void, signal: AbortSignal): Promise<() => Promise<void>>
+
+/**
+ * Answer, without mutating, whether this provider's sandbox fence would let
+ * a mutation of `target` run under `sandboxPolicy`: creating or replacing it
+ * ({@link writeText}), {@link editText}, {@link patchText},
+ * {@link deleteFile}, or either end of {@link moveFile}. A provider answers
+ * with the decision its mutations make, through the same code, performs no
+ * I/O beyond the reads that decision makes, and never prompts. The answer
+ * holds when it is made; each mutation decides again. Guard, existence, and
+ * host-permission failures are outside it. The base provider answers
+ * `unknown`.
+ * @param target - the resolved target a mutation would use.
+ * @param signal - aborts the decision's reads or round-trip.
+ * @param sandboxPolicy - the per-call mode and workspace root the mutation
+ *   would run under. Omit to leave the backend its own default.
+ * @returns `allowed`, `denied` with the refusal message, or `unknown`.
+ * @throws the error a mutation would throw while deciding, such as an
+ *   invalid writable root.
+ */
+checkWrite(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsWriteCheck>
 
 /**
  * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a
