@@ -23,6 +23,7 @@ import type {
   FsObservation,
   FsTarget,
   FsVersion,
+  FsWriteCheck,
   FsWriteIntent,
   FsWriteOutcome,
 } from './types.ts'
@@ -45,6 +46,7 @@ export type {
   FsObservation,
   FsPathInfo,
   FsTarget,
+  FsWriteCheck,
   FsWriteIntent,
   FsWriteOutcome,
 } from './types.ts'
@@ -134,6 +136,31 @@ export abstract class FileSystem extends Service {
    */
   get sandboxMode(): SandboxMode | undefined {
     return undefined
+  }
+
+  /**
+   * Answer, without mutating, whether this provider's sandbox fence would let
+   * a mutation of `target` run under `sandboxPolicy`: creating or replacing it
+   * ({@link writeText}), {@link editText}, {@link patchText},
+   * {@link deleteFile}, or either end of {@link moveFile}. A provider answers
+   * with the decision its mutations make, through the same code, performs no
+   * I/O beyond the reads that decision makes, and never prompts. The answer
+   * holds when it is made; each mutation decides again. Guard, existence, and
+   * host-permission failures are outside it. The base provider answers
+   * `unknown`.
+   * @param target - the resolved target a mutation would use.
+   * @param signal - aborts the decision's reads or round-trip.
+   * @param sandboxPolicy - the per-call mode and workspace root the mutation
+   *   would run under. Omit to leave the backend its own default.
+   * @returns `allowed`, `denied` with the refusal message, or `unknown`.
+   * @throws the error a mutation would throw while deciding, such as an
+   *   invalid writable root.
+   */
+  checkWrite(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsWriteCheck> {
+    void target
+    void signal
+    void sandboxPolicy
+    return Promise.resolve({ kind: 'unknown' })
   }
 
   /**

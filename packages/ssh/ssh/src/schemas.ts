@@ -28,6 +28,11 @@ export const policySchema = z.object({
   additionalWritableRoots: z.array(remotePath).optional(),
   sessionId: z.string().optional(),
 }).strict()
+/** The remote sandbox fence's answer for one target; the helper's provider always decides. */
+export const writeCheckSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('allowed') }).strict(),
+  z.object({ kind: z.literal('denied'), message: z.string() }).strict(),
+])
 /** Complete directory entries. */
 export const entriesSchema = z.array(z.object({ name: z.string(), type: z.enum(['file', 'directory', 'other']), target: targetSchema, version: z.string().optional(), size: z.number().nonnegative().optional() }).strict())
 /** Guarded write intent. */

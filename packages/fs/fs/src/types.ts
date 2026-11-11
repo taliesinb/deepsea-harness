@@ -124,6 +124,18 @@ export type FsWriteIntent =
   | { kind: 'createIfAbsent' }
   | { kind: 'replaceIfVersion'; version: FsVersion }
 
+/**
+ * A provider's answer to {@link FileSystem.checkWrite}. `allowed` and `denied`
+ * are the decision the provider's own mutations make for that target and
+ * policy; `denied` carries the `FS_SANDBOX_DENIED` message a mutation would
+ * throw. `unknown` means the provider cannot decide without mutating, so the
+ * mutation decides.
+ */
+export type FsWriteCheck =
+  | { readonly kind: 'allowed' }
+  | { readonly kind: 'denied'; readonly message: string }
+  | { readonly kind: 'unknown' }
+
 /** Outcome of a full-file write. */
 export interface FsWriteOutcome {
   /** Whether the write created a new file or replaced an existing one. */
