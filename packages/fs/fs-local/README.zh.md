@@ -50,7 +50,7 @@ kind: "package-reference"
 
 ### 你能做什么
 
-完整或流式读取普通 UTF-8 文件、读取有界字节，并列出一层目录。写入、字面量编辑、补丁和删除按目标串行化。移动按字典序锁定两端。`patchText` 在调用 `applyHunks` 前检查版本；`deleteFile` 只删除普通文件。源缺失使用 `FS_STALE_VERSION`，hunk 不匹配使用 `FS_PATCH_MISMATCH`，移动两端相同使用 `FS_SAME_TARGET`。
+完整或流式读取普通 UTF-8 文件、读取有界字节，并列出一层目录。写入、字面量编辑、补丁和删除按目标串行化。移动按字典序锁定两端。`patchText` 在调用 `applyHunks` 前检查版本；`deleteFile` 只删除普通文件。源缺失使用 `FS_STALE_VERSION`，hunk 不匹配使用 `FS_PATCH_MISMATCH`，移动两端相同使用 `FS_SAME_TARGET`。`checkWrite` 对任何目标和策略都回答 `allowed`，因为本后端不为任何变更设围栏。
 
 补丁与移动的文本在内存中规范化为 LF，写回时还原源文件的行尾风格；结果文本使用 LF。删除基线和被覆盖目标的基线遵循 `diffBasisMaxBytes`。移动在暂存目标前检查取消，随后完成两个效果；源删除失败返回已发布目标及 `sourceDeleted: false`。原子写入失败时，目录或临时目录创建被拒绝映射为 `FS_PERMISSION_DENIED`，其他 Node I/O 错误映射为 `FS_IO_ERROR`。
 
