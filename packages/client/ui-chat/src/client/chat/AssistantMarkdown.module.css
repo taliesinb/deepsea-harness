@@ -20,6 +20,12 @@
   gap: 16px;
 }
 
+/* Consecutive visible Think rows use the process flow's 4px spacing, not
+   the 16px gap reserved for ordinary Assistant content blocks. */
+.body > .reasoning:not([hidden]) + .reasoning:not([hidden]) {
+  margin-top: -12px;
+}
+
 /* Wide markdown tables (the renderer's ≥4-column md-table-wide hook) span
    the whole transcript width instead of clipping at the 748px message
    column, while the table content keeps starting at its normal x (the lead
