@@ -696,6 +696,16 @@ export class Session implements SessionFace {
         return
       case 'assistant-stream':
         this.publishAssistantEntry(this.assistantStream.acceptFrame(change.frame))
+        return
+      case 'truncate':
+        this.eventSource.truncate(change.cursor)
+        this.notifier.markDirty()
+        return
+      case 'trimmed':
+        // The replaced log reuses sequence numbers, so the old log's watermarks cannot order its values.
+        this.projections.clear()
+        this.projections.seed(projectionsBaseline(change.trim.projections))
+        this.notifier.markDirty()
     }
   }
 

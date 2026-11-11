@@ -759,6 +759,22 @@ withoutInitiator<T>(operation: () => T): T
 setFactory(factory: AgentFactory): () => void
 
 /**
+ * Exclude new Agent publication and input while an idle Session's history is replaced.
+ * The caller must retain this reservation through writer retirement and durable replacement.
+ * @param id - Session whose history will change.
+ * @returns an idempotent release function.
+ * @throws when reserved already, or a live Agent has a turn or queued input.
+ */
+reserveHistory(id: SessionId): () => void
+
+/**
+ * Reject work targeting a Session under destructive history replacement.
+ * @param id - Session receiving publication or input.
+ * @throws while its history is reserved.
+ */
+assertHistoryAvailable(id: SessionId): void
+
+/**
  * Create and publish a new agent through the registered factory.
  * Distinct from {@link register} (which records an already-constructed
  * agent): this constructs the agent and its session. Rejects if no factory is

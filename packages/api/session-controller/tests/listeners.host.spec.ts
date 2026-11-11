@@ -2,6 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import { LlmAttemptId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EventListener, ListenerBuffer, ProjectionListener, eventItem } from '../src/history/listener.ts'
 import { SessionAssistantStreamsListener } from '../src/history/assistant-stream.ts'
@@ -101,6 +102,29 @@ describe('EventListener', () => {
     expect(await values.next()).toMatchObject({ value: { type: 'event', event } })
     abort.abort()
     expect(await values.next()).toMatchObject({ done: true })
+  })
+
+  it('delivers a history trim, then the replaced tail, then later events from the replaced log\'s end', async () => {
+    const { ctx, session, abort } = await fixture()
+    using listener = new EventListener(ctx, session.id, abort.signal)
+    const values = listener.events()[Symbol.asyncIterator]()
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    expect(await values.next()).toMatchObject({ value: { event: { seq: 0 } } })
+    expect(await values.next()).toMatchObject({ value: { event: { seq: 1 } } })
+    const tail: SessionEvent = { type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1, data: { target: 'next-turn', start: 0, inserted: [] } }
+    const projections = { asOfSeq: 0, values: {} }
+    ctx.emit('api-session/history-trimmed', SessionId('other-session'), { cursor: -1, tail: [], projections })
+    ctx.emit('api-session/history-trimmed', session.id, { cursor: -1, tail: [tail], projections })
+    expect(await values.next()).toEqual({ done: false, value: { type: 'trimmed', cursor: -1, projections } })
+    expect(await values.next()).toMatchObject({ value: { type: 'event', event: { seq: 0, type: 'agent/inbox/spliced' } } })
+    // Later events continue from the replaced log's end.
+    ctx.emit('session/event', session, { ...tail, seq: SessionSeq(1), type: 'turn/start', data: { turn: 1 } } as never)
+    expect(await values.next()).toMatchObject({ value: { event: { seq: 1, type: 'turn/start' } } })
+    // A tail that skips a seq is a Host defect.
+    ctx.emit('api-session/history-trimmed', session.id, { cursor: 0, tail: [{ ...tail, seq: SessionSeq(2) }], projections })
+    expect(await values.next()).toMatchObject({ value: { type: 'trimmed', cursor: 0 } })
+    await expect(values.next()).rejects.toThrow('session history trim skipped seq 1')
   })
 
   it('subscribes before an empty Session is created and follows its first later event', async () => {

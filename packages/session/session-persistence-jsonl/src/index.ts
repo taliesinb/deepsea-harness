@@ -22,7 +22,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import pLimit, { type LimitFunction } from 'p-limit'
 import {
   SessionPersistence, SessionPersistenceRevision, SessionFormatUnsupportedError,
-  SessionPersistenceCorruptionError,
+  SessionPersistenceCorruptionError, SessionRevisionConflictError,
   SessionAlreadyExistsError, SessionPersistenceNotFoundError,
   assertStoredId, materializeAppendBatch, materializeCreateHeader, sessionFormatVersionRefusal, validateStoredEvents,
   type SessionAccess, type SessionHandle,
@@ -31,7 +31,7 @@ import {
   type SessionPersistenceListOptions, type SessionPersistenceOpenOptions,
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
-  type SessionRelocateRequest, type SessionRelocateResult,
+  type SessionRelocateRequest, type SessionRelocateResult, type SessionReplaceRequest,
 } from '@deepseek-ai/dsh-session-persistence'
 import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
@@ -45,7 +45,7 @@ import {
 import {
   compressZstdFrame, createZstdFrameDecoder, decompressZstdFrame, decompressZstdPrefix, scanZstdFrames,
 } from './zstd.ts'
-import { ensureDurableDirectoryWin32, publishNewFileWin32 } from './win32.ts'
+import { ensureDurableDirectoryWin32, publishNewFileWin32, replaceFileWin32 } from './win32.ts'
 import { verifyCurrentGenerationInWorker } from './migration-verifier.ts'
 import { prepareCatalogFacts } from './catalog-migration.ts'
 import {
@@ -674,6 +674,49 @@ class JsonlSessionPersistence extends SessionPersistence {
     return validateStoredEvents(header, scanned.events, this.locate(header))
   }
 
+  /**
+   * Explicit destructive replacement; normal appends and migrations never overwrite generations.
+   * @param request - cold Session, expected revision, and complete replacement events.
+   * @returns after atomic publication and its durability barrier.
+   */
+  override async replace(request: SessionReplaceRequest): Promise<void> {
+    const { id } = request
+    const replacement = materializeAppendBatch(request.events)
+    await this.ensureRootEncoding()
+    this.tracker.claimWrite(id)
+    let lease: SessionWriteLease | undefined
+    try {
+      const selected = await this.findLog(id)
+      if (selected === undefined) throw new SessionPersistenceNotFoundError(id)
+      lease = await this.acquireLease(id, undefined, dirname(selected.currentPath))
+      const stored = await this.requireStoredLog(id)
+      if (stored.status !== 'current' || stored.revision !== request.expectedRevision) {
+        throw new SessionRevisionConflictError(id)
+      }
+      const events = this.validateRelocatedLog(stored.meta, stored.inheritedEventCount, replacement)
+      const content = await this.encodeMaterialization(stored.meta, stored.inheritedEventCount, events)
+      const target = selected.currentPath
+      const staging = await this.writeSyncedTempFile(target, content)
+      try {
+        /* v8 ignore next -- native Windows coverage exercises this platform dispatch; Linux covers the POSIX peer */
+        if (process.platform === 'win32') await replaceFileWin32(staging, target)
+        else {
+          await rename(staging, target)
+          await this.syncDirPosix(dirname(target))
+        }
+      } finally {
+        await rm(staging, { force: true })
+      }
+      this.ctx.emit('session-persistence/stored', stored.meta)
+    } finally {
+      this.coldLogMemo.delete(id)
+      try {
+        await lease?.release()
+      } finally {
+        this.tracker.releaseClaim(id)
+      }
+    }
+  }
   // --- handle-facing storage internals (package-private via the handle class below) ---
 
   /** Resolve and read one stored log, refusing loudly when the artifact is absent. */

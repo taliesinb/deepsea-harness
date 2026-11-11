@@ -399,6 +399,18 @@ abstract open(id: SessionId, access: SessionAccess, options?: SessionPersistence
 abstract flush(): Promise<void>
 
 /**
+ * Destructively replace a cold Session's current log under exclusive write ownership.
+ * This explicit user-requested operation is the exception to append-only storage;
+ * migration generations remain untouched. A revision mismatch or writer refuses before mutation.
+ * Resolution promises durable replacement; failure after publication may have committed.
+ * Callers must discard resident Sessions and rebuild all projections from storage.
+ * Backends without atomic replacement leave this undefined.
+ * @param request - identity, optimistic revision, and validated replacement events.
+ * @returns after the replacement is durable.
+ */
+replace?(request: SessionReplaceRequest): Promise<void>
+
+/**
  * Observe one stored session without reading its event log or taking
  * ownership.
  *

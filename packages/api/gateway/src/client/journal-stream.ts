@@ -13,16 +13,21 @@ function protocolViolation(message: string): RemoteError<'gateway/internal'> {
   return new RemoteError('gateway/internal', message, {})
 }
 
-/** Transport-neutral opening snapshot, durable entry, or cursorless notification. */
+/**
+ * Transport-neutral opening snapshot, durable entry, tail withdrawal, or cursorless notification.
+ * A `truncate` withdraws every entry after `cursor`: the source replaced that part of the journal,
+ * and the entries that follow continue from `cursor`.
+ */
 export type RemoteJournalFrame<Entry, Cursor, Page, Notification = never> =
   | { readonly type: 'opened'; readonly cursor: Cursor; readonly page: Page }
   | { readonly type: 'entry'; readonly entry: Entry }
+  | { readonly type: 'truncate'; readonly cursor: Cursor }
   | ([Notification] extends [never]
     ? never
     : { readonly type: 'notification'; readonly notification: Notification })
 
 /** One journal-window update or cursorless domain notification. */
-export type RemoteJournalChange<Page, Entry, Notification = never> =
+export type RemoteJournalChange<Page, Entry, Notification = never, Cursor = unknown> =
   | {
     readonly type: 'replace'
     readonly page: Page
@@ -36,6 +41,8 @@ export type RemoteJournalChange<Page, Entry, Notification = never> =
     readonly hasMore: boolean
   }
   | { readonly type: 'append'; readonly entry: Entry }
+  /** Every published entry after `cursor` is withdrawn; `cursor` is still inside the published window. */
+  | { readonly type: 'truncate'; readonly cursor: Cursor }
   | ([Notification] extends [never]
     ? never
     : { readonly type: 'notification'; readonly notification: Notification })
@@ -73,7 +80,7 @@ export interface RemoteJournalStreamOptions<Page, Entry, Cursor, Notification = 
   /** Test whether the right cursor immediately follows the left cursor. */
   readonly follows: (left: Cursor, right: Cursor) => boolean
   /** Apply one complete journal-window change or cursorless notification. */
-  readonly publish: (change: RemoteJournalChange<Page, Entry, Notification>) => void
+  readonly publish: (change: RemoteJournalChange<Page, Entry, Notification, Cursor>) => void
   /** Observe a retryable carrier loss before reconnection. */
   readonly carrierFailed?: (error: RemoteStreamCarrierError) => void
   /** Publish a terminal stream, page, or protocol failure after opening. */
@@ -251,11 +258,31 @@ export abstract class RemoteJournalStream<
           this.publishNotification(item.value.notification)
           continue
         }
+        if (item.value.type === 'truncate') {
+          this.truncate(item.value.cursor)
+          continue
+        }
         await this.acceptEntry(item.value.entry, item, iterator)
       }
     } catch (error) {
       if (!this.disposed) this.options.failed(error)
     }
+  }
+
+  /**
+   * Withdraw the published entries after `cursor`. A cut before the published window empties it,
+   * and the next physical generation's opening then replaces the window with the replaced journal.
+   */
+  private truncate(cursor: Cursor): void {
+    const last = this.lastCursor as Cursor
+    if (this.options.compare(cursor, last) >= 0) return
+    const first = this.firstCursor
+    this.lastCursor = cursor
+    this.setResumeCursor(cursor)
+    const emptied = first !== undefined && this.options.compare(cursor, first) < 0
+    if (emptied) this.firstCursor = undefined
+    this.options.publish({ type: 'truncate', cursor })
+    if (emptied) this.stream.restart()
   }
 
   private replaceGeneration(
@@ -440,6 +467,15 @@ export abstract class RemoteJournalStream<
         notifications.push(item.value.notification)
         continue
       }
+      if (item.value.type === 'truncate') {
+        // The page being read may predate the replacement; a fresh generation reads the replaced journal.
+        if (this.options.compare(item.value.cursor, this.lastCursor as Cursor) < 0) {
+          this.lastCursor = item.value.cursor
+          this.setResumeCursor(item.value.cursor)
+        }
+        this.stream.restart()
+        return this.awaitReplacementGeneration(generation, iterator, this.nextResult(iterator))
+      }
       queued.push(item.value.entry)
     }
   }
@@ -527,7 +563,7 @@ export abstract class RemoteJournalStream<
     this.options.publish({
       type: 'notification',
       notification,
-    } as RemoteJournalChange<Page, Entry, Notification>)
+    } as RemoteJournalChange<Page, Entry, Notification, Cursor>)
   }
 
   private repairPageRequest(): PageRequest {
