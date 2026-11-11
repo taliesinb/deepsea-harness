@@ -398,6 +398,14 @@ Host service backing the generated `ctx.remote.workspace` namespace.
  * @returns baseline followed by ordered Workspace increments.
  */
 @Remote({ mode: 'stream' }) async *follow(signal: AbortSignal): AsyncIterable<WorkspaceFollowFrame>
+
+/**
+ * Read the complete Workspace baseline once, for a caller that cannot hold
+ * a stream open (another Host mirroring this one's Workspaces). It is the
+ * value a `follow` generation opens with.
+ * @returns every Workspace in registry order plus the archived and pinned Session ids.
+ */
+@Remote('list') list(): WorkspaceBaseline
 ```
 
 Source: [`packages/api/workspace-controller/src/index.ts`](../../packages/api/workspace-controller/src/index.ts)

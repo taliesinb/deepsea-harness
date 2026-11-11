@@ -16,7 +16,7 @@ import type {
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { DirectoryFlowOwnerProps, WorkspaceActionRequest, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import type { DirectoryFlowOwnerProps, SessionDropHandler, WorkspaceActionRequest, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
@@ -116,6 +116,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useWorkspaceActionRequest: bindSnapshotSelector(request),
     settleWorkspaceAction: () => { request.set(null) },
     openSessionMenu: vi.fn(),
+    useSessionDrop: hook<SessionDropHandler | undefined>(undefined),
     useContextMenuTarget: selector => selector(null),
     useShortcuts: select => select([]),
     useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
@@ -166,6 +167,27 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
+  it('renders the header seat in the rail and the extra seat below the tree only while wide and not searching', () => {
+    const seats: Array<{ name: string; wide: boolean }> = []
+    const renderSlot: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) => {
+      if (name !== 'sidebar.workspaces.headerAction' && name !== 'sidebar.workspaces.extra') return null
+      seats.push({ name, wide: (owner as { wide: boolean }).wide })
+      return <div data-testid={name} />
+    }
+    const b = mount({ renderSlot, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
+    expect(screen.getByTestId('sidebar.workspaces.headerAction')).toBeTruthy()
+    const extra = screen.getByTestId('sidebar.workspaces.extra')
+    // After the local tree, in the same list area.
+    expect(extra.previousElementSibling).not.toBeNull()
+    expect(seats).toContainEqual({ name: 'sidebar.workspaces.extra', wide: true })
+    rerender(b, { wide: false })
+    expect(screen.queryByTestId('sidebar.workspaces.extra')).toBeNull()
+    expect(screen.getByTestId('sidebar.workspaces.headerAction')).toBeTruthy()
+    rerender(b, { wide: true })
+    fireEvent.change(screen.getByPlaceholderText(zh['search.placeholder']), { target: { value: 'alp' } })
+    expect(screen.queryByTestId('sidebar.workspaces.extra')).toBeNull()
+  })
+
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()
@@ -676,6 +698,41 @@ describe('WorkspaceBrowser', () => {
     choose('单列表')
     expect(screen.queryByText('Projects')).toBeNull()
     expect(screen.getByText('child-session')).toBeTruthy()
+  })
+
+  it('hands a Session row dropped on another Workspace group to the session-drop handler', () => {
+    localStorage.clear()
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('alpha', true)
+    preferences.actions.setGroupExpanded('beta', true)
+    const sessions = sessionState([summary('one', 3), summary('two', 2)])
+    const workspaces = workspaceState([workspace('alpha', ['one']), workspace('beta', ['two'], 'Beta')])
+    const dropped = vi.fn<SessionDropHandler>()
+    mount({ useSessions: hook(sessions), useWorkspaces: hook(workspaces), useSessionDrop: hook<SessionDropHandler | undefined>(dropped) })
+    const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+    const beta = screen.getByText('Beta').closest<HTMLElement>('[class*="groupSection"]')!
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(beta, 'dragOver', 10)
+    expect(beta.className).toContain('workspaceDropInto')
+    fireDrag(beta, 'drop', 10)
+    expect(dropped).toHaveBeenCalledWith({ sessionId: sid('one'), displayTitle: 'one', workspaceId: wid('beta') })
+    expect(beta.className).not.toContain('workspaceDropInto')
+  })
+
+  it('lights no group and hands over nothing without a session-drop handler', () => {
+    localStorage.clear()
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupExpanded('alpha', true)
+    preferences.actions.setGroupExpanded('beta', true)
+    mount({
+      useSessions: hook(sessionState([summary('one', 3), summary('two', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['one']), workspace('beta', ['two'], 'Beta')])),
+    })
+    const one = screen.getByText('one').closest('[role="treeitem"]') as HTMLElement
+    const beta = screen.getByText('Beta').closest<HTMLElement>('[class*="groupSection"]')!
+    fireEvent.dragStart(one, { dataTransfer: dragData() })
+    fireDrag(beta, 'dragOver', 10)
+    expect(beta.className).not.toContain('workspaceDropInto')
   })
 
   it('persists flat-list drag order locally and applies Last updated within that account', async () => {
