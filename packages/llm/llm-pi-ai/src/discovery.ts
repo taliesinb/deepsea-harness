@@ -85,6 +85,19 @@ interface ListingEntry {
   maxTokens?: unknown
   limit?: ListingLimit | null
   top_provider?: ListingTopProvider | null
+  /** OpenRouter's API paths that serve the model. */
+  endpoints?: unknown
+}
+
+/**
+ * Whether a listing entry names only batch endpoints. OpenRouter lists each
+ * `<model>:batch` alias with `endpoints: ["/api/v1/batches"]`, and an
+ * interactive request for one is answered 404.
+ */
+function batchOnly(entry: ListingEntry | null): boolean {
+  const endpoints = entry?.endpoints
+  if (!Array.isArray(endpoints) || endpoints.length === 0) return false
+  return endpoints.every(endpoint => typeof endpoint === 'string' && endpoint.endsWith('/batches'))
 }
 
 /** A positive integer field of a listing entry, or `undefined` when absent or unusable. */
@@ -173,8 +186,8 @@ async function readBounded(response: Response, url: string): Promise<string> {
  * object-valued map entries are models; primitive properties are ignored
  * because they may be directory metadata rather than model records.
  *
- * Entries without a usable id are skipped rather than failing the whole
- * interrogation: a single malformed row should not deny the user the rest of
+ * Entries without a usable id, and entries served only at batch endpoints,
+ * are skipped rather than failing the whole interrogation: a single malformed row should not deny the user the rest of
  * a working endpoint's catalog. Missing names fall back to the adopted id so
  * the Web form receives a complete human-readable row.
  */
@@ -202,7 +215,7 @@ function readListing(body: unknown): LlmDiscoveredModel[] {
   for (const { key, raw } of listed) {
     const entry = raw as ListingEntry | null
     const id = label(key, entry?.id)
-    if (id === undefined) continue
+    if (id === undefined || batchOnly(entry)) continue
     const name = label(entry?.name, entry?.display_name, entry?.displayName) ?? id
     const contextWindow = capacity(
       entry?.contextWindow,
