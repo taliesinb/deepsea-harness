@@ -119,6 +119,19 @@ export interface ModelCatalogModel {
 export interface ModelProviderGroup {
   readonly id: string
   readonly name: string
+  /**
+   * Catalog (vendor) provider the route resolves to, when its adapter reports
+   * one, e.g. `anthropic` for `anthropic-oauth` or `openrouter` for `openrouter-oauth`.
+   */
+  readonly catalogProvider?: string
+  /** Display name of that catalog provider, e.g. `Anthropic`, for titling a route whose name is its bare key. */
+  readonly vendor?: string
+  /**
+   * How the route authenticates and is billed, when its adapter reports it: a
+   * subscription sign-in (a plan), a per-token API key, or a model served on
+   * this machine.
+   */
+  readonly auth?: 'subscription' | 'api-key' | 'local'
   readonly models: readonly ModelCatalogModel[]
 }
 

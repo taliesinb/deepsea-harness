@@ -471,6 +471,15 @@ interface LlmProviderInfo {
   id: string
   /** Human-readable provider name for selectors and diagnostics. */
   name: string
+  /** Catalog (vendor) provider the route resolves to, when the adapter knows it, e.g. `anthropic` for `anthropic-oauth`. */
+  catalogProvider?: string
+  /** Display name of that catalog provider, e.g. `Anthropic`, for selectors that title a route carrying only its bare key. */
+  vendor?: string
+  /**
+   * How the route authenticates and is billed: a subscription sign-in, a per-token API key, or a
+   * model served on this machine (no charge); absent when unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
 }
 ```
 
@@ -514,6 +523,12 @@ interface LlmConfigurableProvider {
   baseURLEnv?: readonly string[]
   /** Authentication the adapter performs when the profile names no credential reference; absent when it reports none. */
   nativeAuth?: LlmNativeAuth
+  /**
+   * Present when the route signs in through a browser (OAuth) instead of an
+   * API key: configuration surfaces then show the sign-in state and account
+   * ({@link LlmRuntime.describeSignIn}) in place of a key field.
+   */
+  signIn?: LlmSignInRoute
   /** Configuration diagnostic for repair; unaffected models may remain serviceable. */
   error?: string
 }
@@ -617,6 +632,14 @@ interface LlmModelReasoningInfo {
 ```ts type-equiv
 /** Exact-route model metadata resolved by its owning adapter. */
 interface LlmResolvedModelInfo extends LlmModelInfo {
+  /** Adapter-published list prices when known. */
+  pricing?: LlmModelPricing
+  /**
+   * List prices of the same model on the provider's per-token API, published
+   * for subscription routes that publish no `pricing` because the route does
+   * not charge per token. An API-price equivalent, not a charge.
+   */
+  listPricing?: LlmModelPricing
   /** Provider-owned context capacity when known. */
   context?: LlmModelContext
   /** Adapter-configured per-request output cap materialized when callers omit one. */
@@ -942,6 +965,35 @@ declare abstract class LlmAdapter {
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
   /**
+   * Read current subscription usage for one owned route's signed-in account.
+   * The default supports none. Implementations make at most one provider
+   * request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
+   */
+  subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>;
+  /**
+   * Describe whether one owned browser sign-in route holds a usable grant
+   * and, when the provider identifies it, the signed-in account. The default
+   * supports none. Implementations make at most one provider request and must
+   * not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the state, or `undefined` when the route does not sign in through a browser.
+   */
+  signInState(_provider: string, _signal?: AbortSignal): Promise<LlmSignInState | undefined>;
+  /**
+   * Look up the provider's recorded charge for one past response by its
+   * response id. The default supports none. Implementations make at most one
+   * provider request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _responseId - provider response id carried in replay state.
+   * @param _signal - cancellation for the lookup.
+   * @returns the charge, or `undefined` when the route cannot look one up.
+   */
+  responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined>;
+  /**
    * List models this adapter can currently advertise for one owned provider.
    * Core routing accepts unlisted model ids; catalog-driven entry points such
    * as the GUI may require membership. Adapters used there must advertise
@@ -1137,6 +1189,33 @@ fileRequestText(ref: FileAttachmentRef): string
  * @returns detached model metadata in adapter-preferred order.
  */
 async listModels(provider: string): Promise<LlmModelInfo[]>
+
+/**
+ * Look up and validate the provider's recorded charge for one past response.
+ * @param provider - registered provider route.
+ * @param responseId - provider response id.
+ * @param signal - optional cancellation for the lookup.
+ * @returns the detached charge, or `undefined` when the route cannot look one up.
+ */
+async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined>
+
+/**
+ * Read and validate the current subscription usage of one route's signed-in
+ * account from its owning adapter.
+ * @param provider - registered provider route.
+ * @param signal - optional cancellation for the lookup.
+ * @returns detached usage windows, or `undefined` when the route exposes none.
+ */
+async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined>
+
+/**
+ * Describe one browser sign-in route for configuration surfaces: whether it
+ * holds a usable grant, and the signed-in account when the provider
+ * identifies it. A route with no registered adapter has nothing to ask.
+ * @param provider - provider route key.
+ * @returns the detached state, or `undefined` when the route is unregistered or not a sign-in route.
+ */
+@Remote async describeSignIn(provider: string): Promise<LlmSignInState | undefined>
 
 /**
  * Resolve and validate all metadata from the adapter that owns one exact

@@ -7,7 +7,7 @@ import Schema from '@deepseek-ai/schemastery'
 import { Context } from '@deepseek-ai/cordis'
 import { bindSnapshotSelector, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type {
-  CredentialInfo, RemoteResult, SettingsNamespaceView,
+  CredentialInfo, LlmConfigurableProvider, RemoteResult, SettingsNamespaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
@@ -193,7 +193,7 @@ function scriptedFace(overrides: {
         { id: 'deepseek-official', name: 'DeepSeek' },
         { id: 'openai', name: 'openai' },
       ]))),
-      listConfigurableProviders: vi.fn(() => Promise.resolve(remoteOk([
+      listConfigurableProviders: vi.fn(() => Promise.resolve(remoteOk<LlmConfigurableProvider[]>([
         { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
         {
           provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true,
@@ -272,6 +272,38 @@ function piAiNamespaceWith(provider: string, profile: { [key: string]: JsonValue
   return { ...namespace, value: { providers }, user: { providers } }
 }
 
+/**
+ * A page holding two configured browser sign-in routes of the pi-ai namespace,
+ * a subscription plan and a pay-per-use sign-in, beside an ordinary API-key
+ * route; both sign-in profiles are the user layer's, so both are removable.
+ */
+function signInRoutesFace(): ReturnType<typeof scriptedFace> {
+  const scripted = scriptedFace()
+  scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+    { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    {
+      provider: 'anthropic-oauth', displayName: 'Anthropic Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic-oauth'],
+      nativeAuth: { env: [], oauth: true }, signIn: { kind: 'subscription', vendor: 'Anthropic' },
+    },
+    {
+      provider: 'openrouter-oauth', displayName: 'OpenRouter OAuth', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openrouter-oauth'],
+      nativeAuth: { env: [], oauth: true }, signIn: { kind: 'oauth', vendor: 'OpenRouter' },
+    },
+  ]))
+  const plan = piAiNamespaceWith('anthropic-oauth', {})
+  const providers = { ...(plan.value as { providers: object }).providers, 'openrouter-oauth': {} }
+  const piAi = { ...plan, value: { providers }, user: { providers } }
+  scripted.face.settings.describe.mockResolvedValue(remoteOk({
+    writable: true, hasDocument: false,
+    namespaces: wireNamespaces().map(view => view.ns === 'llm-pi-ai' ? piAi : view),
+  }))
+  return scripted
+}
+
+/** One mounted provider row, found by its Edit button's accessible name. */
+function signInRowOf(provider: string, displayName: string): HTMLElement {
+  return screen.getByRole('button', { name: providerCopy(en.editProvider, { provider, displayName }) }).closest('li')!
+}
 /** Render one pi-ai route's editor with the directory and credential facts the page already holds. */
 function renderPiAiEditor(
   provider: string,
@@ -294,9 +326,30 @@ function authHelpText(): string | null {
 /** One recorded child-slot dispatch: seat name, owner share, kind options. */
 type RenderSlotCall = [name: string, owner: Record<string, unknown>, opts?: { entryKey?: string }]
 
-/** Child-slot dispatch stub: records every seat occurrence, renders nothing. */
+/** The row-head seats, which the stub marks where they render. */
+const HEAD_SEATS = new Set(['settings.models.provider-status', 'settings.models.provider-actions'])
+
+/**
+ * Child-slot dispatch stub: records every seat occurrence; renders an empty
+ * marker naming a row-head seat where it is dispatched, and nothing else.
+ */
 function stubRenderSlot() {
-  return vi.fn((..._call: RenderSlotCall) => null)
+  return vi.fn((...call: RenderSlotCall) => HEAD_SEATS.has(call[0]) ? <i data-seat={call[0]} /> : null)
+}
+
+/** The row-head seat dispatches recorded, as (seat, route id, configured, keyConfigured, entryKey). */
+function headSeatCalls(
+  renderSlot: ReturnType<typeof stubRenderSlot>,
+): Array<[string, string, boolean, boolean, string | undefined]> {
+  return renderSlot.mock.calls
+    .filter(call => HEAD_SEATS.has(call[0]))
+    .map(call => [
+      call[0],
+      (call[1] as { provider: { provider: string } }).provider.provider,
+      (call[1] as { configured: boolean }).configured,
+      (call[1] as { keyConfigured: boolean }).keyConfigured,
+      call[2]?.entryKey,
+    ])
 }
 
 /** The provider-card seat dispatches a stub recorded, as (route id, configured, keyConfigured, entryKey). */
@@ -623,6 +676,55 @@ describe('ModelsSection', () => {
     expect(screen.getByRole('option', { name: 'plain' })).toBeTruthy()
   })
 
+  it('does not offer a dormant browser sign-in route in the add card', async () => {
+    const scripted = scriptedFace()
+    scripted.face.llm.listConfigurableProviders.mockResolvedValue(remoteOk([
+      { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'] },
+      {
+        provider: 'xai-oauth', displayName: 'xAI Plan', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'xai-oauth'],
+        nativeAuth: { env: [], oauth: true }, signIn: { kind: 'subscription', vendor: 'xAI' },
+      },
+    ]))
+    await mountFace(scripted)
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(screen.getByRole('option', { name: 'anthropic' })).toBeTruthy()
+    expect(screen.queryByRole('option', { name: 'xAI Plan' })).toBeNull()
+  })
+
+  it('names a sign-in route by its vendor with its kind as the tag', async () => {
+    await mountFace(signInRoutesFace())
+    const plan = signInRowOf('anthropic-oauth', 'Anthropic Plan')
+    expect(within(plan).getByText('Anthropic')).toBeTruthy()
+    expect(within(plan).getByText(en.planTag)).toBeTruthy()
+    expect(plan.textContent).not.toContain('Anthropic Plan')
+    // A sign-in route names no api-key reference, so the page draws no dot of its own.
+    expect(within(plan).queryByRole('img')).toBeNull()
+    const oauth = signInRowOf('openrouter-oauth', 'OpenRouter OAuth')
+    expect(within(oauth).getByText('OpenRouter')).toBeTruthy()
+    expect(within(oauth).getByText(en.oauthTag)).toBeTruthy()
+    expect(within(oauth).queryByText(en.planTag)).toBeNull()
+    expect(within(signInRowOf('openai', 'openai')).queryByText(en.planTag)).toBeNull()
+  })
+
+  it('asks to delete a plan or a sign-in by its display name, in its own words, with a bare Delete', async () => {
+    const { mutate } = await mountFace(signInRoutesFace())
+    const plan = { provider: 'anthropic-oauth', displayName: 'Anthropic Plan' }
+    fireEvent.click(screen.getByRole('button', { name: providerCopy(en.removeProvider, plan) }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete Anthropic Plan?' })
+    expect(dialog.textContent).toContain('Deleting this plan removes its configuration.')
+    expect(dialog.textContent).not.toContain('anthropic-oauth')
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.cancel }))
+
+    const oauth = { provider: 'openrouter-oauth', displayName: 'OpenRouter OAuth' }
+    fireEvent.click(screen.getByRole('button', { name: providerCopy(en.removeProvider, oauth) }))
+    const signIn = screen.getByRole('dialog', { name: 'Delete OpenRouter OAuth?' })
+    expect(signIn.textContent).toContain(en.deleteSignInDescription)
+    fireEvent.click(within(signIn).getByRole('button', { name: en.deleteConfirm }))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(mutate.mock.calls[0]).toEqual(['llm-pi-ai', [{ op: 'unset', path: ['providers', 'openrouter-oauth'] }], undefined])
+  })
+
   it('shows a catalog diagnostic while keeping the provider editable', async () => {
     const scripted = scriptedFace()
     const failure = 'llm-pi-ai: provider "openai" model "111" needs an api'
@@ -671,6 +773,34 @@ describe('ModelsSection', () => {
     expect(renderSlot.mock.calls.filter(call => call[0] === 'settings.models.footer')).toEqual([
       ['settings.models.footer', {}],
     ])
+  })
+
+  it('dispatches the head seats in each saved row: status after the name and its tag, actions before Edit', async () => {
+    const { renderSlot } = await mountFace(signInRoutesFace())
+    const calls = headSeatCalls(renderSlot)
+    expect(calls).toContainEqual(['settings.models.provider-status', 'anthropic-oauth', true, false, 'llm-pi-ai'])
+    expect(calls).toContainEqual(['settings.models.provider-actions', 'anthropic-oauth', true, false, 'llm-pi-ai'])
+    expect(calls).toContainEqual(['settings.models.provider-status', 'openai', true, true, 'llm-pi-ai'])
+    expect(calls).toContainEqual(['settings.models.provider-actions', 'openrouter-oauth', true, false, 'llm-pi-ai'])
+    const plan = signInRowOf('anthropic-oauth', 'Anthropic Plan')
+    const tag = within(plan).getByText(en.planTag)
+    const status = plan.querySelector('[data-seat="settings.models.provider-status"]')!
+    const actions = plan.querySelector('[data-seat="settings.models.provider-actions"]')!
+    const edit = within(plan).getByRole('button', { name: providerCopy(en.editProvider, { provider: 'anthropic-oauth', displayName: 'Anthropic Plan' }) })
+    // The status sits with the name and its tag; the actions sit with Edit, before it.
+    expect(status.parentElement).toBe(tag.parentElement)
+    expect(tag.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(actions.parentElement).toBe(edit.parentElement)
+    expect(actions.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('dispatches no head seat on the first-run setup card or the add-provider draft', async () => {
+    const { renderSlot } = await mountFirstRun()
+    expect(headSeatCalls(renderSlot).map(call => call[1])).not.toContain('deepseek-official')
+    renderSlot.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: en.add }))
+    expect(cardSeatCalls(renderSlot).map(call => call[0])).toContain('anthropic')
+    expect(headSeatCalls(renderSlot).map(call => call[1])).not.toContain('anthropic')
   })
 
   it('dispatches the provider-card seat inside the first-run setup card', async () => {
@@ -814,7 +944,7 @@ describe('ModelsSection', () => {
   it('uses one stable provider identity in action copy', () => {
     const target = { provider: 'deepseek-official', displayName: 'DeepSeek' }
     expect(providerTargetLabel(target)).toBe('DeepSeek (deepseek-official)')
-    expect(providerCopy(en.deleteTitle, target)).toBe('Delete DeepSeek (deepseek-official)?')
+    expect(providerCopy(en.removeProvider, target)).toBe('Delete DeepSeek (deepseek-official)')
     expect(providerTargetLabel(OPENAI_TARGET)).toBe('openai')
   })
 
@@ -2118,9 +2248,9 @@ describe('ModelsSection', () => {
     const { unset, mutate } = await mountSection()
     const target = { provider: 'zombie', displayName: 'zombie' }
     fireEvent.click(screen.getByRole('button', { name: providerCopy(en.removeProvider, target) }))
-    const dialog = screen.getByRole('dialog', { name: providerCopy(en.deleteTitle, target) })
-    expect(dialog.textContent).toContain(providerCopy(en.deleteDescription, target))
-    fireEvent.click(within(dialog).getByRole('button', { name: providerCopy(en.deleteConfirm, target) }))
+    const dialog = screen.getByRole('dialog', { name: 'Delete zombie?' })
+    expect(dialog.textContent).toContain(en.deleteDescription)
+    fireEvent.click(within(dialog).getByRole('button', { name: en.deleteConfirm }))
     await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
     expect(unset).not.toHaveBeenCalled()
     expect(mutate.mock.calls[0]).toEqual([

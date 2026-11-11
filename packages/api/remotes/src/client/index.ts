@@ -155,6 +155,7 @@ export type {
 export type {
   LlmConfigurableProvider, LlmDiscoveredModel,
   LlmModelDiscoveryRequest, LlmNativeAuth, LlmProviderInfo,
+  LlmSignInRoute, LlmSignInState, LlmSubscriptionAccount,
 } from '@deepseek-ai/dsh-llm/types'
 // Reference-discovery result vocabulary for the fileReferences and
 // sessionReferenceResolver namespaces.

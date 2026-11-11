@@ -50,6 +50,9 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  LlmResponseCost,
+  LlmSignInState,
+  LlmSubscriptionUsage,
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
   ResolvedRetryPolicy,
@@ -62,6 +65,9 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { requestImageTarget, toPiContext } from './context.ts'
 import { conversationUpdates, createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
+import { catalogProvider } from './catalog.ts'
+import { catalogListPricing, catalogPricing, subscriptionRoute } from './pricing.ts'
+import { readResponseCost, readSignInState, readSubscriptionUsage } from './subscription-usage.ts'
 import type { PiAiRequestHeaderContext } from './types.ts'
 
 /**
@@ -266,6 +272,19 @@ function requestHeaders(
 }
 
 /**
+ * Whether an endpoint is on this machine: `localhost` (and `*.localhost`),
+ * 127.0.0.0/8, or `::1`.
+ * @param url - the endpoint URL; an unparseable URL is not loopback.
+ * @returns true for a loopback host.
+ */
+export function loopbackUrl(url: string): boolean {
+  let host: string
+  try { host = new URL(url).hostname.toLowerCase() } catch { return false }
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host)
+}
+
+/**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
  * restart; model descriptors come from the collection those profiles built.
@@ -331,7 +350,19 @@ export class PiAiAdapter extends LlmAdapter {
     // The configured name, not the route key: `displayName` exists so a
     // deployment can label a route, and a label only the configuration surface
     // reads would leave every selector showing the raw key.
-    return { id: provider, name: this.current().profiles.get(provider)?.displayName ?? provider }
+    const catalog = catalogProvider(provider)
+    const catalogId = catalog?.id
+    const profile = this.current().profiles.get(provider)
+    // A catalog vendor stays billed even behind a local proxy; only a custom route on this machine is local.
+    const local = catalogId === undefined && profile?.baseURL !== undefined && loopbackUrl(profile.baseURL)
+    const inferred = subscriptionRoute(provider) ? 'subscription' : catalogId !== undefined ? 'api-key' : local ? 'local' : undefined
+    const auth = profile?.auth ?? inferred
+    return {
+      id: provider,
+      name: profile?.displayName ?? provider,
+      ...catalog === undefined ? {} : { catalogProvider: catalog.id, vendor: catalog.name },
+      ...auth === undefined ? {} : { auth },
+    }
   }
 
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
@@ -364,7 +395,13 @@ export class PiAiAdapter extends LlmAdapter {
   ): Promise<LlmResolvedModelInfo> {
     return Promise.resolve().then(() => {
       const snapshot = this.current()
-      return this.modelInfo(snapshot, provider, model)
+      const info = this.modelInfo(snapshot, provider, model)
+      // Metadata lookups only; prepared calls do not carry prices.
+      const pricing = catalogPricing(provider, model)
+      if (pricing !== undefined) return { ...info, pricing }
+      // A subscription route charges no per-token price; its API-price equivalent is published separately.
+      const listPricing = subscriptionRoute(provider) ? catalogListPricing(provider, model) : undefined
+      return listPricing === undefined ? info : { ...info, listPricing }
     })
   }
 
@@ -385,6 +422,21 @@ export class PiAiAdapter extends LlmAdapter {
       ...reasoningInfo(resolvedModel, defaultLevel),
       ...conversationUpdates(resolvedModel),
     }
+  }
+
+  override async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    const apiKey = await this.config.resolveApiKey(provider, profile) ?? (await snapshot.models.getAuth(provider))?.auth.apiKey
+    return readResponseCost(apiKey, provider, responseId, signal)
+  }
+
+  override subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve().then(() => readSubscriptionUsage(this.current().models, provider, signal))
+  }
+
+  override signInState(provider: string, signal?: AbortSignal): Promise<LlmSignInState | undefined> {
+    return Promise.resolve().then(() => readSignInState(this.current().models, provider, signal))
   }
 
   override prepareCall(provider: string, model: string, _signal?: AbortSignal): Promise<PreparedAdapterCall> {
@@ -470,7 +522,7 @@ export class PiAiAdapter extends LlmAdapter {
         signal: watchdog.signal,
         headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id, options.provider)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {

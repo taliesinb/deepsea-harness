@@ -328,6 +328,22 @@ describe('draft-provider model discovery', () => {
       .toEqual([{ id: 'good', name: 'good' }, { id: 'zero-capacity', name: 'zero-capacity' }])
   })
 
+  it('drops a model the listing serves only at batch endpoints', async () => {
+    const server = await listingServer({
+      body: JSON.stringify({
+        data: [
+          { id: 'vendor/model', endpoints: ['/api/v1/chat/completions', '/api/v1/batches'] },
+          { id: 'vendor/model:batch', endpoints: ['/api/v1/batches'] },
+          { id: 'vendor/unlisted', endpoints: [] },
+        ],
+      }),
+    })
+    const ctx = await harness()
+
+    expect(await ctx.llm.discoverModels('llm-pi-ai', { baseURL: server.url }))
+      .toEqual([{ id: 'vendor/model', name: 'vendor/model' }, { id: 'vendor/unlisted', name: 'vendor/unlisted' }])
+  })
+
   it('points at the credential for a rejected one, and only then', async () => {
     const ctx = await harness()
 
