@@ -546,6 +546,86 @@ describe('executeSessionTitleLlm', () => {
     }
   })
 
+  it('retries a failed dispatched request once after a pause, recording both attempts', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = new Context()
+      onTestFinished(() => ctx.fiber.dispose())
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(LlmRuntime)
+      let attempts = 0
+      const adapter = new RecordingAdapter(SCRIPT, () => {
+        if (++attempts === 1) throw new Error('model busy')
+      })
+      ctx.llm.registerAdapter(['current-route'], adapter)
+      const providerRequest = request(ctx)
+      const pending = executeSessionTitleLlm(
+        ctx, resolveSessionTitleLlmConfig(CONFIG), providerRequest, TITLE_PROVIDER, prepared(providerRequest),
+      )
+      await vi.advanceTimersByTimeAsync(1_499)
+      expect(attempts).toBe(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(pending).resolves.toMatchObject({ finish: { kind: 'stop' } })
+      expect(attempts).toBe(2)
+      expect(providerRequest.session.snapshotEvents().filter(event => event.type === 'session/title-llm-request'))
+        .toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after the one retry fails too', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = new Context()
+      onTestFinished(() => ctx.fiber.dispose())
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(LlmRuntime)
+      let attempts = 0
+      ctx.llm.registerAdapter(['current-route'], new RecordingAdapter(SCRIPT, () => {
+        throw new Error(`model busy ${String(++attempts)}`)
+      }))
+      const providerRequest = request(ctx)
+      const pending = executeSessionTitleLlm(
+        ctx, resolveSessionTitleLlmConfig(CONFIG), providerRequest, TITLE_PROVIDER, prepared(providerRequest),
+      )
+      const rejected = expect(pending).rejects.toThrow('model busy 2')
+      await vi.advanceTimersByTimeAsync(1_500)
+      await rejected
+      expect(attempts).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retry once the caller cancels during the pause', async () => {
+    vi.useFakeTimers()
+    try {
+      const ctx = new Context()
+      onTestFinished(() => ctx.fiber.dispose())
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(LlmRuntime)
+      let attempts = 0
+      ctx.llm.registerAdapter(['current-route'], new RecordingAdapter(SCRIPT, () => {
+        attempts += 1
+        throw new Error('model busy')
+      }))
+      const controller = new AbortController()
+      const providerRequest = request(ctx, controller.signal)
+      const pending = executeSessionTitleLlm(
+        ctx, resolveSessionTitleLlmConfig(CONFIG), providerRequest, TITLE_PROVIDER, prepared(providerRequest),
+      )
+      const rejected = expect(pending).rejects.toThrow('caller stopped')
+      await vi.advanceTimersByTimeAsync(500)
+      controller.abort(new Error('caller stopped'))
+      await rejected
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(attempts).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('propagates caller cancellation through the composed request signal', async () => {
     const ctx = new Context()
     onTestFinished(() => ctx.fiber.dispose())
