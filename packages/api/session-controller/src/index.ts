@@ -26,8 +26,9 @@ import { SessionCopyController } from './copy.ts'
 import {
   importSessionArchive, storeSessionLogs, type SessionImportResult, type SessionImportTarget, type SessionLogFamily,
 } from './import.ts'
+import { rewindSession } from './rewind.ts'
 import { SessionControlController } from './control.ts'
-import { HistoryController } from './history/controller.ts'
+import { HistoryController, projections } from './history/controller.ts'
 import { StateController } from './state/controller.ts'
 import { WebController } from './web/controller.ts'
 import { SessionFileReferences } from './file-references.ts'
@@ -67,6 +68,8 @@ import type {
   SessionPromptValue,
   SessionRenameRequest,
   SessionRenameValue,
+  SessionRewindRequest,
+  SessionRewindValue,
   SessionSearchRequest,
   SessionSearchValue,
   SessionSelectModelRequest,
@@ -583,6 +586,29 @@ export class SessionController extends TypertRemoteService {
       ...(principal === undefined ? {} : { principal }),
     }
     return this.commands.prompt(request, source)
+  }
+
+  /**
+   * Remove one historical human prompt and everything after it in the same Session.
+   * Rejects active turns and queued input; edit returns exact original content,
+   * replay immediately queues that content, and delete submits nothing.
+   * A successful response follows durable replacement and projection reconstruction.
+   * Files and external side effects are not rolled back.
+   * @param request - Session identity, exact user-event sequence, and requested action.
+   * @returns original content and the unchanged Session identity.
+   */
+  @Remote('rewind')
+  async rewind(request: SessionRewindRequest): Promise<SessionRewindValue> {
+    const principal = principalOf(this.ctx.invocation)
+    const source: MessageSource = { kind: 'user', ...(principal === undefined ? {} : { principal }) }
+    return rewindSession(this.ctx, this.agents, request, source, {
+      trimmed: async (cursor, tail) => {
+        const baseline = await this.historyController.usingObservation(
+          { sessionId: request.sessionId, projection: true }, AbortSignal.timeout(30_000), projections,
+        )
+        this.ctx.emit('api-session/history-trimmed', request.sessionId, { cursor, tail, projections: baseline })
+      },
+    })
   }
 
   /**

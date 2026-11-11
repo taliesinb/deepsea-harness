@@ -32,6 +32,7 @@ export {
   SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError,
   SessionReadOnlyError,
+  SessionRevisionConflictError,
   sessionFormatVersionRefusal,
 } from './errors.ts'
 export type { SessionLocation } from './errors.ts'
@@ -149,6 +150,15 @@ export interface SessionRelocateResult {
   readonly backupPath?: string
 }
 
+/** Explicit destructive replacement of a cold Session's current logical log. */
+export interface SessionReplaceRequest {
+  /** Existing Session identity; its header and lineage remain unchanged. */
+  readonly id: SessionId
+  /** Revision observed before reading the events used to construct the replacement. */
+  readonly expectedRevision: SessionPersistenceRevision
+  /** Complete replacement log, contiguous from zero. */
+  readonly events: readonly SessionEvent[]
+}
 declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
@@ -231,6 +241,18 @@ export abstract class SessionPersistence extends Service {
    *   remaining handles still flush.
    */
   abstract flush(): Promise<void>
+
+  /**
+   * Destructively replace a cold Session's current log under exclusive write ownership.
+   * This explicit user-requested operation is the exception to append-only storage;
+   * migration generations remain untouched. A revision mismatch or writer refuses before mutation.
+   * Resolution promises durable replacement; failure after publication may have committed.
+   * Callers must discard resident Sessions and rebuild all projections from storage.
+   * Backends without atomic replacement leave this undefined.
+   * @param request - identity, optimistic revision, and validated replacement events.
+   * @returns after the replacement is durable.
+   */
+  replace?(request: SessionReplaceRequest): Promise<void>
 
   /**
    * Observe one stored session without reading its event log or taking

@@ -182,6 +182,17 @@ describe('ApiSession Agent lookup and recovery', () => {
     })
   })
 
+  it('refuses to resolve a Session while its history is reserved for replacement', async () => {
+    const { ctx, agents } = await harness()
+    const id = SessionId('rewinding')
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const release = ctx.agents.reserveHistory(id)
+    await expect(agents.resolveAgent(id)).resolves.toMatchObject({
+      error: { code: 'session/agent-busy', message: 'Session history is being replaced' },
+    })
+    expect(resume).not.toHaveBeenCalled()
+    release()
+  })
   it('identifies a held Session writer without classifying other resume failures as contention', async () => {
     const { ctx, agents } = await harness()
     const meta = header('owned-session')

@@ -181,6 +181,11 @@ export class ApiSessionAgentController {
     sessionId: SessionId,
     observation?: SessionObservation,
   ): Promise<ApiSessionAgentResult> {
+    try {
+      this.ctx.agents.assertHistoryAvailable(sessionId)
+    } catch (error: unknown) {
+      return { error: new RemoteError('session/agent-busy', 'Session history is being replaced', { reason: String(error) }) }
+    }
     const live = this.liveAgent(sessionId)
     if (live !== undefined) return live
     const attached = this.ctx.sessions.get(sessionId)

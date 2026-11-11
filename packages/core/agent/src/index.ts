@@ -255,6 +255,7 @@ export class AgentRegistry extends Service {
   private turnBoundaryProjectionHandle!: ProjectionHandle<TurnBoundaryProjection>
   private store = new Map<SessionId, AgentEntry>()
   private factory: FactorySlot | undefined
+  private readonly historyReservations = new Set<SessionId>()
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
   private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
   private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
@@ -398,6 +399,33 @@ export class AgentRegistry extends Service {
     return dispose
   }
 
+  /**
+   * Exclude new Agent publication and input while an idle Session's history is replaced.
+   * The caller must retain this reservation through writer retirement and durable replacement.
+   * @param id - Session whose history will change.
+   * @returns an idempotent release function.
+   * @throws when reserved already, or a live Agent has a turn or queued input.
+   */
+  reserveHistory(id: SessionId): () => void {
+    this.assertHistoryAvailable(id)
+    const agent = this.get(id)
+    if (agent !== undefined && (agent.status !== 'idle'
+      || agent.inbox.nextTurn.length > 0 || agent.inbox.nextStep.length > 0
+      || this.turnBoundaryOf(agent.session).openTurnStartSeq !== null)) {
+      throw new Error(`agent "${id}" has active or queued work`)
+    }
+    this.historyReservations.add(id)
+    return () => { this.historyReservations.delete(id) }
+  }
+
+  /**
+   * Reject work targeting a Session under destructive history replacement.
+   * @param id - Session receiving publication or input.
+   * @throws while its history is reserved.
+   */
+  assertHistoryAvailable(id: SessionId): void {
+    if (this.historyReservations.has(id)) throw new Error(`session "${id}" history is being replaced`)
+  }
   /** Return the active creation factory. */
   private requireFactory(): FactorySlot {
     if (this.factory === undefined) throw new Error(NO_FACTORY_MESSAGE)
@@ -414,6 +442,7 @@ export class AgentRegistry extends Service {
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async create(options: CreateAgentOptions): Promise<AgentHandle> {
+    this.assertHistoryAvailable(options.sessionId)
     const ownerCtx = this.ctx
     // Re-trace a Service-backed factory through the accessing context
     // explicitly. This preserves AgentLoop's dependency origin while binding
@@ -433,6 +462,7 @@ export class AgentRegistry extends Service {
    * @returns the handle after setup, rollback-covered publication, and loop start complete.
    */
   async resume(options: ResumeAgentOptions): Promise<AgentHandle> {
+    this.assertHistoryAvailable(options.resumeSessionId)
     const ownerCtx = this.ctx
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
@@ -483,6 +513,7 @@ export class AgentRegistry extends Service {
    */
   enter(agent: Agent, owner: Agent | undefined): () => void {
     const id = agent.id
+    this.assertHistoryAvailable(id)
     if (id !== agent.session.id) {
       throw new Error(`agent id "${id}" does not match session id "${agent.session.id}"`)
     }

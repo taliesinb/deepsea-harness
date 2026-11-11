@@ -141,6 +141,25 @@ describe('Windows durable namespace helpers', () => {
     expect(readFileSync(final, 'utf8')).toBe('content')
   })
 
+  it('replaces an existing file with write-through, replace-existing MoveFileExW semantics', async () => {
+    const { replaceFileWin32 } = await importWithMove((existing, replacement, flags) => {
+      expect(flags).toBe(MOVEFILE_WRITE_THROUGH | 0x00000001)
+      renameSync(stripNamespace(existing), stripNamespace(replacement))
+      return 1
+    })
+    const root = await tempRoot()
+    const staging = join(root, 'log.tmp')
+    const current = join(root, 'log.jsonl')
+    await writeFile(current, 'old')
+    await writeFile(staging, 'new')
+
+    await replaceFileWin32(staging, current)
+    expect(existsSync(staging)).toBe(false)
+    expect(readFileSync(current, 'utf8')).toBe('new')
+
+    const failing = await importWithError(ERROR_ACCESS_DENIED)
+    await expect(failing.replaceFileWin32('from', 'to')).rejects.toMatchObject({ code: 'EACCES', path: 'from', dest: 'to' })
+  })
   it('maps Win32 publish failures to Node-style errno codes', async () => {
     const cases = [
       [ERROR_FILE_NOT_FOUND, 'ENOENT'],

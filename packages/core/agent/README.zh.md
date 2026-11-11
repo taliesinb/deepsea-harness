@@ -31,6 +31,8 @@ kind: "package-reference"
 
 `ctx.agents.create()` 在一个身份下构建全新 agent 与会话；`ctx.agents.resume()` 加载持久化会话并在此基础上重建 agent。两者都委托给已注册工厂，并返回 `AgentHandle`——唯一能拆除该 agent 的对象。发布和失败清理的时序见 [`AgentFactory`](src/index.ts)。在任一操作的 options 中设置 `parentAgent`，可使结果成为运行时子级；省略它则得到运行时根级。`get(id)`、`list()` 与 `roots()` 用于查找实时 agent；`isOwnedBy(id, parent)` 用于检验这项确切的实时所有权关系。
 
+`reserveHistory(id)` 在替换某个 Session 的已存储历史期间占住其身份：若实时 Agent 正在运行、有排队输入或有未结束的轮次，它会拒绝；在调用其返回的释放函数之前，该 id 的 `create`、`resume` 与发布都会抛出，AgentLoop 的 `send()` 与维护工作也是如此。`assertHistoryAvailable(id)` 是这些路径调用的检查。Session Controller 的回退是唯一的持有方。
+
 ```text
 const handle = await ctx.agents.create({
   sessionId,

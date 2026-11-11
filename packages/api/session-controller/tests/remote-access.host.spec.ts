@@ -3,7 +3,7 @@
  * registers and its default resolver, which supplies the identities of
  * `session/page` and `session/follow`, `session/list`, `session/search`, and
  * `session/control` called through a `global` role and filtered per Session
- * through `remoteAccess.allows()`, the caller recorded on prompt sources, and
+ * through `remoteAccess.allows()`, the caller recorded on prompt and rewind sources, and
  * `session/projections` admitted per Session through the Gateway.
  */
 
@@ -20,8 +20,15 @@ import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type SessionController from '../src/index.ts'
 import { ApiSessionList } from '../src/list.ts'
-import type { SessionControlFrame, SessionRequestId, SessionSearchValue } from '../src/types.ts'
+import type { SessionControlFrame, SessionHistoryTrimmed, SessionRequestId, SessionSearchValue } from '../src/types.ts'
 import { createSessionTestController } from './test-remote.ts'
+import { rewindSession } from '../src/rewind.ts'
+
+// The rewind itself is covered in rewind.host.spec.ts; here only the controller's source and hooks are observed.
+vi.mock('../src/rewind.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/rewind.ts')>()
+  return { ...actual, rewindSession: vi.fn(actual.rewindSession) }
+})
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface PrincipalMap {
@@ -108,6 +115,28 @@ function message(text: string) {
 }
 
 describe('Session Controller access', () => {
+  it('records a non-owner caller on a replayed prompt and announces a rewound history with its projections', async () => {
+    const { ctx, as } = await harness()
+    const trimmed = vi.fn()
+    ctx.on('api-session/history-trimmed', trimmed)
+    const rewound = vi.mocked(rewindSession)
+    for (let call = 0; call < 2; call++) {
+      rewound.mockImplementationOnce(async (_ctx, _agents, request, _source, hooks) => {
+        await hooks.trimmed(-1, [])
+        return { sessionId: request.sessionId, action: request.action, content: [], attachments: [] }
+      })
+    }
+    const request = { sessionId: SHARED, userEventSeq: 0 as never, action: 'delete' as const }
+    await as(OWNER, 'rewind').sessionController.rewind(request)
+    await as(GUEST, 'rewind').sessionController.rewind(request)
+    expect(rewound.mock.calls.map(call => call[3])).toEqual([{ kind: 'user' }, { kind: 'user', principal: GUEST }])
+    expect(trimmed).toHaveBeenCalledTimes(2)
+    const [sessionId, trim] = trimmed.mock.calls[0] as [SessionId, SessionHistoryTrimmed]
+    expect([sessionId, trim.cursor, trim.tail]).toEqual([SHARED, -1, []])
+    expect(typeof trim.projections.asOfSeq).toBe('number')
+  })
+
+
   it('owns the Session resource kind and its default resolver', async () => {
     const { ctx } = await harness()
     expect(() => ctx.typert.resources.register('session', { field: 'sessionId' })).toThrow(/already registered/)

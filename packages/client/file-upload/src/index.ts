@@ -186,6 +186,18 @@ export class FileUploads extends TypertRemoteService {
   }
 
   /**
+   * Stage attachments that are already stored, under new receipts for the Agent's exact Session, as when an
+   * edited prompt returns to the composer. No bytes move: a prompt citing the receipt admits the same
+   * durable reference. Callers vouch for the references; they come from that Session's own history.
+   * @param agent - receiving ordinary Agent.
+   * @param attachments - stored attachments in prompt order.
+   * @returns one new receipt per attachment, in order.
+   */
+  restage(agent: Agent, attachments: readonly StagedAttachment[]): FileUploadReceiptId[] {
+    this.assertOrdinaryAgent(agent)
+    return attachments.map(attachment => this.stage(agent, attachment))
+  }
+  /**
    * Resolve one staged receipt for the receiving Agent's exact Session.
    * @param agent - receiving Agent.
    * @param receiptId - opaque receipt minted for one completed upload.
