@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { IconEditOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '../../contract/slots.ts'
-import { diffCardModel } from '../models/diff-card-model.ts'
+import { diffCardModel, preparingDiffSource } from '../models/diff-card-model.ts'
 import { toolRowModel } from '../models/tool-call-model.ts'
 import { ToolRow } from '../components/ToolRow.tsx'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
@@ -29,10 +29,12 @@ function contentKilobytes(block: FileMutationRowProps['block']): number | null {
 
 /**
  * Shows the path and decoded input size through preparation, execution, and
- * settlement, with the applied diff available once the call settles.
+ * settlement. While the arguments stream, the expanded row shows the diff so
+ * far, and a write's path expands the row instead of opening a file the call
+ * has not written yet; the applied diff is available once the call settles.
  */
 export function FileMutationRow({
-  toolName, block, cwd, home, openFile, useContextMenu, sessionId, resolveFilePath, inspect, useDisclosure, t,
+  toolName, phase, block, cwd, home, openFile, useContextMenu, sessionId, resolveFilePath, inspect, useDisclosure, t,
 }: FileMutationRowProps) {
   const { getTriggerProps } = useContextMenu()
   const model = toolRowModel(toolName, block, cwd, home)
@@ -40,6 +42,8 @@ export function FileMutationRow({
   const diff = diffCardModel(block)
   const kilobytes = contentKilobytes(block)
   const size = kilobytes === null ? null : t('tool.preparing.content', { kilobytes })
+  const preparingDiff = phase === 'preparing' ? preparingDiffSource(toolName, block.args) : null
+  const writing = preparingDiff?.toolName === 'write'
   return (
     <ToolRow
       fileContextMenuProps={getTriggerProps(path === undefined ? undefined : () => ({
@@ -56,9 +60,10 @@ export function FileMutationRow({
       output={model.output}
       errorSummary={model.errorSummary}
       diff={diff}
+      preparingDiff={preparingDiff}
       state={model.state}
       filePath={model.filePath}
-      onOpenFile={openFile}
+      onOpenFile={writing ? undefined : openFile}
       inspect={inspect}
     />
   )
