@@ -54,6 +54,9 @@ export class InputTriggerService extends Service implements InputTriggerServiceC
    */
   registerSource(src: InputTriggerSource): () => void {
     const { live } = this
+    if (src.trigger.length !== 1 || /[\p{L}\p{N}_\s]/u.test(src.trigger)) {
+      throw new Error(`slash source trigger must be one punctuation character, got ${JSON.stringify(src.trigger)}`)
+    }
     if (live.sources.some(s => s.trigger === src.trigger && s.name === src.name)) {
       throw new Error(`slash source "${src.trigger}${src.name}" is already registered`)
     }
