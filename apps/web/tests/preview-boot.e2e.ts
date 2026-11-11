@@ -344,12 +344,11 @@ async function bootPreview(site: Site, manifest: ImageManifest, browser: Browser
     // report the older one.
     expect(bootLine).toContain(`image lowering=${WRAPPER_CONTRACT}`)
     expect(bootLine).toContain('data overlays=1')
-    // The versioned notice is the seeded preview's first stable interactive
+    // The credential step is the seeded preview's first stable interactive
     // surface after the startup chain completes over the tunnel.
-    const continueButton = page.getByRole('button', { name: 'Continue' })
-    await continueButton.waitFor({ timeout: HERO_TIMEOUT_MS })
-    await continueButton.click()
-    await page.getByRole('button', { name: 'Add API Key', exact: true }).click()
+    const addKey = page.getByRole('button', { name: 'Add API Key', exact: true })
+    await addKey.waitFor({ timeout: HERO_TIMEOUT_MS })
+    await addKey.click()
     const configureLater = page.getByRole('button', { name: 'Configure later' })
     await configureLater.waitFor({ timeout: 30_000 })
     await configureLater.click()

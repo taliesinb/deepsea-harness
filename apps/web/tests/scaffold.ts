@@ -392,7 +392,10 @@ export interface LaunchOptions {
    * keyless first-run configuration lane; the default disables the adapter.
    */
   deepSeekMissingCredential?: boolean
-  /** Leave the current welcome notice pending; ordinary scenarios pre-acknowledge it before browser boot. */
+  /**
+   * Show the preview notice (`previewNotice`, off by default) and leave its current version pending;
+   * ordinary scenarios run without it.
+   */
   welcomeNoticePending?: boolean
   /** Leave first-use Workspace initialization eligible; ordinary scenarios start after the default was removed. */
   firstUse?: boolean
@@ -596,6 +599,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       ? []
       : [{ id: 'agent-default-model', config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }],
     ...extraOverlayPatches,
+    // A row config replaces the whole value, so keep what an extra overlay set (onboarding-native: credentialOnboarding).
+    ...options.welcomeNoticePending === true
+      ? [{
+        id: 'ui-settings-models',
+        config: {
+          ...composedRows.find(row => row.id === 'ui-settings-models')?.config as Record<string, unknown> | undefined,
+          previewNotice: true,
+        },
+      }]
+      : [],
     { id: 'agent-preset-registry', config: { default: 'standard' } },
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     // Content search is enabled here although the shipped bundles default it
