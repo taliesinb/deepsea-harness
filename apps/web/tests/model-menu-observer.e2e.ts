@@ -14,6 +14,8 @@ declare global {
 }
 
 const OVERLAY = fileURLToPath(new URL('./default-model.overlay.yml', import.meta.url))
+/** Unversioned model names: the menu files a numbered line's older versions under its Older models filter. */
+const MODEL_NAMES = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta']
 const PROVIDERS = [
   { id: 'origin-gateway', name: 'Origin Gateway', prefix: 'Origin' },
   { id: 'amber-gateway', name: 'Amber Gateway', prefix: 'Amber' },
@@ -25,7 +27,7 @@ const PROVIDERS = [
     ? { id: 'origin-large', name: 'Origin Large', reasoningEfforts: {
       off: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
     } }
-    : { id: `${provider.prefix.toLowerCase()}-model-${index + 1}`, name: `${provider.prefix} Model ${index + 1}` }),
+    : { id: `${provider.prefix}-${MODEL_NAMES[index]}`.toLowerCase(), name: `${provider.prefix} ${MODEL_NAMES[index]}` }),
 }))
 const EXPECTED_GROUPS = [
   { label: 'DeepSeek', rows: ['DeepSeek-V4-Flash', 'DeepSeek-V4-Flash-Vision-Exp'] },
@@ -260,8 +262,8 @@ describe.skipIf(webSnapshotMode() === 'record').each([
 
         await scrollToGroup(viewport, 0)
         await assertPinned(page, viewport, 0)
-        await search.fill('Quartz Model 1')
-        await expect.poll(() => readGroups(viewport)).toEqual([{ label: 'Quartz Gateway', rows: ['Quartz Model 1'] }])
+        await search.fill('Quartz Alpha')
+        await expect.poll(() => readGroups(viewport)).toEqual([{ label: 'Quartz Gateway', rows: ['Quartz Alpha'] }])
         await assertPinned(page, viewport, -1, 1)
         expect(await viewport.evaluate(node => node.scrollTop)).toBe(0)
         await search.fill('')
