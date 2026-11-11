@@ -29,6 +29,14 @@ import { ToolDetails, type ToolDetailsModel } from './ToolDetails.tsx'
 import { ExitCodeBadge } from './ExitCodeBadge.tsx'
 import css from './ToolRow.module.css'
 
+/** A summary that leads to another place in the same transcript. */
+export interface SummaryLink {
+  /** Tooltip naming the target verbatim. */
+  readonly title: string
+  /** Go to the target; receives the summary button, which selects the transcript. */
+  readonly onActivate: (origin: HTMLElement) => void
+}
+
 export interface ToolRowProps {
   /** Subscribe here, where the row owns its expanded body. */
   useDisclosure: UseDisclosure
@@ -98,6 +106,11 @@ export interface ToolRowProps {
   /** Safe http(s) URL from tool args; when set, the summary renders as a link that opens it in a new tab. */
   href?: string | undefined
   /**
+   * In-transcript target of the summary; when set, the summary renders as a
+   * button with `title` as its tooltip that calls `onActivate` with itself.
+   */
+  summaryLink?: SummaryLink | undefined
+  /**
    * Jump to this call in the trajectory view: a hover-revealed Inspect pill
    * over the expanded body. Absent = no affordance.
    */
@@ -153,6 +166,7 @@ export const ToolRow = memo(function ToolRow({
   onOpenFile,
   fileContextMenuProps, urlContextMenuProps,
   href,
+  summaryLink,
   inspect,
   useDisclosure,
 }: ToolRowProps) {
@@ -193,7 +207,9 @@ export const ToolRow = memo(function ToolRow({
   // Diff totals remain visible after the optional summary suffix.
   const diffStat = useMemo(() => diffBody === null ? null : diffTotals(diffBody.card.diffs), [diffBody])
   const settledWithCue = state === 'error' || state === 'stopped'
-  const suffix = settledWithCue ? null : summarySuffix ?? null
+  // An expanded details head replaces the collapsed summary, suffix included.
+  const detailsHead = open && detailsBody?.expandedSummary !== undefined
+  const suffix = settledWithCue || detailsHead ? null : summarySuffix ?? null
   const totals = settledWithCue ? null : diffStat
   const openFile = useMemo(() => filePath !== undefined && onOpenFile !== undefined && !settledWithCue
     ? (event: MouseEvent<HTMLButtonElement>) => {
@@ -203,6 +219,12 @@ export const ToolRow = memo(function ToolRow({
     }
     : undefined, [filePath, filePathLine, onOpenFile, settledWithCue])
   const linkHref = settledWithCue ? undefined : href
+  const activateLink = useMemo(() => summaryLink === undefined || settledWithCue
+    ? undefined
+    : (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation()
+      summaryLink.onActivate(event.currentTarget)
+    }, [summaryLink, settledWithCue])
   // Keep Enter/Space on the focused path or URL link from bubbling to the row's
   // keydown handler, which would preventDefault() the key and toggle expand
   // instead of activating the link — the keyboard analogue of the click
@@ -219,7 +241,17 @@ export const ToolRow = memo(function ToolRow({
        its title shows no trailing dot). */
     <>
       <span className={css.sep} data-shimmer-decoration aria-hidden />
-      {exitLabel === null && openFile !== undefined ? (
+      {exitLabel === null && activateLink !== undefined ? (
+        <button
+          type="button"
+          className={css.fileLink}
+          title={summaryLink?.title}
+          onClick={activateLink}
+          onKeyDown={summaryLinkKeyDown}
+        >
+          <TextShimmer>{summaryText}</TextShimmer>
+        </button>
+      ) : exitLabel === null && openFile !== undefined ? (
         <button
           type="button"
           className={css.fileLink}
@@ -268,7 +300,10 @@ export const ToolRow = memo(function ToolRow({
         </TextShimmer>
       )}
     </>
-  ), [summaryLinkKeyDown, fileContextMenuProps, urlContextMenuProps, linkHref, openFile, state, suffix, totals, summaryText, exitLabel])
+  ), [
+    summaryLinkKeyDown, fileContextMenuProps, urlContextMenuProps, linkHref, openFile, activateLink, summaryLink,
+    state, suffix, totals, summaryText, exitLabel,
+  ])
   const expandedContent = useMemo(() => open ? (
     <div className={clsx(css.bodyWrap, detailsBody !== null && css.detailsBodyWrap)}>
       {askQuestionBody !== null
