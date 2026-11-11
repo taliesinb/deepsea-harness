@@ -1,0 +1,3 @@
+- text: All subsequent turns will be deleted.
+- button "Cancel"
+- button "Delete"

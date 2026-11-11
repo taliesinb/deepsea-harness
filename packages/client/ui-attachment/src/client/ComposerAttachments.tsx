@@ -71,7 +71,7 @@ export function ComposerAttachments({
                 return (
                   <FileCard
                     name={attachment.file.name || t('file.label')}
-                    bytes={attachment.file.size}
+                    bytes={attachment.stored?.bytes ?? attachment.file.size}
                     state={upload === undefined || upload.status === 'uploading'
                       ? 'uploading'
                       : upload.status === 'ready' ? 'ready' : 'error'}
