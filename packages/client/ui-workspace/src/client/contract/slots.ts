@@ -28,6 +28,11 @@
  * `sidebar.workspaces.session.menu.item` Slot for external React entries;
  * they receive the captured row identity and render together before Archive.
  *
+ * Two more `list` seats let a plugin add a kind of workspace that is not a
+ * local directory: `sidebar.workspaces.headerAction` (icon buttons beside
+ * "Add workspace") and `sidebar.workspaces.extra` (groups below the local
+ * tree). Their owner share is the column's `wide` state.
+ *
  * The browser entry additionally declares `list` seats per Session row
  * (`sidebar.session.row.leading`, `sidebar.session.row.trailing`, and
  * `sidebar.session.row.hover`) for ambient row decorations. They receive only
@@ -125,6 +130,24 @@ export interface SessionRowScheduleOwnerProps {
   readonly sessionId: SessionId
 }
 
+/** A Session row the user dropped on another Workspace group of the sidebar. */
+export interface SessionDrop {
+  readonly sessionId: SessionId
+  /** The title the row showed. */
+  readonly displayTitle: string
+  /** The Workspace group it was dropped on. */
+  readonly workspaceId: WorkspaceId
+}
+
+/** Receives sidebar Session drops (`ctx.uiWorkspace.handleSessionDrop`). */
+export type SessionDropHandler = (drop: SessionDrop) => void
+
+/** Owner share of the browser's additive seats: the column's live width state. */
+export interface WorkspaceBrowserSeatOwnerProps {
+  /** True while the sidebar is expanded; the `extra` seat renders only then. */
+  wide: boolean
+}
+
 /** Owner share of the trailing icon list; rendering does not bind the Session. */
 export interface SessionRowTrailingOwnerProps {
   /** Session this row shows. */
@@ -133,6 +156,21 @@ export interface SessionRowTrailingOwnerProps {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /**
+     * Header seat beside the "Add workspace" button: one icon button per
+     * entry, for a plugin that adds another kind of workspace. Rendered in the
+     * rail and the expanded column alike, hidden with the other header actions
+     * while search is open.
+     */
+    'sidebar.workspaces.headerAction': { kind: 'list'; scope: 'root'; owner: WorkspaceBrowserSeatOwnerProps }
+    /**
+     * Seat below the Workspace tree in the same list area: extra groups a
+     * plugin renders beside the local ones (workspaces that are not local
+     * directories, such as another Host's). Rendered only while the sidebar
+     * is wide and no search is active; an entry sizes itself (`flex: none`)
+     * so the local tree keeps the remaining height.
+     */
+    'sidebar.workspaces.extra': { kind: 'list'; scope: 'root'; owner: WorkspaceBrowserSeatOwnerProps }
     /** Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry). */
     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
@@ -250,6 +288,8 @@ export type WorkspaceBrowserInjected = {
   hooks: DirectoryPickingInjected['hooks'] & {
     workspaceActionRequest: HostObservable<WorkspaceActionRequest | null>
     contextMenuTarget: HostObservable<ContextMenuTarget | null>
+    /** The handler that receives Session rows dropped on another Workspace group; absent, such drops do nothing. */
+    sessionDrop: HostObservable<SessionDropHandler | undefined>
     /**
      * Fixed Host facts, reached through a hook rather than injected as values:
      * the renderer memoizes an entry's inject result for the registration's
@@ -504,6 +544,8 @@ export type WorkspaceBrowserProps =
     | 'sidebar.session.row.trailing'
     | 'sidebar.session.row.leading'
     | 'sidebar.session.row.hover'
+    | 'sidebar.workspaces.headerAction'
+    | 'sidebar.workspaces.extra'
   >
   & PropsStore<WorkspaceViewStoreHandle>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
