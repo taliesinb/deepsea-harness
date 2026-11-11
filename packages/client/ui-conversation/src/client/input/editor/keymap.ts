@@ -1,8 +1,9 @@
 /**
  * Composer keymap over the Lexical command layer: menu arbitration
- * (arrows/escape/enter), space adjudication, the Enter submit gesture, and
- * paste routing. Registered at CRITICAL priority so it decides before
- * @lexical/plain-text's own Enter/paste defaults; a handler returning false
+ * (arrows/escape/enter), space adjudication, the Enter submit gesture,
+ * ArrowUp prompt recall, and paste routing. Registered at CRITICAL priority
+ * so it decides before @lexical/plain-text's own Enter/paste defaults and the
+ * caret's ArrowUp movement; a handler returning false
  * falls through to those defaults (Shift+Enter's line break, ordinary
  * spaces, text paste the bar routes itself).
  *
@@ -45,6 +46,8 @@ export interface ComposerKeymapHandlers {
   intakeFiles(files: readonly File[], directories?: ReadonlySet<File>): void
   /** Pasted plain text (sanitized insertion through the shell). */
   pasteText(text: string): void
+  /** Unmodified ArrowUp the trigger menu passed; true = the empty draft took the last prompt and the keystroke is consumed. */
+  recall(): boolean
 }
 
 /** Composition state a keydown can trust (see the module doc's Safari note). */
@@ -224,7 +227,13 @@ export function registerComposerKeymap(editor: LexicalEditor, handlers: Composer
     }, COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(MOVE_TO_END, event => movePastQuote(editor, event), COMMAND_PRIORITY_CRITICAL),
     editor.registerUpdateListener(syncComposition),
-    editor.registerCommand(KEY_ARROW_UP_COMMAND, arrow('up'), COMMAND_PRIORITY_CRITICAL),
+    editor.registerCommand(KEY_ARROW_UP_COMMAND, (event) => {
+      if (arrow('up')(event)) return true
+      if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey
+        || isComposingEvent(event, recentlyComposing) || !handlers.recall()) return false
+      event.preventDefault()
+      return true
+    }, COMMAND_PRIORITY_CRITICAL),
     editor.registerCommand(KEY_ARROW_DOWN_COMMAND, arrow('down'), COMMAND_PRIORITY_CRITICAL),
     // Tab settles the highlighted completion and passes without one, keeping
     // native focus traversal; Shift+Tab leaves the menu like Escape whenever it

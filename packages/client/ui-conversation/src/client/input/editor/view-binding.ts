@@ -162,6 +162,7 @@ export function installDraftKeymap(
       if (gate.current.machineBusy || gate.current.locked) return
       keyboard.paste(text)
     },
+    recall: () => !gate.current.machineBusy && !gate.current.locked && keyboard.recallPrompt(),
   })
 }
 
