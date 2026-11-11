@@ -24,6 +24,8 @@ const SEED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/sessio
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const FORK_EXPECTED = join(SNAPSHOT_DIR, 'fork.expected.md')
 const UNOPENED_FORK_EXPECTED = join(SNAPSHOT_DIR, 'fork-unopened.expected.md')
+const REWIND_CONFIRM_EXPECTED = join(SNAPSHOT_DIR, 'rewind-confirm.expected.md')
+const REWIND_EXPECTED = join(SNAPSHOT_DIR, 'rewind.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'message-actions-web-e2e'
 
@@ -514,9 +516,103 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     }
   })
 
+  it.skipIf(MODE === 'record')('rewinds historical prompts inline: delete, then edit back into the composer', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-message-rewind'))
+    const id = SessionId('message-actions-rewind')
+    await seedSession(scaffold, completedTailFixture(await readFile(SEED, 'utf8')), id)
+    const storedPrompts = async (): Promise<string[]> => {
+      const handle = await scaffold.ctx.sessionPersistence.open(id, 'read')
+      try {
+        return (await handle.read()).events.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
+          ? [event.data.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('')]
+          : [])
+      } finally {
+        await handle.close()
+      }
+    }
+    expect(await storedPrompts()).toEqual([PROMPT, SECOND_PROMPT, NEXT_PROMPT])
+    /** Open the seeded Session from the sidebar, expanding its group and list as needed. */
+    const openSession = async (target: Page) => {
+      const group = target.getByRole('treeitem', { name: 'Ungrouped' })
+      await group.waitFor()
+      if (await group.getAttribute('aria-expanded') === 'false') await group.click()
+      const row = target.locator(`[data-row-key="session:${id}"]`)
+      const more = target.getByRole('button', { name: /^Show \d+ more sessions$/ })
+      await Promise.race([row.waitFor(), more.waitFor()])
+      if (!await row.isVisible()) await more.click()
+      await row.click()
+    }
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await openSession(page)
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await expect.poll(() => page.getByText('ORIGINAL ONLY', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    // A second window on the same Session follows the rewind live.
+    const watcher = await newEnglishPage(browser)
+    onTestFailed(() => saveFailureShot(watcher, 'web-e2e-message-rewind-watcher'))
+    await pinBrowserClock(watcher)
+    await watcher.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await watcher.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await openSession(watcher)
+    await expect.poll(() => watcher.getByText('ORIGINAL ONLY', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    // Surviving rows must stay the same DOM nodes: a trim removes only what follows the cut.
+    const markKept = (target: Page) => target.evaluate(() => {
+      const kept = document.querySelector<HTMLElement & { rewindKept?: true }>('[data-prompt-rewind]')
+      if (kept !== null) kept.rewindKept = true
+    })
+    const stillKept = (target: Page) => target.evaluate(() =>
+      (document.querySelector<HTMLElement & { rewindKept?: true }>('[data-prompt-rewind]'))?.rewindKept === true)
+    await markKept(page)
+    await markKept(watcher)
+    const historyReads: string[] = []
+    const recordRead = (request: BrowserRequest) => {
+      if (/\/api\/session\/(page|follow)\b/.test(request.url())) historyReads.push(request.url())
+    }
+    page.on('request', recordRead)
+    watcher.on('request', recordRead)
+
+    // Deleting the last prompt asks inline, in place of its clock and icons, before changing anything.
+    const last = page.locator('[data-prompt-rewind]').filter({ hasText: NEXT_PROMPT })
+    await last.hover()
+    await last.getByRole('button', { name: 'Delete', exact: true }).click()
+    const confirmation = last.locator('[data-prompt-rewind-confirm="delete"]')
+    await confirmation.waitFor()
+    expect(await storedPrompts()).toEqual([PROMPT, SECOND_PROMPT, NEXT_PROMPT])
+    await page.mouse.move(0, 0)
+    await compareOrRefreshGolden(REWIND_CONFIRM_EXPECTED,
+      await captureStableAria(page, '[data-prompt-rewind-confirm]', scaffold.workspaceCwd), MODE)
+    await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect.poll(storedPrompts, { timeout: 15_000 }).toEqual([PROMPT, SECOND_PROMPT])
+    await expect.poll(() => page.getByText('ORIGINAL ONLY', { exact: true }).count(), { timeout: 15_000 }).toBe(0)
+    await expect.poll(() => watcher.getByText('ORIGINAL ONLY', { exact: true }).count(), { timeout: 15_000 }).toBe(0)
+    expect(await watcher.getByText(SECOND_PROMPT, { exact: true }).count()).toBe(1)
+    expect([await stillKept(page), await stillKept(watcher)]).toEqual([true, true])
+    expect(historyReads).toEqual([])
+    page.off('request', recordRead)
+    await watcher.close()
+
+    // Editing the second prompt removes its turn and returns its text to the composer.
+    const second = page.locator('[data-prompt-rewind]').filter({ hasText: SECOND_PROMPT })
+    await second.hover()
+    await second.getByRole('button', { name: 'Edit', exact: true }).click()
+    await second.locator('[data-prompt-rewind-confirm="edit"]').getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect.poll(storedPrompts, { timeout: 15_000 }).toEqual([PROMPT])
+    const composer = page.getByRole('textbox', { name: /^Message or run a task/ })
+    await expect.poll(() => composer.textContent(), { timeout: 15_000 }).toBe(SECOND_PROMPT)
+    await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(0)
+    await page.mouse.move(0, 0)
+    await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur() })
+    await page.getByText(/Cache hit \d+%/u).first().waitFor({ timeout: 10_000 })
+    await compareOrRefreshGolden(REWIND_EXPECTED, (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      .split(id).join('{{seededId}}'), MODE)
+    expect(tripwire.pageErrors).toEqual([])
+  })
   it.skipIf(MODE === 'record')('issued zero model calls and kept a closed inventory', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['compact.expected.md', 'fork.expected.md', 'fork-unopened.expected.md', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'compact.expected.md', 'fork.expected.md', 'fork-unopened.expected.md',
+      'rewind-confirm.expected.md', 'rewind.expected.md', 'ui.expected.md',
+    ])
   })
 })

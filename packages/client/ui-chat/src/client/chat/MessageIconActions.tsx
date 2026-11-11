@@ -1,14 +1,18 @@
 // Shared IconActions chrome for user and assistant messages: copy
 // live, optional branch wiring, and an optional date-aware clock.
 
-import { useId, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import {
-  IconBranchOutlineRegular, IconCheckOutlineRegular, IconCopyOutlineRegular, Tooltip, useClipboardCopy,
+  IconBranchOutlineRegular, IconCheckOutlineRegular, IconCopyOutlineRegular,
+  IconEditOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, Tooltip, useClipboardCopy,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { formatMessageClock } from './message-chrome.ts'
 import { useCalendarDay } from './use-calendar-day.ts'
 import css from './MessageIconActions.module.css'
+
+/** Destructive operation on one historical prompt. */
+type RewindAction = 'edit' | 'replay' | 'delete'
 
 export interface MessageIconActionsProps {
   /** Plain text the copy action writes. */
@@ -33,6 +37,14 @@ export interface MessageIconActionsProps {
    * branch control at the end of the icon cluster.
    */
   usageAction?: ReactNode
+  /**
+   * Destructive prompt actions, run after their inline confirmation when one is needed; omitted
+   * while the Session is busy. The returned Promise keeps the confirmation
+   * disabled until the action settles.
+   */
+  onRewind?: ((action: RewindAction) => Promise<void>) | undefined
+  /** Whether a chosen action asks inline first; omitted, every action does. Read on click. */
+  rewindNeedsConfirmation?: ((action: RewindAction) => boolean) | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
@@ -44,11 +56,28 @@ export interface MessageIconActionsProps {
  */
 export function MessageIconActions({
   text, time, clock, onBranch, branchUnavailable = false, className,
-  extraActions, usageAction, t,
+  extraActions, usageAction, onRewind, rewindNeedsConfirmation, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const reasonId = useId()
   const { copied, onCopy } = useClipboardCopy(text)
+  const [confirming, setConfirming] = useState<RewindAction | null>(null)
+  const [running, setRunning] = useState(false)
+  // A Session that turns busy withdraws an unanswered confirmation.
+  if (onRewind === undefined && confirming !== null && !running) setConfirming(null)
+  const run = (action: RewindAction): void => {
+    if (onRewind === undefined) return
+    setRunning(true)
+    void onRewind(action).finally(() => {
+      setRunning(false)
+      setConfirming(null)
+    })
+  }
+  const choose = (action: RewindAction): void => {
+    if (running) return
+    if (rewindNeedsConfirmation?.(action) === false) run(action)
+    else setConfirming(action)
+  }
   const clockEl = time === undefined ? null : (
     <span className={clock === 'start' ? css.timeStart : css.timeEnd}>
       {formatMessageClock(time, t, day)}
@@ -56,7 +85,40 @@ export function MessageIconActions({
   )
   return (
     <div className={className === undefined ? css.actions : `${css.actions} ${className}`} data-clock={clock}>
-      {clock === 'start' ? clockEl : null}
+      {clock === 'start' && (confirming !== null
+        ? (
+          <span className={css.rewindConfirm} data-prompt-rewind-confirm={confirming}>
+            <span>{t('message.rewind.warning')}</span>
+            <button type="button" className={css.textButton} disabled={running} onClick={() => { setConfirming(null) }}>
+              {t('message.rewind.cancel')}
+            </button>
+            <button type="button" className={css.textButton} data-danger="" disabled={running} onClick={() => { run(confirming) }}>
+              {t(`message.${confirming}`)}
+            </button>
+          </span>
+        )
+        : onRewind === undefined ? clockEl : (
+          <span className={css.rewindStart}>
+            <span className={css.rewindClock}>{clockEl}</span>
+            <span className={css.rewindActions} data-prompt-rewind-actions>
+              <Tooltip label={t('message.edit')} side="bottom">
+                <button type="button" className={css.action} aria-label={t('message.edit')} onClick={() => { choose('edit') }}>
+                  <IconEditOutlineRegular />
+                </button>
+              </Tooltip>
+              <Tooltip label={t('message.replay')} side="bottom">
+                <button type="button" className={css.action} aria-label={t('message.replay')} onClick={() => { choose('replay') }}>
+                  <IconRefreshOutlineRegular />
+                </button>
+              </Tooltip>
+              <Tooltip label={t('message.delete')} side="bottom">
+                <button type="button" className={css.action} aria-label={t('message.delete')} onClick={() => { choose('delete') }}>
+                  <IconTrashOutlineRegular />
+                </button>
+              </Tooltip>
+            </span>
+          </span>
+        ))}
       <Tooltip label={copied ? t('copied') : t('copy')} side="bottom">
         <button type="button" className={css.action} aria-label={copied ? t('copied') : t('copy')} onClick={onCopy}>
           {copied ? <IconCheckOutlineRegular /> : <IconCopyOutlineRegular />}

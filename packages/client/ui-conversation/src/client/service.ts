@@ -31,6 +31,7 @@ import type {
   DraftAttachmentId, DraftAttachmentSerializationResult, SessionInputResolver, SubmitAttachment, SubmitOutcome,
 } from './contract/input.ts'
 import type { InputSubmitMode } from './contract/composer-submission.ts'
+import type { StoredAttachmentDraft, StoredDraft } from './contract/slots.ts'
 
 /**
  * The outward conversation face (`ctx.conversation`): the scope-addressed
@@ -45,6 +46,13 @@ export interface IConversation {
    * cannot import makes a session's input inert with its own reason.
    */
   readonly blocks: ComposerBlocks
+  /**
+   * Register attachments the Host already stores and staged for one Session as ready drafts; no bytes
+   * upload. A composer adopts the returned ids through `addAttachments`.
+   * @param attachments - staged stored attachments in order; an image's preview URL stays its owner's.
+   * @returns ordered draft descriptors.
+   */
+  createStoredDrafts(attachments: readonly StoredAttachmentDraft[]): readonly ComposerAttachment[]
   /**
    * Send a prompt into the caller scope's session (queued turn).
    * @param text - prompt text, sent verbatim as one text block.
@@ -158,6 +166,8 @@ export class ConversationController extends Service implements IConversation {
   /** Live upload state per draft that uploads when added: every file draft and every uploaded image draft. */
   readonly fileUploads: SnapshotStore<Record<string, DraftFileUpload>> = createSnapshotStore<Record<string, DraftFileUpload>>({})
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
+  /** Name-only placeholder Files of stored drafts, so a file handed back in is never uploaded empty. */
+  private readonly storedPlaceholders = new WeakMap<File, { readonly stored: StoredDraft; readonly previewUrl: string }>()
   private readonly fileUploadOperations = new Map<DraftAttachmentId, {
     readonly controller: AbortController
     readonly done: Promise<void>
@@ -192,9 +202,7 @@ export class ConversationController extends Service implements IConversation {
       await Promise.allSettled([...this.pendingFileUploads])
       this.fileUploadOperations.clear()
       this.fileUploadQueue.length = 0
-      for (const attachment of this.draftAttachments.values()) {
-        if (attachment.kind === 'image') revokePreview(attachment.previewUrl)
-      }
+      for (const attachment of this.draftAttachments.values()) releasePreview(attachment)
       this.draftAttachments.clear()
       this.fileUploads.set({})
     }, 'conversation draft attachments')
@@ -329,6 +337,17 @@ export class ConversationController extends Service implements IConversation {
    */
   createDrafts(sessionId: SessionId, files: readonly File[], uploadImages: boolean): readonly ComposerAttachment[] {
     return files.map((file) => {
+      const placeholder = this.storedPlaceholders.get(file)
+      if (placeholder !== undefined) {
+        // A stored draft's receipt was spent or belongs to another Session; its bytes are not in the browser.
+        const id = randomUUID() as DraftAttachmentId
+        const attachment: ComposerAttachment = isImageMediaType(file.type)
+          ? { kind: 'image', id, file, previewUrl: placeholder.previewUrl, stored: placeholder.stored }
+          : { kind: 'file', id, file, stored: placeholder.stored }
+        this.draftAttachments.set(id, attachment)
+        this.beginFileUpload(sessionId, attachment)
+        return attachment
+      }
       if (isImageMediaType(file.type)) {
         const attachment = browserDraftAttachment(file)
         this.draftAttachments.set(attachment.id, attachment)
@@ -343,6 +362,35 @@ export class ConversationController extends Service implements IConversation {
       }
       this.draftAttachments.set(attachment.id, attachment)
       this.beginFileUpload(sessionId, attachment)
+      return attachment
+    })
+  }
+
+  /**
+   * Register stored attachments as ready drafts.
+   * @param attachments - staged stored attachments in order.
+   * @returns ordered draft descriptors.
+   */
+  createStoredDrafts(attachments: readonly StoredAttachmentDraft[]): readonly ComposerAttachment[] {
+    return attachments.map((stored) => {
+      const id = randomUUID() as DraftAttachmentId
+      const attachment: ComposerAttachment = stored.type === 'image'
+        ? {
+          kind: 'image', id, previewUrl: stored.previewUrl, stored: { bytes: stored.image.bytes },
+          file: new File([], stored.image.name ?? '', { type: stored.image.mediaType }),
+          width: stored.image.width, height: stored.image.height,
+        }
+        : { kind: 'file', id, stored: { bytes: stored.file.bytes }, file: new File([], stored.file.name) }
+      this.storedPlaceholders.set(attachment.file, {
+        stored: attachment.stored as StoredDraft,
+        previewUrl: attachment.kind === 'image' ? attachment.previewUrl : '',
+      })
+      this.draftAttachments.set(id, attachment)
+      this.fileUploads.update((draft) => {
+        draft[id] = stored.type === 'image'
+          ? { status: 'ready', receiptId: stored.receiptId }
+          : { status: 'ready', receiptId: stored.receiptId, file: stored.file }
+      })
       return attachment
     })
   }
@@ -375,6 +423,13 @@ export class ConversationController extends Service implements IConversation {
   }
 
   private beginFileUpload(sessionId: SessionId, attachment: ComposerAttachment): void {
+    if (attachment.stored !== undefined) {
+      // A stored draft's receipt belongs to the Session that staged it, and its placeholder holds no bytes.
+      this.fileUploads.update((draft) => {
+        draft[attachment.id] = { status: 'error', message: 'stored attachment cannot move to another session', reason: 'FILE_NOT_STAGED' }
+      })
+      return
+    }
     this.fileUploadOperations.get(attachment.id)?.controller.abort()
     const controller = new AbortController()
     this.fileUploads.update((draft) => {
@@ -504,7 +559,7 @@ export class ConversationController extends Service implements IConversation {
     const attachment = this.draftAttachments.get(id)
     if (attachment === undefined) return
     this.draftAttachments.delete(id)
-    if (attachment.kind === 'image') revokePreview(attachment.previewUrl)
+    releasePreview(attachment)
     // The stored Host object stays durable; only the draft's upload state ends.
     this.dropUpload(id)
   }
@@ -608,7 +663,7 @@ export class ConversationController extends Service implements IConversation {
       this.forgetUpload(attachment.id)
       if (ref !== undefined && 'mediaType' in ref
         && uiConversation?.seedImageUrl(sessionId, ref, attachment.previewUrl) === true) continue
-      revokePreview(attachment.previewUrl)
+      releasePreview(attachment)
     }
   }
 
@@ -643,6 +698,8 @@ export function isImageMediaType(value: string): boolean {
   return value === 'image/png' || value === 'image/jpeg' || value === 'image/webp' || value === 'image/gif'
 }
 
-function revokePreview(url: string): void {
-  if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+/** Revoke a draft image's own preview URL; a stored image's preview belongs to the history image cache. */
+function releasePreview(attachment: ComposerAttachment): void {
+  if (attachment.kind !== 'image' || attachment.stored !== undefined) return
+  if (attachment.previewUrl.startsWith('blob:')) URL.revokeObjectURL(attachment.previewUrl)
 }

@@ -1,0 +1,28 @@
+- banner:
+  - navigation "Session hierarchy": Use the read tool twice
+  - button "More actions"
+  - button "Open right sidebar"
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+  - button "More conversation views"
+- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. {{clock}}"
+- button "Copy"
+- status: Stopped
+- button "Stopped" [disabled] [expanded]
+- button "Analysis completed"
+- paragraph: I will read both files before answering.
+- button "Read files"
+- button "Copy"
+- button "Good response"
+- button "Bad response"
+- button "Branch into a new conversation" [disabled]
+- text: Available only on the last message of a completed turn {{clock}}
+- textbox "Message or run a task, / commands, @ files or sessions":
+  - paragraph: Now give the final answer.
+- button "Add files or run commands"
+- 'button "Access mode, current: Workspace Write"': Workspace Write
+- button "Select model, current DeepSeek-V4-Flash": DeepSeek-V4-Flash
+- button "Send message"
+- button "1 turns 2 steps · {{throughput}} tok/s": 1 turns 2 steps{{throughput}} tok/s
+- button "7.9K tok · Cache hit 98%": 7.9K tokCache hit 98%

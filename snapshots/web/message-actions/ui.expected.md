@@ -10,7 +10,10 @@
   - button "Jump to turn 1"
   - button "Jump to turn 2"
   - button "Jump to turn 3"
-- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. {{clock}}"
+- text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop."
+- button "Edit"
+- button "Resend"
+- button "Delete"
 - button "Copy"
 - tooltip "Copy"
 - status: Stopped

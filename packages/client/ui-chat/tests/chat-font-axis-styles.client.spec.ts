@@ -155,6 +155,17 @@ describe('chat flow font-size axis', () => {
     expect(css).toContain('):focus-within .actions')
   })
 
+  it('replaces the user clock with non-clickable-until-hover rewind actions on fine pointers', () => {
+    const css = read('MessageIconActions.module.css')
+    const hover = css.slice(css.indexOf('@media (hover: hover)', css.indexOf('.rewindStart')))
+    expect(hover).toMatch(/\.rewindActions \{\s*visibility: hidden;\s*pointer-events: none;/)
+    expect(hover).toContain('[data-prompt-rewind]:is(:hover, :focus-within) .rewindClock')
+    expect(hover).toMatch(/\.rewindClock \{\s*visibility: hidden;/)
+    expect(hover).toMatch(/\.rewindActions \{\s*visibility: visible;\s*pointer-events: auto;/)
+    expect(css).toMatch(/\.rewindClock,\s*\.rewindActions \{\s*grid-area: 1 \/ 1;/)
+    // An unanswered inline confirmation keeps an earlier prompt's row shown without hover.
+    expect(css).toMatch(/\[data-chat-flow-kind\] \.actions:has\(\.rewindConfirm\) \{\s*opacity: 1;/)
+  })
   it('keeps empty outer Seats in flow without adding height or sibling gaps', () => {
     const css = read('ChatView.module.css')
     const emptySelector = '.flowItem:is(:empty, :has(> [data-slot="conversation.chat.node"]:empty))'

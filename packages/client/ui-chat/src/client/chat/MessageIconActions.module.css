@@ -114,3 +114,87 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Rewind controls replace the clock without moving the copy control. */
+.rewindStart {
+  display: grid;
+  align-items: center;
+  justify-items: end;
+}
+
+.rewindClock,
+.rewindActions {
+  grid-area: 1 / 1;
+}
+
+.rewindActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rewindClock {
+  visibility: hidden;
+}
+
+@media (hover: hover) {
+  .rewindClock {
+    visibility: visible;
+  }
+
+  .rewindActions {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  [data-prompt-rewind]:is(:hover, :focus-within) .rewindClock {
+    visibility: hidden;
+  }
+
+  [data-prompt-rewind]:is(:hover, :focus-within) .rewindActions {
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+
+/* Inline rewind confirmation, as the Drafts view confirms a deletion: it
+   takes the place of the clock and the rewind icons, and keeps the row shown
+   while it waits for an answer. */
+.rewindConfirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-right: 4px;
+  font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  color: var(--dsw-alias-label-secondary);
+}
+
+.textButton {
+  flex: none;
+  height: 22px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.textButton[data-danger] {
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-static-neutral-00);
+}
+
+.textButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  [data-chat-flow-kind] .actions:has(.rewindConfirm) {
+    opacity: 1;
+  }
+}

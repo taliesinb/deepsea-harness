@@ -40,9 +40,10 @@ const renderUserFactory: ChatNodeViewProps['renderFactorySlot'] = (name, input) 
   return renderUserContent(input as UserContentInput, () => null, t)
 }
 
-function viewProps(data: UserMessageNode): ChatNodeViewProps<'user'>
-function viewProps(data: SteeringMessageNode): ChatNodeViewProps<'steering'>
-function viewProps(data: UserMessageNode | SteeringMessageNode): ChatNodeViewProps<'user' | 'steering'> {
+type Rewind = { onRewind: () => Promise<void>; needsConfirmation: () => boolean }
+function viewProps(data: UserMessageNode): ChatNodeViewProps<'user'> & Rewind
+function viewProps(data: SteeringMessageNode): ChatNodeViewProps<'steering'> & Rewind
+function viewProps(data: UserMessageNode | SteeringMessageNode): ChatNodeViewProps<'user' | 'steering'> & Rewind {
   const node = {
     key: `fixture:${data.kind}:${String(data.seq)}`,
     id: String(data.seq),
@@ -55,8 +56,10 @@ function viewProps(data: UserMessageNode | SteeringMessageNode): ChatNodeViewPro
   } as ChatConversationViewNode
   const props: Partial<Omit<ChatNodeViewProps, 'node'>> & { node: ChatConversationViewNode } = {
     node, t, loadImage: unusedImageLoader, renderFactorySlot: renderUserFactory, openFile: vi.fn(),
+    useSession: selector => selector({ running: false, pendingSubmissions: [] } as never),
+    useAccess: () => false,
   }
-  return props as ChatNodeViewProps<'user' | 'steering'>
+  return { ...props as ChatNodeViewProps<'user' | 'steering'>, onRewind: vi.fn(() => Promise.resolve()), needsConfirmation: () => true }
 }
 
 const userData: UserMessageNode = {
