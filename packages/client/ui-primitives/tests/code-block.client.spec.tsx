@@ -26,8 +26,15 @@ describe('highlightToHtml', () => {
     expect(html).toContain('var(--shiki-')
   })
 
-  it.each([['ts'], ['js'], ['bash'], ['sh'], ['jsonc']])('resolves the %s alias', (alias) => {
+  it.each([['ts'], ['js'], ['bash'], ['sh'], ['jsonc'], ['jsonl'], ['ndjson']])('resolves the %s alias', (alias) => {
     expect(highlightToHtml('x', alias)).toContain('shiki')
+  })
+
+  it('colours every line of a JSON Lines fence as JSON', () => {
+    const html = highlightToHtml('{"cmd": "say", "n": 1}\n{"cmd": "end"}', 'jsonl') ?? ''
+    const lines = html.split('class="line"').slice(1)
+    expect(lines).toHaveLength(2)
+    for (const line of lines) expect(line).toContain('var(--shiki-')
   })
 
   it('returns undefined for unknown or absent languages', () => {
