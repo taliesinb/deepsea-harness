@@ -491,8 +491,11 @@ export interface ConversationSessionInjected {
     readonly conversationViews: ObservableSnapshot<readonly ViewTab[]>
     readonly inspectCall: ObservableSnapshot<ConvViewOwnerProps['inspectCall']>
   }
-  /** Bind input draft persistence to the Session-owned store instance. */
-  bindDraftPersistence: (write: (draft: DraftSnapshot) => void) => () => void
+  /** Bind input draft and last-submitted-prompt persistence to the Session-owned store instance. */
+  bindDraftPersistence: (
+    write: (draft: DraftSnapshot) => void,
+    writePrompt?: (prompt: DraftSnapshot) => void,
+  ) => () => void
   /** Select and activate one View while addressing an opaque focus request to it. */
   openView: (view: string, focus: string) => void
 }

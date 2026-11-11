@@ -1,5 +1,5 @@
 /** Conversation view and session-local presentation state. */
-import type { DraftInput } from './draft-editor.ts'
+import type { DraftInput, DraftSnapshot } from './draft-editor.ts'
 
 /**
  * One conversation view tab, projected from a 'conversation.view' slot
@@ -19,6 +19,8 @@ export interface ConversationViewRequest {
 export interface ConversationStoreState {
   /** Composer draft (persisted; survives session switches and reloads). */
   draft: DraftInput
+  /** Last prompt the composer submitted, recalled by ArrowUp in an empty draft (persisted; attachments excluded). */
+  lastPrompt?: DraftSnapshot
   /** Preferred `conversation.view` entry id; null resolves to Chat when registered. */
   view: string | null
   /** Focus request consumed and acknowledged by the addressed View. */
