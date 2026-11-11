@@ -380,7 +380,7 @@
     {"digest":"7f7fd5a6b0064f597534b29ff62ef26e786dffccf5e14f654a7d4fcea2c35f04","names":[],"sources":[]},
     {"digest":"7f9365bae9fcb73e1e34061a1acfe0422c1a5fd351848cace9bebbe806f28462","names":["packages/workflow/tool-workflow/src/types.ts#ToolWorkflowRunEndData"],"sources":["packages/workflow/tool-workflow/src/types.ts:36"]},
     {"digest":"7f959241c24128b4983b559984811861dc59774b85905c8fa57c6cb0148a3dbc","names":["packages/goal/goal/src/domain.ts#GoalMessageSource"],"sources":["packages/goal/goal/src/domain.ts:47"]},
-    {"digest":"7ff62f6599c083ceb5a0d7a8940ff85ba80dc1d7ddd6ba9339903e93f74cba54","names":["packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"],"sources":["packages/session/session-title-llm/src/index.ts:43"]},
+    {"digest":"7ff62f6599c083ceb5a0d7a8940ff85ba80dc1d7ddd6ba9339903e93f74cba54","names":["packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"],"sources":["packages/session/session-title-llm/src/index.ts:45"]},
     {"digest":"8064c03c87c357fd1575cb9395ce86e6dcbe2d275bf7717864a02cddf01827d5","names":["packages/llm/llm/src/types.ts#ContentBlock"],"sources":["packages/llm/llm/src/types.ts:157"]},
     {"digest":"80677c8c8b804189a0fde8aa70dd4ad7af8bb12dfd03027e8e023c8592c838bc","names":[],"sources":[]},
     {"digest":"8067b0d232c350f189738e60ee3c9939d46ca3b32b45db5525237b077893f649","names":[],"sources":[]},

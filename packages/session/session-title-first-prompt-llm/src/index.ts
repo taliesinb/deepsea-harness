@@ -13,10 +13,16 @@ import {
 import {
   executeSessionTitleLlm,
   resolveSessionTitleLlmConfig,
+  resolveSessionTitleStyle,
   SessionTitleLlmConfigFields,
+  SessionTitleStyleField,
+  slugifyTitle,
+  slugTitleInstruction,
+  slugTitleWords,
   type ResolvedSessionTitleLlmConfig,
   type SessionTitleLlmConfig,
   type SessionTitleLlmResponse,
+  type SessionTitleStyle,
 } from '@deepseek-ai/dsh-session-title-llm'
 /* jscpd:ignore-end */
 
@@ -30,12 +36,15 @@ export interface Config extends SessionTitleLlmConfig {
   readonly targetWords: number
   /** Target character count for Chinese, Japanese, or Korean titles. */
   readonly targetCjkCharacters: number
+  /** Title shape: `natural` (default) or `slug` (`foo-bar-baz`). */
+  readonly style?: SessionTitleStyle
 }
 
 /** Loader schema for this provider's required execution controls and title-length targets. */
 export const Config: z<Config> = z.object({
   targetWords: z.number().step(1).min(1).required(),
   targetCjkCharacters: z.number().step(1).min(1).required(),
+  style: SessionTitleStyleField,
   maxInputBytes: SessionTitleLlmConfigFields.maxInputBytes,
   maxOutputTokens: SessionTitleLlmConfigFields.maxOutputTokens,
   timeoutMs: SessionTitleLlmConfigFields.timeoutMs,
@@ -47,6 +56,7 @@ export const Config: z<Config> = z.object({
 interface ResolvedConfig extends ResolvedSessionTitleLlmConfig {
   readonly targetWords: number
   readonly targetCjkCharacters: number
+  readonly style: SessionTitleStyle | undefined
 }
 
 /** Validate one positive title-length target. */
@@ -63,11 +73,12 @@ function assertTarget(name: 'targetWords' | 'targetCjkCharacters', value: number
  * @returns immutable provider policy.
  */
 function resolveConfig(config: Config): ResolvedConfig {
-  const { targetWords, targetCjkCharacters, ...execution } = config
+  const { targetWords, targetCjkCharacters, style, ...execution } = config
   return {
     ...resolveSessionTitleLlmConfig(execution),
     targetWords: assertTarget('targetWords', targetWords),
     targetCjkCharacters: assertTarget('targetCjkCharacters', targetCjkCharacters),
+    style: resolveSessionTitleStyle('session-title-first-prompt-llm', style),
   }
 }
 
@@ -79,6 +90,7 @@ const selectReasoningEffort = (model: Readonly<LlmResolvedModelInfo>): Reasoning
 /* jscpd:ignore-start -- independent provider strategies share only the execution module, not prompt or parsing policy. */
 /** Language-aware system instruction for a title derived from one message. */
 function systemPrompt(config: ResolvedConfig): string {
+  if (config.style === 'slug') return slugTitleInstruction(config.targetWords).join('\n')
   return [
     'Create a concise title for an AI coding-assistant session from the supplied human messages.',
     'Return only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.',
@@ -113,7 +125,7 @@ function titleFromOutput(text: string): string {
 }
 
 /** Reject terminal tool-call or max-token outcomes and derive one non-empty title from the text blocks. */
-function titleFromResponse(response: SessionTitleLlmResponse): string {
+function titleFromResponse(response: SessionTitleLlmResponse, config: ResolvedConfig): string {
   switch (response.finish.kind) {
     case 'stop':
       break
@@ -131,7 +143,11 @@ function titleFromResponse(response: SessionTitleLlmResponse): string {
     .filter((block): block is Extract<(typeof response.blocks)[number], { type: 'text' }> => block.type === 'text')
     .map(block => block.text)
     .join(' ')
-  const title = normalizeSessionTitle(titleFromOutput(text), Number.MAX_SAFE_INTEGER)
+  const line = titleFromOutput(text)
+  const title = normalizeSessionTitle(
+    config.style === 'slug' ? slugifyTitle(line, slugTitleWords(config.targetWords)) : line,
+    Number.MAX_SAFE_INTEGER,
+  )
   if (title.length === 0) throw new Error('session-title-llm: title model produced no text')
   return title
 }
@@ -158,7 +174,7 @@ export function apply(ctx: Context, config: Config): void {
         selectReasoningEffort,
       })
       return {
-        title: titleFromResponse(response),
+        title: titleFromResponse(response, resolved),
         messageSeqs: [first.seq],
         model: response.model,
       }
