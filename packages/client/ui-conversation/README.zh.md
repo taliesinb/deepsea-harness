@@ -116,6 +116,8 @@ Session 首次绑定或缓存的 Session 成为 current 时，shell 会在渲染
 
 普通 Enter 使用已配置的投递模式，严格的 Ctrl+Enter 或 Cmd+Enter 使用互补模式，Shift+Enter 插入换行。带 Alt、AltGraph、同时带 Ctrl 与 Cmd，或 Shift 与 Ctrl/Cmd 的 Enter 保持草稿和指令菜单不变，并将 DOM 事件留给应用快捷键。Conversation 插件注册发送、换行、互补投递、命令菜单和引用菜单的固定条目，并在卸载前保留这些键位。
 
+将草稿保存在输入框之外的插件，通过 `SessionInput.readDraft()` 和 `setDraft(document)` 读取并替换输入框的整个文档；后者立即恢复引用胶囊和 quote，并在命令目录解析其 token 后恢复命令 chip。`ctx.conversation.resolveDraftAttachments(ids)` 返回输入框附件 id 背后的浏览器文件，`createDrafts(sessionId, files, uploadImages)` 将文件注册为新的草稿附件供 `addAttachments` 使用，`fileUploads` 报告每个附件的上传状态（发送要求所有上传均已就绪），`releaseDraftAttachment(id)` 在 `removeAttachment` 之后释放一个附件。`conversation.draft.editor` Factory 在输入框之外呈现可编辑文档：引用胶囊和 quote 与输入框相同，Enter 插入换行，没有命令或引用菜单、提交或附件；粘贴的文字以纯文本插入，粘贴的文件被丢弃，除非调用方先从粘贴事件中取走。只要文字仍以 `value` 中命令 chip 的 token 开头，该 chip 就随文档一并报告。新的 `revision` 会重新载入 `value`；不变的 revision 保留本地编辑。`ctx.uiConversation.openView(sessionId, view, focus)` 像标签页一样在 Session 的 Conversation 主体中选中一个 View，并向其发出聚焦请求；若该主体未在此页面中创建，或该 View 未注册，则返回 false。
+
 在完全为空的输入框（没有文字、胶囊、quote 或附件）中，未打开触发菜单且没有输入法组合时，按不带修饰键的上方向键，会以该 Session 中此输入框最后提交的提示填充输入框，内容与按 Enter 前一致：文字、引用胶囊、开头的命令 chip、quote 和附件。光标位于末尾，在草稿再次完全清空之前，上方向键照常移动光标；召回只有一级。Host 接受该消息（任一投递模式）或其已认领命令成功后，提示才被记住；被拒绝或失败的提交保留先前的提示。Conversation store 在草稿旁持久化所记住的文字、胶囊、命令和 quote，因此召回在刷新后依然有效。附件只在发送它们的页面保持打开时召回，因为浏览器 `File` 对象不会持久化；召回的文件作为新草稿重新上传。来自其他客户端或在本页面保存之前发送的提示不会被召回：Session 消息携带的是序列化后的模型文字，而不是草稿。
 
 点击可编辑输入框内的留白时，已聚焦的输入框保留当前光标或选区，未聚焦的输入框恢复上次的光标或选区。文本选择、滚动条、控件和内嵌浮层保持各自的指针交互行为。

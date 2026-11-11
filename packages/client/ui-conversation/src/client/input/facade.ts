@@ -319,6 +319,11 @@ export class SessionInputShell implements SessionInput {
     return value
   }
 
+  /** @returns the current semantic document ({@link draftSnapshot}). */
+  readDraft(): DraftSnapshot {
+    return this.draftSnapshot
+  }
+
   /** Persist the latest document and the remembered prompt without changing the editor or binding a writer. */
   persistCurrentDraft(): void {
     this.persistDraft?.(this.draftSnapshot)

@@ -11,7 +11,9 @@ import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/cli
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ArbitrateKey, ArbitrateOutcome, DraftQuote, Occurrence, ReferenceInsert, TokenSpan } from './draft-editor.ts'
+import type {
+  ArbitrateKey, ArbitrateOutcome, DraftInput, DraftQuote, DraftSnapshot, Occurrence, ReferenceInsert, TokenSpan,
+} from './draft-editor.ts'
 import type { InputSubmitMode, MessageSubmission } from './composer-submission.ts'
 
 /** Attachment payload passed to a claimed command submission. */
@@ -185,8 +187,13 @@ export interface SessionInput extends InputTarget {
   /** Insert selected transcript text as an atomic quote. @param text - nonblank selection. @returns whether editing accepted it. */
   insertQuote(text: string): boolean
 
-  /** Replace the whole draft with plain text, removing inline reference chips. */
-  setDraft(text: string): void
+  /**
+   * Replace the whole draft. Plain text removes inline chips; a semantic document restores its reference
+   * chips and quotes, and its command chip once the command catalog resolves the token.
+   */
+  setDraft(text: DraftInput): void
+  /** @returns the current semantic document: text, reference chips, command chip, and quotes, without attachments. */
+  readDraft(): DraftSnapshot
   /** Append ordered browser-owned attachment ids; busy admission phases refuse. */
   addAttachments(ids: readonly DraftAttachmentId[]): boolean
   /** Remove one browser-owned attachment id; busy admission phases refuse. @returns whether the id was removed. */
@@ -267,8 +274,11 @@ export interface InputActions {
    * @returns false when the draft changed or submission locked the editor.
    */
   insertText(text: string, span: TokenSpan): boolean
-  /** Replace the whole draft with plain text, removing inline reference chips. */
-  setDraft(text: string): void
+  /**
+   * Replace the whole draft. Plain text removes inline chips; a semantic document restores its reference
+   * chips and quotes, and its command chip once the command catalog resolves the token.
+   */
+  setDraft(text: DraftInput): void
   /** Write the current semantic document through the mounted persistence callback. */
   persistDraft(): void
   /** Append ordered browser-owned attachment ids; busy admission phases refuse. */
