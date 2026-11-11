@@ -1,0 +1,40 @@
+/* The composer's text area (skeleton/InputBar.module.css), without its height floor and hint. */
+.scroll {
+  max-height: var(--dsh-composer-text-max-height);
+  overflow-y: auto;
+  margin-right: 4px;
+}
+
+.grow {
+  position: relative;
+}
+
+.input {
+  box-sizing: border-box;
+  min-height: 28px;
+  padding: 4px 8px 0 14px;
+  font-family: var(--dsw-font-family);
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  outline: none;
+  color: var(--dsw-alias-label-primary);
+  caret-color: var(--dsw-alias-state-business-primary);
+}
+
+.input p {
+  margin: 0;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 4px 8px auto 14px;
+  color: var(--dsw-alias-label-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  user-select: none;
+}

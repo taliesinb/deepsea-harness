@@ -18,7 +18,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { ComposerBlock } from './composer-blocks.ts'
 import type { DraftAttachmentId, InputActions, InputNotice, InputState } from './input.ts'
-import type { ComposerKeyboard, DraftSnapshot, EditSelection } from './draft-editor.ts'
+import type { ComposerKeyboard, DraftSnapshot, EditSelection, ReferenceInsert } from './draft-editor.ts'
 import type { createConversationStore } from '../stores.ts'
 import type { BusyEnterBehavior } from './composer-submission.ts'
 import type { ConversationSnapshot } from './snapshot.ts'
@@ -184,6 +184,40 @@ export interface UserTextNodeOwnerProps {
 export type UserTextNodeProps<Id extends UserTextId = UserTextId> =
   PropsRuntime<'conversation.user.text.node', Id>
 
+/** Caller input of the standalone draft document editor. */
+export interface DraftDocumentEditorInput {
+  /** Document loaded when the editor mounts and whenever `revision` changes. */
+  readonly value: DraftSnapshot
+  /** Identity of `value`: a new revision replaces the editor content; an unchanged one keeps the local edits. */
+  readonly revision: string
+  /**
+   * Receives the document after each content change. A command chip of `value` is kept while the text still
+   * starts with its token, because this editor does not resolve commands.
+   */
+  readonly onChange: (draft: DraftSnapshot) => void
+  /** Called when the keyboard leaves the editor. */
+  readonly onBlur?: () => void
+  /*
+   * Pasted text is inserted as plain text; pasted files are dropped. A caller that accepts files takes them from the
+   * paste or drop event before it reaches the editor.
+   */
+  /** Shown while the document is empty. */
+  readonly placeholder: string
+  /** Accessible name of the editable region. */
+  readonly ariaLabel: string
+}
+
+/** Session capabilities the draft document editor reads. */
+export interface DraftDocumentEditorInjected {
+  /**
+   * Open a reference chip's target, as a composer chip does.
+   * @param source - owning trigger source of the chip.
+   * @param reference - reference identity and glyph.
+   * @returns whether a source opened it.
+   */
+  readonly openReference: (source: string | undefined, reference: Pick<ReferenceInsert, 'ref' | 'appearance'>) => boolean
+}
+
 /** Selector hook over the current Session's assembled Conversation. */
 export type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
 /** Selector hook over the registered Conversation View roster. */
@@ -205,6 +239,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       scope: 'root'
       props: MessageImagesContentInput
       inject: { readonly fileDrag: import('@deepseek-ai/dsh-client-ui-primitives').FileDragActions }
+      locale: 'conversation'
+    }
+    /**
+     * Editable draft document outside the composer: text, reference chips, and quotes, with Enter as a line
+     * break and no command or reference triggers, submission, or attachments.
+     */
+    'conversation.draft.editor': {
+      scope: 'session'
+      props: DraftDocumentEditorInput
+      inject: DraftDocumentEditorInjected
       locale: 'conversation'
     }
   }
