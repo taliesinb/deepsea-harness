@@ -1530,6 +1530,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the provider does not support watching or cannot initialize the watcher.'],
       },
       {
+        signature: 'checkWrite(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsWriteCheck>',
+        description: 'Answer, without mutating, whether this provider\'s sandbox fence would let a mutation of `target` run under `sandboxPolicy`: creating or replacing it (writeText), editText, patchText, deleteFile, or either end of moveFile. A provider answers with the decision its mutations make, through the same code, performs no I/O beyond the reads that decision makes, and never prompts. The answer holds when it is made; each mutation decides again. Guard, existence, and host-permission failures are outside it. The base provider answers `unknown`.',
+        parameters: [{ name: 'target', description: 'the resolved target a mutation would use.' }, { name: 'signal', description: 'aborts the decision\'s reads or round-trip.' }, { name: 'sandboxPolicy', description: 'the per-call mode and workspace root the mutation would run under. Omit to leave the backend its own default.' }],
+        returns: '`allowed`, `denied` with the refusal message, or `unknown`.',
+        throws: ['the error a mutation would throw while deciding, such as an invalid writable root.'],
+      },
+      {
         signature: 'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
         description: 'Resolve a model/plugin-supplied path into a stable FsTarget. May perform I/O (a remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence async even though the local backend only normalizes + realpaths.',
         parameters: [{ name: 'path', description: 'the path to resolve; relative paths resolve against `opts.cwd`.' }, { name: 'opts', description: 'optional cwd override and cancellation signal.' }],
@@ -6695,6 +6702,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FsVersion',
     declaration: 'export type FsVersion = Branded<\'FsVersion\'>;',
+  },
+  {
+    name: 'FsWriteCheck',
+    declaration: 'export type FsWriteCheck = {\n    readonly kind: \'allowed\';\n} | {\n    readonly kind: \'denied\';\n    readonly message: string;\n} | {\n    readonly kind: \'unknown\';\n};',
   },
   {
     name: 'FsWriteIntent',

@@ -54,7 +54,7 @@ Pass the verified `ctx.ssh.ptcLaunch` as the `launch` configuration of [`NodePtc
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-The helper dispatches `fs.patch`, `fs.delete`, and `fs.move` through its sandboxed filesystem provider; strict schemas validate hunks, source/destination guards, and complete or partial move outcomes. Hunk payloads share the connection frame limit.
+The helper dispatches `fs.patch`, `fs.delete`, `fs.move`, and `fs.checkWrite` through its sandboxed filesystem provider; strict schemas validate hunks, source/destination guards, complete or partial move outcomes, and write-check answers. Hunk payloads share the connection frame limit.
 
 <details>
 <summary>Implementation internals — click to expand</summary>

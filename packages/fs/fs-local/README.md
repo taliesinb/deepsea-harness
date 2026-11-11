@@ -50,7 +50,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### What you can do
 
-Read regular UTF-8 files whole or as streams, read bounded bytes, and list one directory level. Writes, literal edits, patches, and deletions serialize per target. Moves lock both targets in lexical order. `patchText` checks the version before calling `applyHunks`; `deleteFile` removes only a regular file. Missing sources use `FS_STALE_VERSION`, unmatched hunks use `FS_PATCH_MISMATCH`, and identical move targets use `FS_SAME_TARGET`.
+Read regular UTF-8 files whole or as streams, read bounded bytes, and list one directory level. Writes, literal edits, patches, and deletions serialize per target. Moves lock both targets in lexical order. `patchText` checks the version before calling `applyHunks`; `deleteFile` removes only a regular file. Missing sources use `FS_STALE_VERSION`, unmatched hunks use `FS_PATCH_MISMATCH`, and identical move targets use `FS_SAME_TARGET`. `checkWrite` answers `allowed` for every target and policy, because this backend fences no mutation.
 
 Patch and move text is LF-normalized internally and restored using the source line-ending style; outcome text uses LF. Delete bases and overwritten destination bases follow `diffBasisMaxBytes`. A move checks cancellation before staging the destination, then completes both effects; a source-removal failure returns the published destination with `sourceDeleted: false`. Atomic write failures map denied directory or staging creation to `FS_PERMISSION_DENIED` and other Node I/O errors to `FS_IO_ERROR`.
 

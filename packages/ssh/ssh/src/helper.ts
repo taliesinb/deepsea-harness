@@ -232,6 +232,10 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
         }, signal)
       return Buffer.from(bytes).toString('base64')
     }
+    if (method === 'fs.checkWrite') {
+      const input = z.object({ target: targetSchema, policy: policySchema }).strict().parse(raw)
+      return ctx.fs.checkWrite(asTarget(input.target), signal, await policy(input.policy, signal))
+    }
     if (method === 'fs.write' || method === 'fs.edit') {
       const input = z.object({
         target: targetSchema, content: z.string().optional(), edit: editSchema.optional(),

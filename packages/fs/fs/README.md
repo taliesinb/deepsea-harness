@@ -37,6 +37,8 @@ Through `ctx.fs`, resolve paths, read text or bounded bytes, list direct childre
 
 `watch(target, changed, signal)` reports invalidations for one file or a directory's direct entries. It resolves once observation is ready with an asynchronous close function that the caller must await. The signal cancels initialization; unsupported providers reject without polling.
 
+`checkWrite(target, signal, sandboxPolicy)` asks the provider's sandbox fence, without mutating, whether writing or creating that target, editing or patching it, deleting it, or using it as either end of a move would pass under that policy. A provider answers with the decision its mutations make: `allowed`, `denied` with the `FS_SANDBOX_DENIED` message, or `unknown` when it cannot decide without mutating (the base class), in which case the mutation decides. It never prompts and reads only what the decision reads. The answer can change before the mutation, which decides again; guard, existence, and permission failures are not part of it.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -61,7 +63,7 @@ The contract is built on one separation and three commitments:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Service definition: the abstract `FileSystem` class, the `ctx.fs` declaration, and the `fs/*` event vocabulary |
-| [`src/types.ts`](src/types.ts) | Vocabulary: `FsTarget`/`FsTargetKey`, `FsVersion`, `FsObservation`, `FsWriteIntent`, `FsError` and its codes |
+| [`src/types.ts`](src/types.ts) | Vocabulary: `FsTarget`/`FsTargetKey`, `FsVersion`, `FsObservation`, `FsWriteIntent`, `FsWriteCheck`, `FsError` and its codes |
 
 ### How a call flows
 

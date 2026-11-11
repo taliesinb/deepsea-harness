@@ -117,6 +117,19 @@ describe('SSH filesystem provider', () => {
     expect(dispatch).toHaveBeenLastCalledWith('fs.edit', { target, edit, expected: { version: 'v2' }, policy }, signal)
   })
 
+  it('asks the remote fence for write checks, under the explicit or deployment policy', async () => {
+    const { fs, dispatch } = await setup()
+    const signal = new AbortController().signal
+    const policy: SandboxExecutionPolicy = { mode: 'workspace-write', workspaceRoot: '/remote/work' }
+    const denied = { kind: 'denied', message: 'cannot write "file.txt": file access denied under read-only mode' }
+    dispatch.mockResolvedValueOnce({ kind: 'allowed' }).mockResolvedValueOnce(denied).mockResolvedValueOnce({ kind: 'unknown' })
+    expect(await fs.checkWrite(target, signal, policy)).toEqual({ kind: 'allowed' })
+    expect(dispatch).toHaveBeenLastCalledWith('fs.checkWrite', { target, policy }, signal)
+    expect(await fs.checkWrite(target)).toEqual(denied)
+    expect(dispatch).toHaveBeenLastCalledWith('fs.checkWrite', { target, policy: { mode: 'read-only', workspaceRoot: '/remote/work' } }, undefined)
+    await expect(fs.checkWrite(target)).rejects.toMatchObject({ code: 'FS_IO_ERROR' })
+  })
+
   it('resolves deployment policy for mutations without an explicit policy', async () => {
     const { fs, dispatch } = await setup()
     dispatch.mockResolvedValueOnce({ operation: 'create', version: 'v1', before: null, after: 'new' })
