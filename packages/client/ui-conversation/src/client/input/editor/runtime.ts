@@ -181,14 +181,18 @@ export class DraftEditorRuntime {
    * Placeholder-sanitized; newlines split paragraphs; the caret lands at the
    * end. Merged into history so a seed is not an undoable step of its own.
    * @param text - the full next draft.
+   * @param committed - called once the write is committed, or at once when the draft already matches.
    */
-  setDraft(text: string): void {
+  setDraft(text: string, committed?: () => void): void {
     const clean = text.replace(REFERENCE_PLACEHOLDER_RE, '')
-    if (clean === this.projection.clipboardText && this.projection.occurrences.length === 0 && this.projection.quotes.length === 0) return
+    if (clean === this.projection.clipboardText && this.projection.occurrences.length === 0 && this.projection.quotes.length === 0) {
+      committed?.()
+      return
+    }
     this.editor.update(() => {
       $getRoot().clear()
       $appendParagraphs(clean)
-    }, { discrete: true, tag: HISTORY_MERGE_TAG })
+    }, { discrete: true, tag: HISTORY_MERGE_TAG, ...committed === undefined ? {} : { onUpdate: committed } })
   }
 
   /**
@@ -296,17 +300,20 @@ export class DraftEditorRuntime {
    * @param claim - the command claim the chip anchors.
    * @param tail - the character following the range before editing.
    * @param mergeHistory - merge into the previous history entry (a restored
-   * draft's chip is part of its seed, not an undoable step).
+   * draft's chip is part of its seed, not an undoable step); a caret at the
+   * document end stays there instead of landing after the chip.
    * @returns whether the range mapped and the edit applied.
    */
   insertCommand(span: DetectSpan, claim: CommandClaim, tail: string, mergeHistory = false): boolean {
     const separator = claim.token.slice(claim.token.trimEnd().length)
     let applied = false
+    const caretAtEnd = mergeHistory && this.projection.selection?.start === this.projection.detectText.length
     this.applyEdit(() => {
       const nodes = separator === '' || tail === separator.charAt(0)
         ? [$createCommandChipNode(claim)]
         : [$createCommandChipNode(claim), $createTextNode(separator)]
       applied = $replaceDetectSpanWithNodes(span, nodes)
+      if (applied && caretAtEnd) $getRoot().selectEnd()
     }, mergeHistory ? HISTORY_MERGE_TAG : undefined)
     return applied
   }
@@ -410,8 +417,15 @@ export class DraftEditorRuntime {
    * @param occurrences - reference occurrences in clipboard order.
    * @param quotes - atomic quotes in clipboard order.
    * @param labels - localized quote controls.
+   * @param committed - called once the import is committed.
    */
-  restoreDraft(draft: string, occurrences: readonly DraftReference[], quotes: readonly DraftQuote[] = [], labels: QuoteNodeLabels = { remove: '' }): void {
+  restoreDraft(
+    draft: string,
+    occurrences: readonly DraftReference[],
+    quotes: readonly DraftQuote[] = [],
+    labels: QuoteNodeLabels = { remove: '' },
+    committed?: () => void,
+  ): void {
     this.editor.update(() => {
       const root = $getRoot()
       root.clear()
@@ -453,7 +467,7 @@ export class DraftEditorRuntime {
       }
       appendText(draft.slice(cursor))
       root.selectEnd()
-    }, { discrete: true, tag: HISTORY_MERGE_TAG })
+    }, { discrete: true, tag: HISTORY_MERGE_TAG, ...committed === undefined ? {} : { onUpdate: committed } })
   }
 
   /** Cut the editor's undo history after a committed clear or restoration. */
