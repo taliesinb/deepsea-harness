@@ -114,6 +114,14 @@ it.each(['darwin', 'win32', 'linux'])('rejects %s Desktop startup without its na
   expect(read).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled()
 })
 
+it('runs the Web runtime for a desktop-marked document with no desktop bridge (a native web view)', async () => {
+  document.documentElement.dataset.platform = 'darwin'
+  const { service } = mount()
+  expect(service.runtime).toBe('web')
+  expect(service.platform).toBe('macos')
+  await vi.waitFor(() => { expect(service.config.getSnapshot().status).toBe('ready') })
+})
+
 it('reports unavailable Desktop storage without reading or writing localStorage', async () => {
   const { keyboard } = desktop()
   Object.defineProperty(window, 'dshDesktop', { configurable: true, value: { keyboard } })
