@@ -68,7 +68,10 @@ function ApprovalFlow(props: FactoryComponentPropsOf<'conversation.approval.card
             {subject.icon !== undefined && <img src={subject.icon} alt="" width={40} height={40} draggable={false} />}
             <strong>{subject.name}</strong>
           </div>}
-          <div className={css.headline}>{title}</div>
+          <div className={css.headline}>{title.split('\n').map((line, index) => (
+            // Lines of one title never reorder, so the position is a stable key.
+            <span key={index} className={css.line}>{line}</span>
+          ))}</div>
           {description !== undefined && <p className={css.description}>{description}</p>}
           {detail !== null && <div className={css.command}>{detail}</div>}
         </div>

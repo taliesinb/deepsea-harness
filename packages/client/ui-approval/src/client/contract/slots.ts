@@ -207,7 +207,7 @@ export type ApprovalComposerProps =
 export interface ApprovalCardInput {
   /** Identity whose change resets the pending submission. */
   requestKey: string
-  /** Localized question describing the requested operation. */
+  /** Localized question describing the requested operation; each `\n` starts a new line. */
   title: string
   /** Localized scope or consequence of the decision. */
   description?: string
