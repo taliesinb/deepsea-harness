@@ -46,6 +46,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
         baseURL: https://proxy.example.com:8443
         reasoning: high
         requestImagePixelBudget: 4194304 # total pixels; 2048 by 2048 default
+        requestImageMaxDimension: 2000   # long edge after the pixel budget
         requestImageMaxBytes: 1048576    # raw bytes before base64 expansion
         maxRequestImageBytes: 20971520   # accumulated base64 payload
         maxRequestImages: 50             # retained image occurrences
@@ -86,6 +87,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `defaultContextWindow` | `1,000,000` | Capacity fallback for undescribed models |
 | `defaultMaxTokens` | `128,000` | Output-cap fallback for undescribed models |
 | `requestImagePixelBudget` | `4,194,304` | Total-pixel budget for each deterministic request image |
+| `requestImageMaxDimension` | `2,000` | Long-edge cap for each request image, applied after the pixel budget; Anthropic rejects longer sides once a request carries more than 20 images |
 | `requestImageMaxBytes` | `1 MiB` | Encoded-byte target for each request image before base64 expansion |
 | `maxRequestImageBytes` | `20 MiB` | Aggregate base64 image-payload bound; a request whose retained images exceed it fails with `IMAGE_OFFLOAD_REQUIRED` |
 | `maxRequestImages` | `50` | Retained request-image count bound; a request whose retained images exceed it fails with `IMAGE_OFFLOAD_REQUIRED`. The default follows Azure OpenAI's 50-image limit; raise it on routes whose provider accepts more images |
