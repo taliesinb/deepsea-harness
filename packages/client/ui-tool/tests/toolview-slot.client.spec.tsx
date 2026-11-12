@@ -10,7 +10,7 @@ import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import {
   apply as applyChat, inject as injectChat, type ToolResultNode,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime, contextMenuHook, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { toolFileInject } from '../src/client/tool/file-menu.ts'
 import { ReadRow } from '../src/client/tool/toolviews/read-row.tsx'
@@ -19,7 +19,7 @@ import { useDisclosure } from '@deepseek-ai/dsh-client-ui-chat/src/client/chat/u
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as applyConversation, inject as injectConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as applyTool, inject as injectTool } from '@deepseek-ai/dsh-client-ui-tool/client'
-import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
+import type { ToolCallStatusOwnerProps, ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { toolSessionEvents } from './tool-fixtures.client.ts'
 
@@ -79,7 +79,7 @@ const LAYOUT_CHILDREN = {
  * service boundaries only, the package apply on its own
  * fiber, and the test AppFrame occupying 'root'.
  */
-async function bench(nodes: ToolResultNode[]) {
+async function bench(nodes: ToolResultNode[], events = toolSessionEvents(nodes)) {
   const runtime = await SlotTestRuntime.create()
   runtime.ctx.provide('fileDrag', { actions: { prepare: async () => ({ start: () => true, release: () => {} }), reportFailure: () => {} }, read: () => undefined } satisfies import('@deepseek-ai/cordis').Context['fileDrag'])
   const openWorkspacePath = vi.fn(async () => ({ ok: true, value: { opened: true } }))
@@ -104,7 +104,7 @@ async function bench(nodes: ToolResultNode[]) {
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S', cwd: '/w' },
-    events: toolSessionEvents(nodes),
+    events,
     session: {
       loadOlder: vi.fn<ISession['loadOlder']>(),
       prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),
@@ -298,6 +298,30 @@ describe('keyed toolview hole through the real machinery', () => {
     await b.runtime.flush()
     expect(view.queryByTestId('mystery-row')).toBeNull()
     expect(view.getByText('Tool call')).toBeTruthy()
+    await b.runtime.dispose()
+  })
+
+  it('renders a keyed status beside a running call only, inside its call row', async () => {
+    const settled = toolResult(3, 'done', 'probe', '{"job_id":"j1"}')
+    const running = toolResult(5, 'live', 'probe', '{"job_id":"j2","wait":true}')
+    // The running call's tool/call is logged and its tool/result is not.
+    const b = await bench([settled, running], toolSessionEvents([settled, running]).slice(0, -1))
+    const owners: ToolCallStatusOwnerProps[] = []
+    b.slots.register({ name: 'tool.call.status', key: 'probe' }, (props: PropsRuntime<'tool.call.status'>) => {
+      owners.push(props)
+      return <span data-testid={`status-${props.callId}`}>{props.args.text('job_id')}</span>
+    })
+    b.slots.register({ name: 'tool.call.status', key: 'other' }, () => <span data-testid="other-status" />)
+    const view = b.runtime.renderRoot()
+    await b.runtime.flush()
+    const status = view.getByTestId('status-live')
+    expect(status.textContent).toBe('j2')
+    expect(status.closest('[data-chat-call-id]')?.getAttribute('data-chat-call-id')).toBe('live')
+    expect(view.queryByTestId('status-done')).toBeNull()
+    expect(view.queryByTestId('other-status')).toBeNull()
+    expect(owners.at(-1)).toMatchObject({ callId: 'live', toolName: 'probe', startedAt: running.callTime })
+    // The row itself stays the toolview's (here the generic fallback).
+    expect(view.getAllByText('Tool call')).toHaveLength(2)
     await b.runtime.dispose()
   })
 

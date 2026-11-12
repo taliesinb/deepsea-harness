@@ -47,6 +47,14 @@ ctx.slots.inject('tool.call.toolview', () =>
 
 owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、`phase` 判别字段及对应阶段的 `block`、可选 `cwd` 与 `home`、经 Gateway 授权的 `loadImage` loader（供结果携带持久图像的视图使用），以及普通的 `openFile`/`inspect` 回调。PTC dispatch 块保留事件的 `parentCallId`；根会话调用没有该字段，因此后代调用都走同一条按 key 分发路径：已注册视图的调用（如 `read_image`）也会在嵌套处渲染对应卡片，未注册的后代调用则保持通用压平形式。路径摘要先相对会话 cwd 缩短，再把剩余的 POSIX Host home 写成 `~`；`filePath` 与 Host 打开优先使用操作发生时记录的绝对结果路径，显示标签仍保留原始参数。成功的旧根调用结果继续回退到原参数；运行中的相对路径等待结果。注册项会收到常规的会话 slot 运行时共享数据，但不会收到 React 节点或运行时服务。
 
+### 为运行中的调用添加实时状态
+
+若某个包想在运行中的调用上显示实时内容（如倒计时或控制按钮），而不替换该工具的行，可按 wire 工具名称（与 toolview 相同的 key）注册进 keyed slot `tool.call.status`。owner 载荷为 `ToolCallStatusOwnerProps`：`callId`、`toolName`、已派发调用的惰性 `args`，以及派发时间 `startedAt`（epoch 毫秒）。该单元从 `tool/call` 渲染到结果到达为止，覆盖调用树分发的每一行（包括 PTC 子调用）：它覆盖在该行 24px 标题行的右端并与其顶部对齐，使用对话背景色，并以 24px 渐变盖住其下的标题文字；该行保持完整宽度。未被注册的 key 不渲染任何内容；准备阶段和已结束的调用从不渲染该 slot。
+
+### 任务行
+
+`job_output` 或 `job_kill` 行用启动该任务的调用来称呼任务：取该调用 `description` 的第一行；调用没有描述时取任务标签（即命令）的第一行。它显示为链接，提示文本为任务 ID。激活链接会展开该调用外围的折叠分组，把它的行滚动到视图中部并短暂高亮，两行都不会展开。带 `wait: true` 的 `job_output` 调用标题为“等待任务”；普通读取保留“读取任务输出”。展开内容仍以任务 ID 为标题。任务登记或创建调用不在已加载窗口内、属于其他 Session，或并非由工具调用启动的任务，仍显示原始 ID。
+
 ### 内置视图
 
 每个注册视图都接收[工具 slot 类型](src/client/contract/slots.ts)声明的显式 `preparing`、`start` 和 `result` props。所有块都提供 `name` 和懒计算的 `args` 读器，原有 `argsRaw` 和 result 的 `call` 字段仍可使用。行模型统一选择标题，并组合通用工具名前缀与已有参数摘要，不按生命周期阶段改变前缀；专用标题不附带英文名。write/edit 和 Bash 在各阶段共用组件。自定义 renderer 可保留独立准备态分支；依赖参数的组件接收 `StartedToolCallViewProps`。
@@ -73,7 +81,7 @@ owner 载荷为 `ToolCallOwnerProps`：`callId`、`toolName`、`phase` 判别字
 
 ### 渲染约定
 
-`ToolCallTree` 接收一个 Tool 节点、会话 `cwd` 和导航回调。每个分支接收稳定的 block，并缓存显式阶段 props，因此一个子调用变化不会重渲染未变化的兄弟分支。它通过 `tool.call.toolview` 按工具名分发。已派发的根调用保留递归 `subCalls`，准备阶段没有子调用。每个根调用和子调用包装层都保留 `data-chat-anchor-key="call:<id>"` 与 `data-chat-call-id` DOM 约定，供分页和选择使用。Tool 节点在三个阶段保持同一个 callId。
+`ToolCallTree` 接收一个 Tool 节点、会话 `cwd` 和导航回调。每个分支接收稳定的 block，并缓存显式阶段 props，因此一个子调用变化不会重渲染未变化的兄弟分支。它通过 `tool.call.toolview` 按工具名分发；运行中的调用还会通过 `tool.call.status` 分发，二者位于一个两列网格中，第二列只放该状态单元。已派发的根调用保留递归 `subCalls`，准备阶段没有子调用。每个根调用和子调用包装层都保留 `data-chat-anchor-key="call:<id>"` 与 `data-chat-call-id` DOM 约定，供分页和选择使用。Tool 节点在三个阶段保持同一个 callId。
 
 Tool 所有者属性将 Chat 注入的稳定 `useDisclosure` 钩子传给根调用及嵌套调用。工具行在拥有展开正文的位置调用它，中间 renderer 不订阅。每次调用拥有独立展开状态，外层轮次收起时重置该状态，不替换 React 身份；展示模式切换保留该状态。失败调用的行默认展开，无需点击即可看到错误与输入；在行上 Option 点击会展开或收起其轮次的所有行。
 
@@ -92,6 +100,8 @@ Chat diff 卡片在折叠前保留九行，足以容纳文件标题、一对删�
 Auto 拒绝优先于按工具名选择的专门视图。其通用行保留调用身份、省略原始参数，并且只在显示时归一化存储的理由：去除首尾空白，把行分隔符折叠为空格，结果为空时使用本地化通用理由。Session 与 SDK 错误详情保留原始理由。
 
 记录结果的工具详情覆盖目标和定时任务工具、Cordis 检查、workflow 与 Ralph 报告、Session 事件／搜索／轨迹查询、Agent 与 teammate 控制、后台作业、持久终端以及 LSP 导航。展开内容读取成功的记录结果，为失败或不支持的数据保留通用输入／输出，并保留 Inspect。日期包含查看者的时区，状态反映调用结果而非当前会话状态。Session 轨迹保留后代的缩进。LSP 结果通过 Host 回调打开文件系统路径，其他 URI 则显示为文本。浏览器适配器消费已记录的 producer 文本与 JSON；Host service 对象和 presenter 回调不会进入 Client。
+
+任务行只通过按键读取查找来源。`tool-job` Definition 把仅写入日志的 `job/registered` 记录（若先加载到的是 `job/settled`，则用它）折叠为每个任务一个隐藏 Chat Node，含创建调用的 `callId`、其根调用与任务标签。任务行通过 `useChat` 和 `ctx.uiConversation.contextKey(kind, id)` 给出的 key 读取该 Node 与根 `tool-call` Node，再在根调用的子调用中找到创建调用。定位时在同一个 `[data-conversation-scroll]` transcript 中查找 `data-chat-call-id` 包装元素，像浏览器查找那样对外围每个 `hidden="until-found"` 分组派发 `beforematch`，并以 `data-tool-call-reveal` 标记该包装元素，直到高亮动画结束。
 
 展开后的状态圆点和文字使用静态语义色。操作回执和任务输出的标题保持中性色，展开时省略标题中的状态。中断回执仅确认已发出中断请求。
 

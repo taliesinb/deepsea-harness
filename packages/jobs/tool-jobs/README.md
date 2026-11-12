@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-tool-jobs` to inspect and control background commands and PTY work through `job_output`, `job_list`, and `job_kill`. Reads can wait within a configured timeout, and a wait yields early to a user steer; list results identify each job's kind and status, and cancellation settles after the work stops. When owned work finishes, the agent receives an in-session notice carrying short output: busy agents get it next step, and idle agents are woken by a follow-up turn. Configuration controls wait limits, completion delivery, and an optional consecutive-wakeup cap. Stream output has one reader, and pending notices do not survive owner disposal.
+Use `dsh-tool-jobs` to inspect and control background commands and PTY work through `job_output`, `job_list`, and `job_kill`. Reads can wait within a configured timeout, ended early by a user steer or plugin release; list results identify each job's kind and status, and cancellation settles after the work stops. When owned work finishes, the agent receives an in-session notice carrying short output: busy agents get it next step, and idle agents are woken by a follow-up turn. Configuration controls wait limits, completion delivery, and an optional consecutive-wakeup cap. Stream output has one reader, and pending notices do not survive owner disposal.
 
 ## Table of Contents
 
@@ -34,6 +34,23 @@ Load this plugin in any composition where the agent should start, observe, and s
 - `job_kill(job_id, reason?)` — Request cancellation of a running job immediately; the job settles as `killed` once its work actually stops. A terminal job returns its current snapshot, and the optional reason is recorded and forwarded to the job.
 
 The three tools return `{ text, job }`, `PublicJobSnapshot[]`, and `{ outcome: 'cancellation-requested' | 'already-finished', job }` respectively. A public snapshot carries id, kind, label, status with the live progress line or the terminal detail, and start/finish times, and omits ownership and ring offsets. All three render through generic UI cards: `read` for output and list, `execute` for kill.
+
+### Ending a wait from a plugin
+
+Each `job_output` wait on a running job is announced on the Cordis event `tool-jobs/wait-started` with a `JobOutputWait`: the `callId`, the `agent`, the `jobId`, `startedAt`, and the `deadline` its timeout sets after the configured default and cap. `ended` resolves when the wait ends, whatever ended it. `release(detail?)` ends the wait now, and the call returns as on timeout: the output since the previous read and the job's current status, with the job still running. A `detail` is appended to a running job's status line (`[status: running, <detail>]`); without one the result matches a timeout's. `release` returns `false` once the wait has ended. The event is dispatched to every listener, without scope filtering; a listener that throws or rejects is logged and does not affect the wait. A plugin that offers a person a Skip button for such a wait keeps the announcements by `callId` and calls `release` from its route.
+
+```ts
+import type { Context } from '@deepseek-ai/cordis'
+import type { JobOutputWait } from '@deepseek-ai/dsh-tool-jobs'
+
+declare const ctx: Context
+const waits = new Map<JobOutputWait['callId'], JobOutputWait>()
+
+ctx.on('tool-jobs/wait-started', (wait) => {
+  waits.set(wait.callId, wait)
+  void wait.ended.then(() => waits.delete(wait.callId))
+})
+```
 
 ### Completion notices
 
@@ -92,7 +109,7 @@ This section explains the design decisions behind the tools and points at the co
 
 ### Notice delivery lanes
 
-The settlement subscription (`{ owners: 'scope' }`) skips settlements the registry reports as `awaited`, jobs the model killed through `job_kill`, unowned jobs, and teardown settlements, then resolves the agent registered for the owner session. A `wakeup` delivery opens a turn on an idle owner; with `maxConsecutiveWakes` set, only while the budget lasts, tracked per exact `Agent` in a `WeakMap`, and claiming a user-authored message (`agent/inbox/claimed`) resets that owner's budget. A busy owner — or any notice past a configured budget, or `quiet` delivery — is injected into the next-step inbox instead. The registry counts only a wait still owed the projection at settlement, so a wait that timed out or was aborted leaves a later settlement to notify as usual; a removal drops the job from the model-kill set, which only ever holds live jobs the model killed. A wait this plugin ended on next-step input holds a claim from that interruption until its own read commits: a settlement landing inside that window reaches the model through the read's terminal state and result, so the notice is withheld, while a settlement after a read that reported a running job notifies as usual. The tool releases the wait by aborting its own controller — the registry keeps its abort-as-cancellation contract — so a cancelled call discards that read and the withheld notice is delivered when the claim releases.
+The settlement subscription (`{ owners: 'scope' }`) skips settlements the registry reports as `awaited`, jobs the model killed through `job_kill`, unowned jobs, and teardown settlements, then resolves the agent registered for the owner session. A `wakeup` delivery opens a turn on an idle owner; with `maxConsecutiveWakes` set, only while the budget lasts, tracked per exact `Agent` in a `WeakMap`, and claiming a user-authored message (`agent/inbox/claimed`) resets that owner's budget. A busy owner — or any notice past a configured budget, or `quiet` delivery — is injected into the next-step inbox instead. The registry counts only a wait still owed the projection at settlement, so a wait that timed out or was aborted leaves a later settlement to notify as usual; a removal drops the job from the model-kill set, which only ever holds live jobs the model killed. A wait this plugin ended early, on next-step input or through `release`, holds a claim from that interruption until its own read commits: a settlement landing inside that window reaches the model through the read's terminal state and result, so the notice is withheld, while a settlement after a read that reported a running job notifies as usual. The tool releases the wait by aborting its own controller — the registry keeps its abort-as-cancellation contract — so a cancelled call discards that read and the withheld notice is delivered when the claim releases.
 
 A job whose whole output stream (`JobView.output.total`) exceeds `inlineOutputBytes` cannot fit, so its read stays in the registry. Otherwise the notice takes the consuming read at settlement. An inline notice holds that read until it is logged as a `user/message` (`session/event`); a notice claimed by a step that is then rejected or cancelled is never logged, so `job_output` returns its held read. A notice the read did not fit holds it for `job_output`. `job_output` also removes a pending notice from the inbox of the agent registered for the owner session. A job removal drops the entry. A plugin reload drops every held read, so the model then reads `(no new output)` for that job.
 

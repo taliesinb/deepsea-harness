@@ -7,5 +7,6 @@
 - assistant-step
 - tool-call
 - assistant-step
+- tool-job
 - assistant-step
 - turn-tail
