@@ -380,6 +380,16 @@ describe('ApprovalPanel', () => {
     await expect(pending.result).resolves.toBe('allowed-once')
   })
 
+  it('renders each line of a multi-line reason as its own line', () => {
+    const pending = new PendingApproval(id('s1'), {
+      toolName: 'mcp_connect',
+      reason: 'Connect MCP server "lean-lsp"\n\ncwd: /tmp/demo',
+    })
+    render(<ApprovalPanel {...panelProps(pending)} />)
+    const lines = [...document.querySelectorAll('[data-approval-key] [role="group"] > div > span')].map(line => line.textContent)
+    expect(lines).toEqual(['Connect MCP server "lean-lsp"', '', 'cwd: /tmp/demo'])
+  })
+
   it('keeps the audit reason intact and follows the UI language for presentation copy', () => {
     const pending = new PendingApproval(id('s1'), {
       toolName: 'bash',
