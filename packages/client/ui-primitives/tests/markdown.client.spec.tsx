@@ -547,6 +547,50 @@ describe('MarkdownText', () => {
     expect(container.querySelector('.katex-error')).toBeNull()
   })
 
+  it('keeps dollar prices as text while single-dollar math follows the Pandoc delimiter rule', () => {
+    const pricing = 'https://kagi.com/api/pricing'
+    const repro = `- **Cost:** [$12 per 1,000 searches](${pricing}). Your 580 searches since Oct 10 would have cost about $7.`
+    const prose = render(<MarkdownText text={repro} />)
+    expect(prose.container.querySelectorAll('.katex')).toHaveLength(0)
+    expect([...prose.container.querySelectorAll('a')].map(link => link.getAttribute('href'))).toEqual([pricing])
+    expect(prose.container.textContent).toContain('$12 per 1,000 searches')
+    expect(prose.container.textContent).toContain('about $7.')
+    prose.unmount()
+
+    const cases = [
+      { source: '$5 or $10', math: [], text: '$5 or $10' },
+      { source: '$5–$10', math: [], text: '$5–$10' },
+      { source: 'between $5 and $ 10', math: [], text: 'between $5 and $ 10' },
+      { source: '$ x $', math: [] },
+      { source: '$x $', math: [] },
+      { source: '$ x$', math: [] },
+      { source: '$x$1', math: [] },
+      { source: '$x$$', math: [] },
+      { source: String.raw`$x\$`, math: [], text: '$x$' },
+      { source: '$\n', math: [] },
+      { source: '$E = mc^2$', math: ['E = mc^2'] },
+      { source: String.raw`$\theta$.`, math: [String.raw`\theta`] },
+      { source: '($x$)', math: ['x'] },
+      { source: 'a $x$, b', math: ['x'] },
+      { source: '$2x + 1$', math: ['2x + 1'] },
+      { source: String.raw`$\$5$`, math: [String.raw`\$5`] },
+      { source: String.raw`$\\$`, math: [String.raw`\\`] },
+      { source: '$a\nb$', math: ['a\nb'] },
+      { source: 'costs $5 and $x$', math: ['x'], text: 'costs $5 and ' },
+    ]
+    for (const item of cases) {
+      const rendered = render(<MarkdownText text={item.source} />)
+      expect([...rendered.container.querySelectorAll('annotation')].map(node => node.textContent)).toEqual(item.math)
+      expect(rendered.container.querySelector('.katex-error')).toBeNull()
+      if (item.text !== undefined) expect(rendered.container.textContent).toContain(item.text)
+      rendered.unmount()
+    }
+
+    const escaped = render(<MarkdownText text={String.raw`\$5 and \$10`} />)
+    expect(escaped.container.querySelectorAll('.katex')).toHaveLength(0)
+    expect(escaped.container.textContent).toBe('$5 and $10')
+  })
+
   it('bounds fallback work for repeated unclosed backslash delimiters', () => {
     const startedAt = performance.now()
     const { container } = render(<MarkdownText text={'\\(x '.repeat(6_400)} />)
