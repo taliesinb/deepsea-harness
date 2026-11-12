@@ -99,6 +99,8 @@ export type SessionEventChange =
   | { readonly kind: 'replace'; readonly entries: readonly SessionEventLikeEntry[] }
   | { readonly kind: 'prepend'; readonly entries: readonly SessionEventLikeEntry[] }
   | { readonly kind: 'append'; readonly entries: readonly SessionEventLikeEntry[] }
+  /** Every entry after `cursor` was withdrawn because the Host replaced that part of the history. */
+  | { readonly kind: 'truncate'; readonly cursor: number }
   | {
     readonly kind: 'settle-assistant'
     readonly attemptId: LlmAttemptId
@@ -171,6 +173,18 @@ export class MutableSessionEventSource implements SessionEventSource {
       kind: 'append',
       entries,
     })
+  }
+
+  /**
+   * Withdraw every entry after `cursor`.
+   * @param cursor - last seq kept.
+   */
+  truncate(cursor: number): void {
+    const entries = materialize(this.window)
+    const kept = entries.filter(entry => entry.event.seq <= cursor)
+    if (kept.length === entries.length) return
+    this.window = leaf(kept)
+    this.publish(this.snapshot.hasMore, { kind: 'truncate', cursor })
   }
 
   /**

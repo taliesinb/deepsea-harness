@@ -353,6 +353,16 @@ async uploadStream(request: { readonly sessionId: SessionId readonly data: Async
 async uploadImageStream(request: { readonly sessionId: SessionId readonly data: AsyncIterable<Uint8Array> readonly mediaType: string readonly signal?: AbortSignal readonly name?: string }): Promise<ImageUploadValue>
 
 /**
+ * Stage attachments that are already stored, under new receipts for the Agent's exact Session, as when an
+ * edited prompt returns to the composer. No bytes move: a prompt citing the receipt admits the same
+ * durable reference. Callers vouch for the references; they come from that Session's own history.
+ * @param agent - receiving ordinary Agent.
+ * @param attachments - stored attachments in prompt order.
+ * @returns one new receipt per attachment, in order.
+ */
+restage(agent: Agent, attachments: readonly StagedAttachment[]): FileUploadReceiptId[]
+
+/**
  * Resolve one staged receipt for the receiving Agent's exact Session.
  * @param agent - receiving Agent.
  * @param receiptId - opaque receipt minted for one completed upload.

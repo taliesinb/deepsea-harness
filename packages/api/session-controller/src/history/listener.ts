@@ -6,16 +6,19 @@ import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { entryFor } from '../history.ts'
-import type { SessionProjectionChange, SessionEventEntry } from '../types.ts'
+import type { SessionProjectionChange, SessionEventEntry, SessionHistoryTrim, SessionHistoryTrimmed } from '../types.ts'
 
 /** Raw history notifications buffered before an opening cut is known. */
 export type EventItem =
   | { readonly type: 'event'; readonly session: Session; readonly event: SessionEvent }
   | { readonly type: 'created'; readonly session: Session; readonly end: number }
 
+/** One ordered output of an event subscription: a durable event, or a replacement of the history before it. */
+export type EventListenerItem = SessionEventEntry | SessionHistoryTrim
+
 /** A single subscription buffers before either consumption mode starts. */
 export class EventListener implements Disposable {
-  private readonly buffer: ListenerBuffer<SessionEventEntry> | undefined
+  private readonly buffer: ListenerBuffer<EventListenerItem> | undefined
   private readonly disposes: (() => void)[] = []
   private firstReceivedSeq: number | undefined
   private nextExpectedSeq: number | undefined
@@ -27,13 +30,18 @@ export class EventListener implements Disposable {
    * @param queue - optional caller-owned buffer; only an internally created buffer is disposed here.
    */
   constructor(ctx: Context, sessionId: SessionId, signal: AbortSignal,
-    queue?: Pick<ListenerBuffer<SessionEventEntry>, 'createInput' | 'capture'>) {
+    queue?: Pick<ListenerBuffer<EventListenerItem>, 'createInput' | 'capture'>) {
     signal.throwIfAborted()
     const buffer = queue ?? new ListenerBuffer(ctx, signal)
-    this.buffer = queue === undefined ? buffer as ListenerBuffer<SessionEventEntry> : undefined
+    this.buffer = queue === undefined ? buffer as ListenerBuffer<EventListenerItem> : undefined
     const input = buffer.createInput<EventItem>(item => this.transform(item))
+    const trims = buffer.createInput<SessionHistoryTrimmed>(trim => this.trim(trim))
     const target = sessionId
     try {
+      this.disposes.push(ctx.on('api-session/history-trimmed', (id, trim) => {
+        if (id !== target) return
+        buffer.capture(() => { trims.append(trim) })
+      }))
       this.disposes.push(ctx.on('session/event', (session, event) => {
         if (session.id !== target) return
         buffer.capture(() => {
@@ -56,8 +64,8 @@ export class EventListener implements Disposable {
   }
 
   /** Consume notifications without reading history.
-   * @returns event frames from the first received event, without loading a baseline. */
-  events(): AsyncIterable<SessionEventEntry> {
+   * @returns event and trim frames from the first received event, without loading a baseline. */
+  events(): AsyncIterable<EventListenerItem> {
     return this.iterate()
   }
 
@@ -78,7 +86,25 @@ export class EventListener implements Disposable {
     }
   }
 
-  private async *iterate(): AsyncIterable<SessionEventEntry> {
+  /**
+   * Replace the history before a destructive cut: deliver the cut, then the replaced log's tail,
+   * and continue from the replaced log's end. A trim at or past the delivered position still
+   * delivers the cut, since events already delivered after it are gone.
+   */
+  private *trim(trim: SessionHistoryTrimmed): Iterable<EventListenerItem> {
+    if (this.disposes.length === 0) return
+    yield { type: 'trimmed', cursor: trim.cursor, projections: trim.projections }
+    let next = trim.cursor + 1
+    for (const event of trim.tail) {
+      if (event.seq !== next) throw new RemoteError('gateway/internal', `session history trim skipped seq ${String(next)}`, {})
+      next = event.seq + 1
+      yield entryFor(event)
+    }
+    this.nextExpectedSeq = next
+    this.firstReceivedSeq ??= next
+  }
+
+  private async *iterate(): AsyncIterable<EventListenerItem> {
     if (this.buffer === undefined) throw new Error('Consume the externally owned history buffer directly')
     try {
       yield* this.buffer.items()

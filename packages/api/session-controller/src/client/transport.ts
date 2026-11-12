@@ -16,6 +16,7 @@ import type {
   SessionAssistantStreamFrame,
   SessionControlFrame,
   SessionHistoryRecord,
+  SessionHistoryTrim,
   SessionPage,
   SessionPageRequest,
   SessionProjectionBaseline,
@@ -55,11 +56,18 @@ export type SessionJournalChange =
     readonly hasMore: boolean
   }
   | { readonly type: 'append'; readonly entry: SessionLiveEventEntry }
+  /** Every published event after `cursor` was withdrawn by a history replacement. */
+  | { readonly type: 'truncate'; readonly cursor: number }
+  /** The replaced history's projection baseline, published after its `truncate`. */
+  | { readonly type: 'trimmed'; readonly trim: SessionHistoryTrim }
   | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
+
+/** Cursorless notifications of one Session journal. */
+type SessionJournalNotification = SessionAssistantStreamFrame | SessionHistoryTrim
 
 function toSessionJournalChange(
   change: RemoteJournalChange<
-    SessionJournalPage, SessionHistoryRecord, SessionAssistantStreamFrame
+    SessionJournalPage, SessionHistoryRecord, SessionJournalNotification, number
   >,
 ): SessionJournalChange {
   switch (change.type) {
@@ -72,8 +80,12 @@ function toSessionJournalChange(
         entry: change.entry as unknown as SessionLiveEventEntry,
       }
     }
+    case 'truncate':
+      return change
     case 'notification':
-      return { type: 'assistant-stream', frame: change.notification }
+      return change.notification.type === 'trimmed'
+        ? { type: 'trimmed', trim: change.notification }
+        : { type: 'assistant-stream', frame: change.notification }
   }
 }
 
@@ -139,7 +151,7 @@ export class SessionEventStream extends RemoteJournalStream<
   SessionHistoryRecord,
   number,
   ClientSessionPageRequest,
-  SessionAssistantStreamFrame
+  SessionJournalNotification
 > {
   /**
    * @param remote - generated Session namespace and Gateway stream factory.
@@ -173,7 +185,7 @@ export class SessionEventStream extends RemoteJournalStream<
     request: ClientSessionPageRequest,
     signal: AbortSignal,
   ): AsyncIterable<RemoteJournalFrame<
-    SessionHistoryRecord, number, SessionJournalPage, SessionAssistantStreamFrame
+    SessionHistoryRecord, number, SessionJournalPage, SessionJournalNotification
   >> {
     let assistantRevision: number | undefined
     for await (const frame of this.remote.session.follow({
@@ -213,6 +225,11 @@ export class SessionEventStream extends RemoteJournalStream<
         }
         assistantRevision = frame.frame.revision
         yield { type: 'notification', notification: frame.frame }
+        continue
+      }
+      if (frame.type === 'trimmed') {
+        yield { type: 'truncate', cursor: frame.cursor }
+        yield { type: 'notification', notification: frame }
         continue
       }
       assertSessionWireEvent(frame.event)

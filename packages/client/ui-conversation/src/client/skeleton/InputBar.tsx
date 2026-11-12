@@ -262,7 +262,7 @@ export const InputBar = memo(function InputBar({
         if (images.some(file => file.size > imageLimits.maxImageBytes)) {
           return t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
         }
-        const total = imageAttachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
+        const total = imageAttachments.reduce((sum, attachment) => sum + (attachment.stored?.bytes ?? attachment.file.size), 0)
           + images.reduce((sum, file) => sum + file.size, 0)
         if (total > imageLimits.maxMessageImageBytes) {
           return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })

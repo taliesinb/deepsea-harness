@@ -792,6 +792,56 @@ describe('sendSession submission echo', () => {
     await b.runtime.dispose()
   })
 
+  it('sends stored drafts by their staged receipts and never revokes or moves their borrowed previews', async () => {
+    const b = await echoBench()
+    try {
+      const file = { attachmentId: 'file-stored-1' as never, name: 'notes.txt', bytes: 5 }
+      const [image, fileDraft] = b.root.createStoredDrafts([
+        { type: 'image', receiptId: 'image-receipt-1' as never, image: { ...IMAGE_REF, name: 'shot.png' }, previewUrl: 'blob:history-1' },
+        { type: 'file', receiptId: 'file-receipt-1' as never, file },
+      ])
+      expect(image).toMatchObject({ kind: 'image', previewUrl: 'blob:history-1', stored: { bytes: 1 }, width: 1, height: 1 })
+      expect(fileDraft).toMatchObject({ kind: 'file', stored: { bytes: 5 } })
+      expect(fileDraft!.file.name).toBe('notes.txt')
+      expect(b.root.fileUploads.getSnapshot()).toEqual({
+        [image!.id]: { status: 'ready', receiptId: 'image-receipt-1' },
+        [fileDraft!.id]: { status: 'ready', receiptId: 'file-receipt-1', file },
+      })
+      const session = b.runtime.sessions.binding('s1')!.session
+      const sending = b.root.sendSession(session, 'again', [image!.id, fileDraft!.id], 'queue')
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
+      expect(b.prompt.mock.calls[0]?.[0]).toEqual([
+        { type: 'file', receiptId: 'image-receipt-1' },
+        { type: 'file', receiptId: 'file-receipt-1' },
+        { type: 'text', text: 'again' },
+      ])
+      b.retire.onRetire?.({ reason: 'observed', attachments: [IMAGE_REF, file] })
+      await expect(sending).resolves.toEqual({ kind: 'success' })
+      expect(b.revoked).not.toHaveBeenCalledWith('blob:history-1')
+
+      // A stored draft cannot follow its composer to another Session: it reports the file as not staged.
+      const [moved] = b.root.createStoredDrafts([{ type: 'file', receiptId: 'file-receipt-2' as never, file }])
+      b.root.rebindDraftFiles('s2' as SessionId, [moved!.id], UPLOAD_IMAGES)
+      expect(b.root.fileUploads.getSnapshot()[moved!.id]).toMatchObject({ status: 'error', reason: 'FILE_NOT_STAGED' })
+      b.root.releaseDraftAttachment(moved!.id)
+      const [borrowed] = b.root.createStoredDrafts([
+        { type: 'image', receiptId: 'image-receipt-2' as never, image: IMAGE_REF, previewUrl: 'blob:history-2' },
+      ])
+      b.root.releaseDraftAttachment(borrowed!.id)
+      expect(borrowed!.file.name).toBe('')
+      // A placeholder handed back in, as a recalled prompt's files are, never uploads empty bytes.
+      const [recalled] = b.root.createDrafts('s1' as SessionId, [fileDraft!.file, borrowed!.file], UPLOAD_IMAGES)
+      expect(recalled).toMatchObject({ kind: 'file', stored: { bytes: 5 } })
+      expect(b.root.fileUploads.getSnapshot()[recalled!.id]).toMatchObject({ status: 'error', reason: 'FILE_NOT_STAGED' })
+      const [, recalledImage] = b.root.resolveDraftAttachments(b.root.createDrafts('s1' as SessionId, [fileDraft!.file, borrowed!.file], UPLOAD_IMAGES).map(draft => draft.id))
+      expect(recalledImage).toMatchObject({ kind: 'image', previewUrl: 'blob:history-2' })
+      expect(b.revoked).not.toHaveBeenCalled()
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
   it('passes each delivery mode before image serialization', async () => {
     const b = await echoBench()
     try {
