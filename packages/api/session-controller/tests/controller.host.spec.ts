@@ -11,6 +11,10 @@ import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import SessionController from '../src/index.ts'
 import type { ApiSessionAgentController } from '../src/agent.ts'
+import type { SessionCopyController } from '../src/copy.ts'
+import type { SessionImportTarget, SessionLogFamily } from '../src/import.ts'
+import type { SessionMoveController } from '../src/move.ts'
+import type { Workspace, WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import { createSessionTestController, testSessionPersistence } from './test-remote.ts'
 
 const defaults = {
@@ -195,6 +199,96 @@ describe('SessionController facade', () => {
     })
     abort.abort()
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('lists a cold stored session again after session-persistence/stored, once its cache write settles', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, { list: () => Promise.resolve([]) }) as never)
+    let release!: () => void
+    const settled = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    ctx.provide('sessionProjectionCache', {
+      settled,
+      cachedSnapshot: () => ({ asOfSeq: 3, values: { title: 'Imported' } }),
+      cachedPredecessorTitle: () => undefined,
+    } as never)
+    await createSessionTestController(ctx, defaults)
+    const added = vi.fn()
+    ctx.on('api-session/added', added)
+    const header: SessionHeader = {
+      version: SESSION_FORMAT_VERSION, id: SessionId('stored-cold'), createdAt: 1, cwd: '/moved', isSeeded: false,
+    }
+    ctx.emit('session-persistence/stored', header)
+    expect(settled).toHaveBeenCalledWith('stored-cold')
+    expect(added).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => { expect(added).toHaveBeenCalledOnce() })
+    expect(added.mock.calls[0]?.[0]).toMatchObject({ sessionId: 'stored-cold', cwd: '/moved' })
+
+    // A Session live in this process lists through its own lifecycle events, also when it
+    // becomes live while the cache write settles.
+    ctx.sessions.create(SessionId('stored-live'), { meta: { cwd: '/w' } })
+    ctx.emit('session-persistence/stored', { ...header, id: SessionId('stored-live') })
+    expect(settled).toHaveBeenCalledTimes(1)
+    ctx.emit('session-persistence/stored', { ...header, id: SessionId('stored-resumed') })
+    ctx.sessions.create(SessionId('stored-resumed'), { meta: { cwd: '/w' } })
+    added.mockClear()
+    release()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(added).not.toHaveBeenCalled()
+    await ctx.fiber.dispose()
+  })
+
+  it('lists a cold stored session at once when no projection cache is mounted', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(AgentRegistry)
+    ctx.provide('sessionPersistence', testSessionPersistence(ctx, { list: () => Promise.resolve([]) }) as never)
+    await createSessionTestController(ctx, defaults)
+    const added = vi.fn()
+    ctx.on('api-session/added', added)
+    ctx.emit('session-persistence/stored', {
+      version: SESSION_FORMAT_VERSION, id: SessionId('stored-uncached'), createdAt: 1, cwd: '/moved', isSeeded: false,
+    })
+    await vi.waitFor(() => { expect(added).toHaveBeenCalledOnce() })
+    expect(added.mock.calls[0]?.[0]).toMatchObject({ sessionId: 'stored-uncached', cwd: '/moved' })
+  })
+
+  it('routes Session relocation to its move, copy and import owners', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await mountAgentLoopTestDependencies(ctx)
+    await mountAgentLoopTestHarness(ctx)
+    const controller = await createSessionTestController(ctx, defaults)
+    const moves = Reflect.get(controller, 'moves') as SessionMoveController
+    const copies = Reflect.get(controller, 'copies') as SessionCopyController
+    const sessionId = SessionId('relocated')
+    const destination = { workspaceId: 'destination' as WorkspaceId }
+    const moved = { sessionId, workspaceId: destination.workspaceId, moved: [sessionId] }
+    const movedMany = { workspaceId: destination.workspaceId, moved: [sessionId], skipped: [] }
+    const copied = {
+      sessionId: SessionId('copy'), sourceSessionId: sessionId, workspaceId: destination.workspaceId, copied: [SessionId('copy')], truncated: false,
+    }
+    const move = vi.spyOn(moves, 'move').mockResolvedValue(moved)
+    const moveMany = vi.spyOn(moves, 'moveMany').mockResolvedValue(movedMany)
+    const copy = vi.spyOn(copies, 'copy').mockResolvedValue(copied)
+
+    await expect(controller.move({ sessionId, destination })).resolves.toBe(moved)
+    await expect(controller.moveMany({ sessionIds: [sessionId], destination })).resolves.toBe(movedMany)
+    await expect(controller.copy({ sessionId, destination })).resolves.toBe(copied)
+    expect([move.mock.calls, moveMany.mock.calls, copy.mock.calls]).toEqual([
+      [[{ sessionId, destination }]], [[{ sessionIds: [sessionId], destination }]], [[{ sessionId, destination }]],
+    ])
+    // The import owners answer for themselves: this harness mounts no Session storage, and an empty archive has no root.
+    const target: SessionImportTarget = { workspace: { id: destination.workspaceId, path: '/destination' } as Workspace, origin: 'test' }
+    const header: SessionHeader = { version: SESSION_FORMAT_VERSION, id: sessionId, createdAt: 1, cwd: '/source', isSeeded: false }
+    const family: SessionLogFamily = { root: { header, events: [], inheritedEventCount: SessionLogOffset(0) }, children: [] }
+    await expect(controller.storeSessionLogs(family, target))
+      .rejects.toThrow('session import is unavailable: missing session-persistence service')
+    await expect(controller.importSessionArchive({}, target)).rejects.toThrow('archive has no root session log')
   })
 
   it.each(['success', 'domain-error', 'throw'] as const)(

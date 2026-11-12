@@ -263,3 +263,52 @@ describe('ApiSession creation', () => {
       .rejects.toThrow('failed to ensure project directory')
   })
 })
+
+describe('ApiSession Agent retirement', () => {
+  it('disposes exactly the Agents it created and refuses residents another owner holds', async () => {
+    const { ctx, agents } = await harness()
+    const cwd = mkdtempSync(join(tmpdir(), 'dsh-session-controller-retire-'))
+    tempDirs.push(cwd)
+    let created: Agent | undefined
+    const dispose = vi.fn(() => Promise.resolve())
+    vi.spyOn(ctx.agents, 'create').mockImplementation(async (options) => {
+      created = agent(ctx, header(String(options.sessionId), cwd))
+      await ctx.agents.register(created)
+      return { agent: created, dispose }
+    })
+    const { agent: live } = await agents.createSession({ cwd, reusable: () => true })
+    expect(live).toBe(created)
+    const sessionId = live.id
+    expect(await agents.retire(sessionId)).toBe(true)
+    expect(dispose).toHaveBeenCalledOnce()
+    // Nothing resident any more, and no handle: a second retire is a no-op success.
+    expect(await agents.retire(SessionId('never-resident'))).toBe(true)
+
+    const foreign = agent(ctx, header('retire-foreign', cwd))
+    await ctx.agents.register(foreign)
+    expect(await agents.retire(foreign.id)).toBe(false)
+  })
+
+  it('forgets an adopted Agent disposed elsewhere, but not when another Agent with its id is disposed', async () => {
+    const { ctx, agents } = await harness()
+    const disposedElsewhere = agent(ctx, header('retire-disposed-elsewhere'))
+    const disposeAdopted = vi.fn(() => Promise.resolve())
+    const registration = ctx.agents.register(disposedElsewhere)
+    await registration
+    agents.adopt({ agent: disposedElsewhere, dispose: disposeAdopted })
+    await registration()
+    // Its Session is still resident under another owner, and the forgotten handle is not disposed.
+    expect(await agents.retire(disposedElsewhere.id)).toBe(false)
+    expect(disposeAdopted).not.toHaveBeenCalled()
+
+    const adopted = agent(ctx, header('retire-replaced'))
+    const disposeKept = vi.fn(() => Promise.resolve())
+    agents.adopt({ agent: adopted, dispose: disposeKept })
+    const namesake: Agent = { ...adopted }
+    const namesakeRegistration = ctx.agents.register(namesake)
+    await namesakeRegistration
+    await namesakeRegistration()
+    expect(await agents.retire(adopted.id)).toBe(true)
+    expect(disposeKept).toHaveBeenCalledOnce()
+  })
+})

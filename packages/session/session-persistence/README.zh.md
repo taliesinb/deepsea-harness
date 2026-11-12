@@ -44,6 +44,10 @@ const all = await ctx.sessionPersistence.list()                // one snapshot p
 await ctx.sessionPersistence.flush()                           // backend-wide durability barrier over every active write handle
 ```
 
+另有一个可选方法 `relocate({ id, cwd, append? })`，把一个冷的已存储会话移到另一个工作目录——工作目录即该会话的 Workspace 归属：替换 header 的 `cwd`，把给定事件盖上序号接在已存储尾部之后，并作为一次持久操作发布到新 cwd 对应的位置；id、创建时间、谱系与继承切点保持不变。旧制品被退役（JSONL 后端把它保留在 `<root>/../session-move-backups/` 下）。任何地方以写方式打开的会话以 `SessionAlreadyOwnedError` 拒绝。不支持搬迁的后端不定义该方法，Session Controller 的 `move` 则回答 `session/move-unsupported`。
+
+本包还声明 `session-persistence/stored(header)` 事件。在实时存储之外存储会话（导入）或搬迁会话的组件，在变更持久化后发出该事件，列表所有者随之刷新该会话的行：Session Controller 把它作为 `api-session/added` 摘要发布给客户端。
+
 服务级 `flush()` 排空每个活跃写句柄已路由的事件并把其会话实体化，效果与各句柄自己的 `flush` 完全相同；失败按会话聚合为一个 `AggregateError` 而不中途放弃清扫，清扫途中被关闭的句柄视同已 flush，因为 close 本身会持久排空。
 
 每一次日志读写都流经返回的 `SessionHandle`；不存在按 id 寻址的 append 或 load 方法。`handle.read(offset?, length?)` 返回 `{ eventState, events }`：外层 slice 属于调用方，`eventState` 则区分由调用方独占的 `detached` 事件图与可能同时位于后端缓存中的 `shared-frozen` 事件图。该状态由生成方确定，即使切片为空也会保留。两种状态都能直接接管而无需复制；需要可变事件的消费方必须先克隆事件。读取绝不包含撕裂尾部，同一句柄上的重复读取绝不会观察到比先前读取更旧的状态，写句柄也能读到自己成功的 append。`handle.append(events)` 追加一个连续批次，其第一个 `seq` 等于已存储 next-seq；完成时的持久化是尽力而为的——批次被接受、有序，并对同一后端实例上的读取可见，只有完成的 `flush` 才承诺它在崩溃后依然存在（交付的 JSONL 后端恰好会立即持久化每个批次）。`handle.flush()` 是持久性屏障，同时把空的已创建会话实体化，使其可被持久列出。`handle.close()` 幂等且不可取消：读句柄释放本地资源；写句柄完成待处理的持久化并释放写所有权。一旦某次 `append` 或 `flush` 完成，其后在同一后端实例上开始的读取——无论经由任何句柄，还是经由 `stat`/`list`——至少能观察到该前缀。
