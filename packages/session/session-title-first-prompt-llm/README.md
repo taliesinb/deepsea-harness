@@ -33,11 +33,11 @@ Automatic generation runs only for a fresh session with no parent and no prior t
 
 ### Configuration
 
-The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [execution controls](../session-title-llm/README.md#configuration): `maxInputBytes`, `maxOutputTokens`, `timeoutMs`, and the optional paired `provider`/`model` route. Omit both to inherit the exact route from the current logged main request, or set both to route title generation independently. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-title-first-prompt-llm) is the exhaustive source for every accepted field.
+The plugin requires `targetWords` and `targetCjkCharacters` plus the shared [execution controls](../session-title-llm/README.md#configuration): `maxInputBytes`, `maxOutputTokens`, `timeoutMs`, and the optional paired `provider`/`model` route. Omit both to inherit the exact route from the current logged main request, or set both to route title generation independently. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-title-first-prompt-llm) is the exhaustive source for every accepted field. The optional `style` is `natural` (the default) or `slug`, a lowercase hyphenated identifier; see [slug titles](../session-title-llm/README.md#slug-titles).
 
 ### Failures and recovery
 
-A generation that fails — a missing route before any main request, input over `maxInputBytes`, timeout, cancellation, or invalid model output — warns and keeps the current title; only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
+A generation that fails — a missing route before any main request, input over `maxInputBytes`, timeout, cancellation, or invalid model output — warns and keeps the current title. A request that reached the model and failed there is retried once by the [execution module](../session-title-llm/README.md#route-and-failure-contract); beyond that, only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
 
 -----
 

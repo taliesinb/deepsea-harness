@@ -33,11 +33,11 @@ kind: "package-reference"
 
 ### 配置
 
-插件要求 `targetWords` 与 `targetCjkCharacters`，外加共享的[执行控制](../session-title-llm/README.zh.md#configuration)：`maxInputBytes`、`maxOutputTokens`、`timeoutMs`，以及可选成对的 `provider`/`model` 路由。同时省略二者，会继承当前已记录主请求的确切路由；同时设置二者，则让标题生成使用独立路由。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-title-first-prompt-llm)是每个受支持字段的穷尽式真源。
+插件要求 `targetWords` 与 `targetCjkCharacters`，外加共享的[执行控制](../session-title-llm/README.zh.md#configuration)：`maxInputBytes`、`maxOutputTokens`、`timeoutMs`，以及可选成对的 `provider`/`model` 路由。同时省略二者，会继承当前已记录主请求的确切路由；同时设置二者，则让标题生成使用独立路由。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-title-first-prompt-llm)是每个受支持字段的穷尽式真源。可选的 `style` 为 `natural`（默认）或 `slug`（小写、以连字符连接的标识符）；见 [Slug 标题](../session-title-llm/README.zh.md#slug-titles)。
 
 ### 失败与恢复
 
-失败的生成——主请求之前缺少路由、输入超过 `maxInputBytes`、超时、取消或无效模型输出——会发出警告并保留当前标题；只有显式 `refresh()` 会重试。自动工作不会为主 agent（智能体）请求增加 token 或延迟。
+失败的生成——主请求之前缺少路由、输入超过 `maxInputBytes`、超时、取消或无效模型输出——会发出警告并保留当前标题。已到达模型并在模型端失败的请求，会由[执行模块](../session-title-llm/README.zh.md#route-and-failure-contract)重试一次；除此之外，只有显式 `refresh()` 会重试。自动工作不会为主 agent（智能体）请求增加 token 或延迟。
 
 -----
 

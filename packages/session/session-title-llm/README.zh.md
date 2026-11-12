@@ -35,7 +35,9 @@ kind: "package-library"
 
 ### 路由与失败约定
 
-`provider` 与 `model` 覆盖项都是可选的，但必须同时作为非空字符串提供。如果没有这一对取值，函数使用当前会话已记录 `request/header` 中捕获的确切提供方／模型路由，因此在任何路由出现前显式刷新时必须提供覆盖项。函数在记录或分发前，依据 `maxInputBytes` 检查准备好的最终用户输入的大小，而不是将其截断，并在消费流期间与完成后重新检查超时与调用方取消，因此即使拦截器或适配器忽略 abort，也不能接受迟到的成功结果。函数把确切请求记录到 `session/title-llm-request`，并返回组装后的内容块、终止结束原因与所用模型身份。操作性错误、中止与不支持的结束原因都会拒绝；`stop`、`tool-calls` 与 `max-tokens` 会返回提供方，由其自行决定是否接受。标题请求独立使用 `maxOutputTokens`，不继承对话请求的上限。其路由必须注册适配器，以便在记录前完成请求准备。
+<a id="route-and-failure-contract"></a>
+
+`provider` 与 `model` 覆盖项都是可选的，但必须同时作为非空字符串提供。如果没有这一对取值，函数使用当前会话已记录 `request/header` 中捕获的确切提供方／模型路由，因此在任何路由出现前显式刷新时必须提供覆盖项。函数在记录或分发前，依据 `maxInputBytes` 检查准备好的最终用户输入的大小，而不是将其截断，并在消费流期间与完成后重新检查超时与调用方取消，因此即使拦截器或适配器忽略 abort，也不能接受迟到的成功结果。函数把确切请求记录到 `session/title-llm-request`，并返回组装后的内容块、终止结束原因与所用模型身份。已分发但在运行中失败的尝试，会在 1.5 秒后以各自的时限与记录重试一次，因为一次只服务一个请求的提供方（单个端侧模型）会让与主请求并行的标题请求失败；调用方取消、`timeoutMs` 到期以及分发前的失败都不会重试。持续存在的操作性错误、中止与不支持的结束原因都会拒绝；`stop`、`tool-calls` 与 `max-tokens` 会返回提供方，由其自行决定是否接受。标题请求独立使用 `maxOutputTokens`，不继承对话请求的上限。其路由必须注册适配器，以便在记录前完成请求准备。
 
 ### 配置
 
@@ -49,6 +51,12 @@ kind: "package-library"
 | `maxOutputTokens` | 必填 | 标题输出 token 上限，独立于对话请求 |
 | `timeoutMs` | 必填 | 运行时定时器限制内的端到端时限 |
 | `provider`, `model` | 可选 | 显式路由；二者同时提供或同时省略 |
+
+### Slug 标题
+
+<a id="slug-titles"></a>
+
+在提供方行（`session-title-first-prompt-llm`，或实验性的 `session-title-all-prompts-llm`）上设置 `style: slug`，会要求模型返回小写、以连字符连接的标识符（如 `fix-login-redirect`）而非短语。提供方从 `slugTitleInstruction` 取得指令，并把回复交给 `slugifyTitle`，后者把引号、标题式大小写、句子与重音字符统一转换成这种形式，词数上限为 `targetWords`，并限定在 2 到 6 之间。适用于同时使用手写 `slug: prompt` 命名约定的侧栏，以及自由摘要不可靠的小型端侧标题模型。默认的 `natural` 风格保持不变。
 
 -----
 
