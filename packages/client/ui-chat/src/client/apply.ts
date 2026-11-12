@@ -12,6 +12,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-browser/client'
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
+// The `command/executed` event declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-commands/client'
 // The `file` entry of `SidebarRightResourceParamsMap`, which types `{ params: { line } }` below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/client'
 import { fileAddressFor, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
@@ -30,6 +32,7 @@ import type {
 } from './contract/slots.ts'
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
+import { isVisibleChatCommand } from './contract/chat-visibility.ts'
 import { ApprovalCommand } from './chat/ApprovalCommand.tsx'
 import { sessionFilePath } from './file-path.ts'
 import { ChatView } from './chat/ChatView.tsx'
@@ -131,6 +134,16 @@ export function apply(ctx: Context): void {
     return source
   }
   registerConversationNodes(ctx)
+  // Command rows alone keep a New Session blank, so the hero would hide the
+  // row of a command this browser just ran there. Its visible row engages the
+  // Session as an accepted first prompt would (rendered and listed as a
+  // conversation, no longer reused); rows from other Clients or from controls
+  // that run a command without the composer leave it blank.
+  ctx.on('command/executed', (sessionId, name) => {
+    if (!isVisibleChatCommand(name)) return
+    const session = ctx.sessions.binding(sessionId)?.session
+    if (session?.getSnapshot().blank === true) session.engage()
+  })
   ctx.uiSession.provide({
     hooks: ['chat'],
     resolve: binding => ({ hooks: { chat: chatSource(binding) } }),
