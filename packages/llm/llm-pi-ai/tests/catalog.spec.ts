@@ -30,6 +30,28 @@ declare module '@deepseek-ai/dsh-llm' {
 // mounted credentials seam.
 const KEY_ENV = 'PI_TEST_KEY'
 
+
+describe('OAuth catalog routes', () => {
+  it('clones catalog models for an OAuth route without changing the API-key route', () => {
+    const profiles = resolveProfiles({ anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' }, 'anthropic-oauth': {} })
+    const api = profiles.get('anthropic')?.piProvider
+    const oauth = profiles.get('anthropic-oauth')?.piProvider
+    expect(api?.getModels().map(model => model.id)).toEqual(oauth?.getModels().map(model => model.id))
+    expect(api?.getModels()[0]?.provider).toBe('anthropic')
+    expect(oauth?.getModels()[0]?.provider).toBe('anthropic-oauth')
+    expect(oauth?.getModels().find(model => model.id === 'claude-opus-5-5')).toMatchObject({
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+      thinkingLevelMap: { xhigh: 'xhigh', max: 'max' },
+    })
+    expect(oauth?.auth.oauth).toBeDefined()
+    expect(oauth?.auth.apiKey).toBeUndefined()
+    expect(api?.auth.apiKey).toBeDefined()
+    expect(profiles.get('anthropic-oauth')?.displayName).toBe('Anthropic Plan')
+    expect(() => resolveProfiles({ 'anthropic-oauth': { apiKeyEnv: 'ANTHROPIC_API_KEY' } })).toThrow(/OAuth grant/)
+  })
+})
+
 beforeEach(() => {
   vi.stubEnv(KEY_ENV, 'test-key')
 })
@@ -490,6 +512,23 @@ describe('catalog routes with per-model configuration', () => {
     const listed = await ctx.llm.listModels('deepseek')
     expect(listed.map(model => model.id).sort())
       .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+  })
+
+  it('serves no OpenRouter batch-only alias on either OpenRouter route', async () => {
+    // OpenRouter serves `<model>:batch` only at its batches endpoint and
+    // answers a chat request for one with 404.
+    const batch = getBuiltinModels('openrouter').find(model => model.id.endsWith(':batch'))
+    if (batch === undefined) throw new Error('the installed catalog ships no OpenRouter batch alias')
+    const ctx = await harness({ providers: { openrouter: { apiKeyEnv: KEY_ENV }, 'openrouter-oauth': {} } })
+
+    for (const route of ['openrouter', 'openrouter-oauth']) {
+      const listed = (await ctx.llm.listModels(route)).map(model => model.id)
+      expect(listed).toContain(batch.id.slice(0, -':batch'.length))
+      expect(listed.filter(id => id.endsWith(':batch'))).toEqual([])
+      expect(catalogModels(route).has(batch.id)).toBe(false)
+    }
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'openrouter' }))
+      .resolves.not.toContainEqual(expect.objectContaining({ id: batch.id }))
   })
 
   it('overrides one catalog model field and defaults the rest from the catalog', async () => {

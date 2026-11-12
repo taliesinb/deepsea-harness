@@ -1987,6 +1987,14 @@ export interface PiAiProviderProfile {
   /** Name shown by configuration surfaces; defaults to the route key. */
   displayName?: string
   /**
+   * How this route is billed, published on provider info for billing surfaces: `subscription`,
+   * `api-key`, or `local` (a model served on this machine, free). Omission infers it: OAuth and
+   * subscription-only catalog routes are `subscription`, other catalog routes are `api-key` (even
+   * behind a local proxy), a custom route whose `baseURL` is a loopback address is `local`, and
+   * anything else is unknown.
+   */
+  auth?: 'subscription' | 'api-key' | 'local'
+  /**
    * Wire protocol every model on this route speaks. Omission keeps each
    * installed catalog model's own protocol, which is why a catalog route needs
    * no protocol at all; a route the catalog does not ship must name one.

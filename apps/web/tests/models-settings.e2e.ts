@@ -829,7 +829,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(await readFile(join(scaffold.harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml'), 'utf8')).toContain('minimax-cn:')
     await settingsDialog.getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
     await page.getByRole('dialog', { name: '删除 minimax-cn？' })
-      .getByRole('button', { name: '删除 minimax-cn', exact: true }).click()
+      .getByRole('button', { name: '删除', exact: true }).click()
     await expect.poll(
       async () => readFile(join(scaffold.harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml'), 'utf8'),
       { timeout: 10_000 },

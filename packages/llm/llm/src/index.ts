@@ -20,6 +20,13 @@ import type {
   LlmModelDiscoveryRequest,
   LlmModelInfo,
   LlmResolvedModelInfo,
+  LlmModelPricing,
+  LlmModelTokenRates,
+  LlmResponseCost,
+  LlmSignInState,
+  LlmSubscriptionAccount,
+  LlmSubscriptionUsage,
+  LlmSubscriptionWindow,
   LlmProviderInfo,
   ModelModality,
   StreamChunk,
@@ -42,6 +49,27 @@ import {
 } from './content.ts'
 import type { FileAttachmentRef, ImageAttachmentRef, ImageRequestTarget } from '@deepseek-ai/dsh-attachment'
 
+/** Display fields an adapter may report for a signed-in account. */
+const ACCOUNT_FIELDS = ['id', 'email', 'name', 'organization', 'plan'] as const
+
+/**
+ * Validate and detach an adapter-reported account.
+ * @param value - what the adapter published.
+ * @returns the account (empty when absent), or null when it is malformed.
+ */
+function accountOf(value: unknown): LlmSubscriptionAccount | null {
+  if (value === undefined) return {}
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const identity: LlmSubscriptionAccount = {}
+  for (const key of ACCOUNT_FIELDS) {
+    const field: unknown = (value as Record<string, unknown>)[key]
+    if (field === undefined) continue
+    if (typeof field !== 'string' || field.length === 0 || field.length > 256) return null
+    identity[key] = field
+  }
+  return identity
+}
+
 export * from './attribution.ts'
 export * from './brand.ts'
 export * from './error.ts'
@@ -55,6 +83,46 @@ export * from './provider-simulation.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { ConfigureCall, LlmCallConfig, LlmCallConfigAdapterDefaults, LlmCallControls } from './call-config.ts'
+
+const DECIMAL_RATE = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,18})?$/
+
+/**
+ * Validate and copy one set of per-million rates.
+ * @param rates - adapter-returned rates.
+ * @returns detached rates, or `null` when any rate is not a plain decimal string.
+ */
+function detachedRates(rates: LlmModelTokenRates): LlmModelTokenRates | null {
+  const valid = (rate: unknown): boolean => typeof rate === 'string' && DECIMAL_RATE.test(rate)
+  if (!valid(rates.inputPerMillion) || !valid(rates.outputPerMillion)
+    || [rates.cacheReadPerMillion, rates.cacheWritePerMillion].some(rate => rate !== undefined && !valid(rate))) return null
+  return {
+    inputPerMillion: rates.inputPerMillion,
+    outputPerMillion: rates.outputPerMillion,
+    ...rates.cacheReadPerMillion === undefined ? {} : { cacheReadPerMillion: rates.cacheReadPerMillion },
+    ...rates.cacheWritePerMillion === undefined ? {} : { cacheWritePerMillion: rates.cacheWritePerMillion },
+  }
+}
+
+/**
+ * Validate and copy adapter-published list prices.
+ * @param pricing - adapter-returned pricing.
+ * @returns detached pricing, or `null` when any field is malformed.
+ */
+function detachedPricing(pricing: LlmModelPricing): LlmModelPricing | null {
+  const base = detachedRates(pricing)
+  if (base === null || typeof pricing.currency !== 'string' || !/^[A-Z]{3}$/.test(pricing.currency)
+    || typeof pricing.source !== 'string' || pricing.source.length === 0 || pricing.source.length > 200) return null
+  if (pricing.tiers === undefined) return { ...base, currency: pricing.currency, source: pricing.source }
+  const published: unknown = pricing.tiers
+  if (!Array.isArray(published) || published.length > 16) return null
+  const tiers: (LlmModelTokenRates & { inputTokensAbove: number })[] = []
+  for (const tier of published as readonly (LlmModelTokenRates & { inputTokensAbove: number })[]) {
+    const rates = detachedRates(tier)
+    if (rates === null || !Number.isSafeInteger(tier.inputTokensAbove) || tier.inputTokensAbove < 0) return null
+    tiers.push({ ...rates, inputTokensAbove: tier.inputTokensAbove })
+  }
+  return { ...base, currency: pricing.currency, tiers, source: pricing.source }
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -249,6 +317,44 @@ export abstract class LlmAdapter {
    */
   imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget {
     return { width: image.width, height: image.height, maxBytes: image.bytes }
+  }
+
+  /**
+   * Read current subscription usage for one owned route's signed-in account.
+   * The default supports none. Implementations make at most one provider
+   * request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the account's current windows, or `undefined` when the route has no usage endpoint.
+   */
+  subscriptionUsage(_provider: string, _signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
+   * Describe whether one owned browser sign-in route holds a usable grant
+   * and, when the provider identifies it, the signed-in account. The default
+   * supports none. Implementations make at most one provider request and must
+   * not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _signal - cancellation for the lookup.
+   * @returns the state, or `undefined` when the route does not sign in through a browser.
+   */
+  signInState(_provider: string, _signal?: AbortSignal): Promise<LlmSignInState | undefined> {
+    return Promise.resolve(undefined)
+  }
+
+  /**
+   * Look up the provider's recorded charge for one past response by its
+   * response id. The default supports none. Implementations make at most one
+   * provider request and must not run model inference.
+   * @param _provider - one provider route owned by this adapter.
+   * @param _responseId - provider response id carried in replay state.
+   * @param _signal - cancellation for the lookup.
+   * @returns the charge, or `undefined` when the route cannot look one up.
+   */
+  responseCost(_provider: string, _responseId: string, _signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    return Promise.resolve(undefined)
   }
 
   /**
@@ -451,12 +557,26 @@ export class LlmRuntime extends TypertRemoteService {
       if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
         throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
       }
+      const catalogProvider: unknown = info.catalogProvider
+      const vendor: unknown = info.vendor
+      const auth: unknown = info.auth
+      if ((catalogProvider !== undefined && (typeof catalogProvider !== 'string' || catalogProvider.length === 0))
+        || (vendor !== undefined && (typeof vendor !== 'string' || vendor.length === 0))
+        || (auth !== undefined && auth !== 'subscription' && auth !== 'api-key' && auth !== 'local')) {
+        throw new LlmError(`adapter metadata for provider "${provider}" has an invalid catalog provider, vendor or auth kind`, 'INVALID_ADAPTER')
+      }
       unique.add(provider)
       const retryPolicy = adapter.providerRetryPolicy(provider)
         ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
       registrations.push({
         adapter,
-        provider: { id: info.id, name: info.name },
+        provider: {
+          id: info.id,
+          name: info.name,
+          ...info.catalogProvider === undefined ? {} : { catalogProvider: info.catalogProvider },
+          ...info.vendor === undefined ? {} : { vendor: info.vendor },
+          ...info.auth === undefined ? {} : { auth: info.auth },
+        },
         retryPolicy,
       })
     }
@@ -516,6 +636,9 @@ export class LlmRuntime extends TypertRemoteService {
         }
         if (entry.settingsPath.some(segment => segment.length === 0)) {
           throw new LlmError(`configurable provider "${entry.provider}" has an empty settingsPath segment`, 'INVALID_DIRECTORY')
+        }
+        if (entry.signIn !== undefined && (!['subscription', 'oauth'].includes(entry.signIn.kind) || entry.signIn.vendor.length === 0)) {
+          throw new LlmError(`configurable provider "${entry.provider}" has an invalid signIn`, 'INVALID_DIRECTORY')
         }
         if ((this.directory.has(entry.provider) && !own.has(entry.provider))
           || detached.some(seen => seen.provider === entry.provider)) {
@@ -754,6 +877,83 @@ export class LlmRuntime extends TypertRemoteService {
   }
 
   /**
+   * Look up and validate the provider's recorded charge for one past response.
+   * @param provider - registered provider route.
+   * @param responseId - provider response id.
+   * @param signal - optional cancellation for the lookup.
+   * @returns the detached charge, or `undefined` when the route cannot look one up.
+   */
+  async responseCost(provider: string, responseId: string, signal?: AbortSignal): Promise<LlmResponseCost | undefined> {
+    const registration = this.registration(provider)
+    const cost = await registration.adapter.responseCost(registration.provider.id, responseId, signal)
+    if (cost === undefined) return undefined
+    const amount: unknown = cost.amount
+    const currency: unknown = cost.currency
+    if (typeof amount !== 'string' || !DECIMAL_RATE.test(amount) || typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
+      throw new LlmError(`adapter returned an invalid response cost for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return { amount, currency }
+  }
+
+  /**
+   * Read and validate the current subscription usage of one route's signed-in
+   * account from its owning adapter.
+   * @param provider - registered provider route.
+   * @param signal - optional cancellation for the lookup.
+   * @returns detached usage windows, or `undefined` when the route exposes none.
+   */
+  async subscriptionUsage(provider: string, signal?: AbortSignal): Promise<LlmSubscriptionUsage | undefined> {
+    const registration = this.registration(provider)
+    const usage = await registration.adapter.subscriptionUsage(registration.provider.id, signal)
+    if (usage === undefined) return undefined
+    const published: unknown = usage.windows
+    const windows: readonly LlmSubscriptionWindow[] = Array.isArray(published) ? published as LlmSubscriptionWindow[] : []
+    const validWindow = (w: LlmSubscriptionWindow): boolean => {
+      const label: unknown = w.label
+      const used: unknown = w.usedPercent
+      const resetAt: unknown = w.resetAt
+      return typeof label === 'string' && label.length > 0 && label.length <= 32
+        && typeof used === 'number' && Number.isFinite(used) && used >= 0 && used <= 100
+        && (resetAt === undefined || (typeof resetAt === 'string' && Number.isFinite(Date.parse(resetAt))))
+    }
+    const valid = Array.isArray(published) && windows.length <= 16 && windows.every(validWindow)
+    const observedAt: unknown = usage.observedAt
+    const extra: unknown = usage.extraUsageEnabled
+    const identity = accountOf(usage.account)
+    if (!valid || typeof observedAt !== 'string' || !Number.isFinite(Date.parse(observedAt))
+      || (extra !== undefined && typeof extra !== 'boolean') || identity === null) {
+      throw new LlmError(`adapter returned invalid subscription usage for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return {
+      windows: windows.map(w => ({ label: w.label, usedPercent: w.usedPercent, ...w.resetAt === undefined ? {} : { resetAt: w.resetAt } })),
+      ...usage.extraUsageEnabled === undefined ? {} : { extraUsageEnabled: usage.extraUsageEnabled },
+      ...Object.keys(identity).length === 0 ? {} : { account: identity },
+      observedAt: usage.observedAt,
+    }
+  }
+
+  /**
+   * Describe one browser sign-in route for configuration surfaces: whether it
+   * holds a usable grant, and the signed-in account when the provider
+   * identifies it. A route with no registered adapter has nothing to ask.
+   * @param provider - provider route key.
+   * @returns the detached state, or `undefined` when the route is unregistered or not a sign-in route.
+   */
+  @Remote
+  async describeSignIn(provider: string): Promise<LlmSignInState | undefined> {
+    const registration = this.adapters.get(provider)
+    if (registration === undefined) return undefined
+    const state = await registration.adapter.signInState(registration.provider.id)
+    if (state === undefined) return undefined
+    const signedIn: unknown = state.signedIn
+    const account = accountOf(state.account)
+    if (typeof signedIn !== 'boolean' || account === null) {
+      throw new LlmError(`adapter returned an invalid sign-in state for provider "${provider}"`, 'INVALID_MODEL_INFO')
+    }
+    return { signedIn, ...Object.keys(account).length === 0 ? {} : { account } }
+  }
+
+  /**
    * Resolve and validate all metadata from the adapter that owns one exact
    * route. The result is detached from adapter-owned objects; catalog
    * membership remains advisory and does not control request routing.
@@ -834,10 +1034,20 @@ export class LlmRuntime extends TypertRemoteService {
         'INVALID_MODEL_MAX_TOKENS',
       )
     }
+    const pricing = resolved.pricing === undefined ? undefined : detachedPricing(resolved.pricing)
+    const listPricing = resolved.listPricing === undefined ? undefined : detachedPricing(resolved.listPricing)
+    if (pricing === null || listPricing === null) {
+      throw new LlmError(
+        `adapter returned invalid pricing metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_INFO',
+      )
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
+      ...pricing === undefined ? {} : { pricing },
+      ...listPricing === undefined ? {} : { listPricing },
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
@@ -1208,6 +1418,7 @@ function detachDirectoryEntry(entry: LlmConfigurableProvider): LlmConfigurablePr
     settingsPath: [...entry.settingsPath],
     ...entry.baseURLEnv === undefined ? {} : { baseURLEnv: [...entry.baseURLEnv] },
     ...(nativeAuth === undefined ? {} : { nativeAuth: { ...nativeAuth, env: [...nativeAuth.env] } }),
+    ...entry.signIn === undefined ? {} : { signIn: { ...entry.signIn } },
   }
 }
 
