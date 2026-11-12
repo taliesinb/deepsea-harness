@@ -1,5 +1,6 @@
 /** Pure diff-card derivation from raw file-mutation calls and result metadata. @module */
 import type { DiffBlockProps, DiffHunk } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ToolArgs } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallBlock } from './tool-call-model.ts'
 import { parsedToolCall } from './raw-tool-call.ts'
 import { recordedAbsolutePath } from './recorded-path.ts'
@@ -116,4 +117,61 @@ export function diffCardModel(block: ToolCallBlock): DiffCardModel | null {
   }
   const path = recordedAbsolutePath(block.meta, 'path')
   return { card: { diffs: applied.map(diff => diff.path === path ? { ...diff, path: intended.diff.path } : diff) } }
+}
+
+/**
+ * The diff card of a root write/edit call whose arguments are still streaming,
+/**
+ * The streaming arguments of a preparing root write/edit call whose diff card
+ * the expanded row shows. A collapsed row reads nothing beyond its own summary.
+ */
+export interface PreparingDiffSource {
+  readonly toolName: 'write' | 'edit'
+  /** The preparing call's argument view, which grows in place. */
+  readonly args: ToolArgs
+}
+
+/**
+ * Select the streaming diff card of a preparing call.
+ * @param toolName - wire tool name.
+ * @param args - the preparing call's argument view.
+ * @returns the source for write and edit once `file_path` is complete, else null.
+ */
+export function preparingDiffSource(toolName: string, args: ToolArgs): PreparingDiffSource | null {
+  if (toolName !== 'write' && toolName !== 'edit') return null
+  return args.complete('file_path') ? { toolName, args } : null
+}
+
+/**
+ * Count the decoded characters of the content fields streamed so far. Read
+ * during render, it makes every streamed character republish the block.
+ * @param source - the streaming call.
+ * @returns `content` length for write, `old_string` plus `new_string` length for edit.
+ */
+export function preparingDiffProgress(source: PreparingDiffSource): number {
+  const { toolName, args } = source
+  return toolName === 'write'
+    ? args.stringLength('content') ?? 0
+    : (args.stringLength('old_string') ?? 0) + (args.stringLength('new_string') ?? 0)
+}
+
+/**
+ * Read the intended diff from the arguments streamed so far: the `content` as
+ * a whole-file diff for write, the `old_string`/`new_string` pair for edit,
+ * as {@link diffCardModel} reads them once the call is dispatched.
+ * @param source - the streaming call.
+ * @returns the diff card, or null until a content field opens.
+ */
+export function preparingDiffCard(source: PreparingDiffSource): DiffCardModel | null {
+  const { toolName, args } = source
+  const path = args.text('file_path')
+  if (path === undefined) return null
+  if (toolName === 'write') {
+    const content = args.text('content')
+    return content === undefined ? null : { card: { diffs: [{ path, oldText: null, newText: content }] } }
+  }
+  const oldText = args.text('old_string')
+  const newText = args.text('new_string')
+  return oldText === undefined && newText === undefined ? null
+    : { card: { diffs: [{ path, oldText: oldText || null, newText: newText ?? '' }] } }
 }

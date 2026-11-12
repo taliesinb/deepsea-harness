@@ -162,8 +162,9 @@ describe('web e2e: a git workspace turn ends with its changed files', () => {
       const argumentPath = preparation.args.text('file_path')
       if (argumentPath === undefined) throw new Error('held preparation has no string file_path')
       await row.getByText(argumentPath, { exact: true }).waitFor()
-      expect(await row.getByRole('button').count()).toBe(0)
-      expect(await row.locator('[aria-expanded]').count()).toBe(0)
+      // Once file_path closes, the row is a collapsed disclosure over the diff so far, and its only control.
+      expect(await row.getByRole('button').count()).toBe(1)
+      expect(await row.locator('[aria-expanded="false"]').count()).toBe(1)
       expect(await row.locator('pre').count()).toBe(0)
       expect(await row.getByText(/^\d+KB$/).count()).toBe(0)
       await compareOrRefreshGolden(join(DIR, `preparing-${preparation.name}.expected.md`), await row.ariaSnapshot(), MODE)
@@ -173,7 +174,7 @@ describe('web e2e: a git workspace turn ends with its changed files', () => {
         settled.then(() => { throw new Error(`No open ${preparation.name} content prefix was streamed`) }),
       ])
       await row.getByText('1KB', { exact: true }).waitFor()
-      expect(await row.locator('[aria-expanded]').count()).toBe(0)
+      expect(await row.locator('[aria-expanded="false"]').count()).toBe(1)
       expect(await row.locator('pre').count()).toBe(0)
       await compareOrRefreshGolden(join(DIR, `preparing-${preparation.name}-content.expected.md`), await row.ariaSnapshot(), MODE)
       preparation.contentRelease.resolve(undefined)
