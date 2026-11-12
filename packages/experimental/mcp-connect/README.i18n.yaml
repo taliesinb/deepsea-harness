@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/experimental/mcp-connect/README.md
+/:
+  en: a26ef3ace3fbb275
+  zh: ef396807494dad14
+/deepseek-ai-dsh-experimental-mcp-connect:
+  en: 12c03e704ecd70c7
+  zh: aa2ae389aa031ba5
+/deepseek-ai-dsh-experimental-mcp-connect/summary:
+  en: b45a63770bc374cb
+  zh: d09aad9082b75a6f
+/deepseek-ai-dsh-experimental-mcp-connect/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 2f8a621b991260a1
+/deepseek-ai-dsh-experimental-mcp-connect/use-this-package:
+  en: c80349b5aa12926e
+  zh: f3a25a0e9ee37ecc
+/deepseek-ai-dsh-experimental-mcp-connect/understand-the-implementation:
+  en: 537aed2f193fa701
+  zh: 0a5bcdb926b6e313
+/deepseek-ai-dsh-experimental-mcp-connect/further-exploration:
+  en: 316a2ceda835b8ef
+  zh: fb690fb7104e764d
+/deepseek-ai-dsh-experimental-mcp-connect/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-experimental-mcp-connect/model-experience/connection-tools:
+  en: d369b81177f186d1
+  zh: c8aace6323507e96
+/deepseek-ai-dsh-experimental-mcp-connect/model-experience/connection-tools/what-the-model-sees:
+  en: 30531c761fbcf1c5
+  zh: 74bcf04297e303d1
+/deepseek-ai-dsh-experimental-mcp-connect/model-experience/connection-tools/token-effect:
+  en: 6f63f04ab9c847ca
+  zh: feecb325a26044f7
+/deepseek-ai-dsh-experimental-mcp-connect/model-experience/connection-tools/kv-cache-effect:
+  en: e412bd6504b8f72a
+  zh: f234aaa00c2e611c
+/deepseek-ai-dsh-experimental-mcp-connect/known-limitations-and-deferred-work:
+  en: 4922d18e0c9f9fa8
+  zh: 696b182cd7528c84
+/deepseek-ai-dsh-experimental-mcp-connect/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 8ec3e73528ddb1a6

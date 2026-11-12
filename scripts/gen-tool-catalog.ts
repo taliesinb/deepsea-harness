@@ -32,6 +32,7 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import * as ToolWorkingDirectory from '@deepseek-ai/dsh-tool-working-directory'
 import * as ToolWorktree from '@deepseek-ai/dsh-experimental-tool-worktree'
+import * as McpConnect from '@deepseek-ai/dsh-experimental-mcp-connect'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
@@ -226,6 +227,18 @@ const TOOL_PACKAGES: ToolPackage[] = [
         request: () => Promise.reject(new Error('gen-tool-catalog: MCP requests are unreachable during schema harvest')),
       })
     },
+  },
+  {
+    pkg: '@deepseek-ai/dsh-experimental-mcp-connect',
+    dir: 'mcp-connect',
+    source: 'packages/experimental/mcp-connect/src/index.ts',
+    requires: ['ctx.tools', 'ctx.agents', 'ctx.workingDirectory', 'ctx.sessionProjections', 'ctx.approval', 'a calling Agent'],
+    writes: ['tool/call', 'approval/asked', 'approval/decided', 'plugin:mcp-connect/server', 'MCP server process', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(McpConnect)
+    },
+    note: 'Opt-in experimental bundle. Connects an MCP server to the calling Agent only, after user approval, either inline or by name from a project .mcp.json; the Session records it and resume reconnects it.',
   },
   {
     pkg: '@deepseek-ai/dsh-experimental-browser-use-stagehand-native',

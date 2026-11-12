@@ -22,6 +22,7 @@
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-experimental-mcp-connect` | `mcp_connect`, `mcp_disconnect`, `mcp_list` | `ctx.tools`, `ctx.agents`, `ctx.workingDirectory`, `ctx.sessionProjections`, `ctx.approval`, `a calling Agent` | `tool/call`, `approval/asked`, `approval/decided`, `plugin:mcp-connect/server`, `MCP server process`, `tool/result` | - | 可选的实验性组合包。在用户批准后，把 MCP 服务器只连接到调用者 Agent，可内联定义，也可按名称使用项目 .mcp.json 中的声明；Session 记录该连接，恢复时重新连接。 |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`、`stagehand_extract`、`stagehand_navigate`、`stagehand_observe`、`stagehand_screenshot`、`stagehand_tabs` | `ctx.browserUse`、`ctx.agents`、`ctx.tools`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`、`ctx.agents`、`ctx.sessionProjections`、`ctx.remoteAccess` | `tool/call`、`tool/result`、`plugin:action-cards/decision`、`user/message` | - | 只向加载过已注册卡片种类 Skill 的 Agent 声明；各种类的包注册自己的动作，个性化推荐 Bundle 提供随产品发布的种类。 |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
@@ -254,6 +255,104 @@
 ```
 
 来源： [`packages/mcp/mcp-resources/src/tools.ts`](../packages/mcp/mcp-resources/src/tools.ts)
+
+<a id="deepseek-aidsh-experimental-mcp-connect"></a>
+
+## `@deepseek-ai/dsh-experimental-mcp-connect`
+
+### `mcp_connect`
+
+只把 MCP 服务器连接到本会话。只给出 name 时使用项目 .mcp.json 中声明的服务器（见 mcp_list），也可以用 command（stdio）或 url（Streamable HTTP）定义一个。每次连接都需要用户批准。服务器以用户身份在沙箱之外运行。它的工具名为 `mcp__<server>__<tool>`，从你的下一步起可调用，直到 mcp_disconnect 或会话结束；恢复会话时会重新连接。字符串可以用 ${NAME} 或 ${NAME:-default} 引用主机环境变量。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Server name: a .mcp.json entry, or a new name when command or url is given."
+    },
+    "command": {
+      "type": "string",
+      "description": "stdio: executable, absolute or found on PATH."
+    },
+    "args": {
+      "type": "array",
+      "description": "stdio: arguments, passed without a shell.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "env": {
+      "type": "object",
+      "description": "stdio: environment variables (string values) set over the host environment.",
+      "additionalProperties": true
+    },
+    "cwd": {
+      "type": "string",
+      "description": "stdio: working directory; relative to the session working directory, which is the default."
+    },
+    "url": {
+      "type": "string",
+      "description": "Streamable HTTP: endpoint URL."
+    },
+    "headers": {
+      "type": "object",
+      "description": "Streamable HTTP: request headers (string values).",
+      "additionalProperties": true
+    },
+    "toolCallTimeoutMs": {
+      "type": "integer",
+      "description": "Timeout for each call to one of the server's tools, in milliseconds."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why the task needs this server, shown to the user with the approval request."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+来源：[`packages/experimental/mcp-connect/src/index.ts`](../packages/experimental/mcp-connect/src/index.ts)
+
+### `mcp_disconnect`
+
+断开 mcp_connect 在本会话中连接的 MCP 服务器并停止它。从你的下一步起，它的工具不再可用。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Server name passed to mcp_connect."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+来源：[`packages/experimental/mcp-connect/src/index.ts`](../packages/experimental/mcp-connect/src/index.ts)
+
+### `mcp_list`
+
+列出 MCP 服务器：本会话中已连接的、profile 提供的，以及项目 .mcp.json 文件中声明的（mcp_connect 可按名称接受）。
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+来源：[`packages/experimental/mcp-connect/src/index.ts`](../packages/experimental/mcp-connect/src/index.ts)
+
+可选的实验性组合包。在用户批准后，把 MCP 服务器只连接到调用者 Agent，可内联定义，也可按名称使用项目 .mcp.json 中的声明；Session 记录该连接，恢复时重新连接。
 
 <a id="deepseek-aidsh-experimental-browser-use-stagehand-native"></a>
 

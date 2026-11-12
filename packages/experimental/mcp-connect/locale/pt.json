@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Servidores MCP da sessão",
+    "description": "Permite que o agente conecte um servidor MCP à sessão atual após sua aprovação, incluindo servidores declarados no .mcp.json do seu projeto."
+  }
+}

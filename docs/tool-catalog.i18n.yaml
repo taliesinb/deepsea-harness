@@ -9,8 +9,8 @@
   en: 6cc2cd9ced70bb09
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: f790063d536da1bf
-  zh: 6933b54fc70cd470
+  en: c4d7c368552fe881
+  zh: 2bdf5b835cafd875
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -33,8 +33,20 @@
   en: bf4236607199d61e
   zh: 82f4f749dcabc89f
 /tool-schema-catalog/deepseek-ai-dsh-mcp-resources/read-mcp-resource:
-  en: 5d92c07fa062734f
-  zh: 2d6f0cb8116cf567
+  en: d5267419d4c179dd
+  zh: fadd55e6612310c9
+/tool-schema-catalog/deepseek-ai-dsh-experimental-mcp-connect:
+  en: 56afff1107bb3b8d
+  zh: 56afff1107bb3b8d
+/tool-schema-catalog/deepseek-ai-dsh-experimental-mcp-connect/mcp-connect:
+  en: 4b81c6b852e65570
+  zh: 26d987c99e13d7f7
+/tool-schema-catalog/deepseek-ai-dsh-experimental-mcp-connect/mcp-disconnect:
+  en: 9f2b342572af40df
+  zh: 451692f89e01cb79
+/tool-schema-catalog/deepseek-ai-dsh-experimental-mcp-connect/mcp-list:
+  en: 64a807f1edaadd2d
+  zh: 58607405d50dba52
 /tool-schema-catalog/deepseek-ai-dsh-experimental-browser-use-stagehand-native:
   en: 19e7df8d692b4375
   zh: 19e7df8d692b4375

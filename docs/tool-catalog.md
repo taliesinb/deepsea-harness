@@ -18,6 +18,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
+| `@deepseek-ai/dsh-experimental-mcp-connect` | `mcp_connect`, `mcp_disconnect`, `mcp_list` | `ctx.tools`, `ctx.agents`, `ctx.workingDirectory`, `ctx.sessionProjections`, `ctx.approval`, `a calling Agent` | `tool/call`, `approval/asked`, `approval/decided`, `plugin:mcp-connect/server`, `MCP server process`, `tool/result` | - | Opt-in experimental bundle. Connects an MCP server to the calling Agent only, after user approval, either inline or by name from a project .mcp.json; the Session records it and resume reconnects it. |
 | `@deepseek-ai/dsh-experimental-browser-use-stagehand-native` | `stagehand_act`, `stagehand_extract`, `stagehand_navigate`, `stagehand_observe`, `stagehand_screenshot`, `stagehand_tabs` | `ctx.browserUse`, `ctx.agents`, `ctx.tools`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-action-cards` | `propose_action` | `ctx.tools`, `ctx.agents`, `ctx.sessionProjections`, `ctx.remoteAccess` | `tool/call`, `tool/result`, `plugin:action-cards/decision`, `user/message` | - | Declared only to an Agent that loaded the skill of a registered card kind; the kind packages register their actions, and the Personalized recommendations bundle supplies the shipped kinds. |
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`, `ctx.userQuestions` | `tool/call`, `tool/result after an answer or timeout`, `late user/message` | - | ask_user_question keeps the original blocking behavior by default; set `mode: timed` to opt into a foreground timeout and pending result while the question remains answerable. In timed mode, `timeout: -1` keeps that call blocking indefinitely. |
@@ -250,6 +251,104 @@ Read an MCP resource by URI from the named server. Use a listed URI or an expand
 ```
 
 Source: [`packages/mcp/mcp-resources/src/tools.ts`](../packages/mcp/mcp-resources/src/tools.ts)
+
+<a id="deepseek-aidsh-experimental-mcp-connect"></a>
+
+## `@deepseek-ai/dsh-experimental-mcp-connect`
+
+### `mcp_connect`
+
+Connect an MCP server to this session only. Give just name to use a server declared in the project .mcp.json (see mcp_list), or define one with command (stdio) or url (Streamable HTTP). The user must approve every connection. The server runs as the user, outside the sandbox. Its tools, named `mcp__<server>__<tool>`, are callable from your next step and stay until mcp_disconnect or the end of the session; resuming the session reconnects it. Strings may reference host environment variables as ${NAME} or ${NAME:-default}.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Server name: a .mcp.json entry, or a new name when command or url is given."
+    },
+    "command": {
+      "type": "string",
+      "description": "stdio: executable, absolute or found on PATH."
+    },
+    "args": {
+      "type": "array",
+      "description": "stdio: arguments, passed without a shell.",
+      "items": {
+        "type": "string"
+      }
+    },
+    "env": {
+      "type": "object",
+      "description": "stdio: environment variables (string values) set over the host environment.",
+      "additionalProperties": true
+    },
+    "cwd": {
+      "type": "string",
+      "description": "stdio: working directory; relative to the session working directory, which is the default."
+    },
+    "url": {
+      "type": "string",
+      "description": "Streamable HTTP: endpoint URL."
+    },
+    "headers": {
+      "type": "object",
+      "description": "Streamable HTTP: request headers (string values).",
+      "additionalProperties": true
+    },
+    "toolCallTimeoutMs": {
+      "type": "integer",
+      "description": "Timeout for each call to one of the server's tools, in milliseconds."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why the task needs this server, shown to the user with the approval request."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+Source: [`packages/experimental/mcp-connect/src/index.ts`](../packages/experimental/mcp-connect/src/index.ts)
+
+### `mcp_disconnect`
+
+Disconnect an MCP server that mcp_connect connected in this session and stop it. Its tools are gone from your next step.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Server name passed to mcp_connect."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+Source: [`packages/experimental/mcp-connect/src/index.ts`](../packages/experimental/mcp-connect/src/index.ts)
+
+### `mcp_list`
+
+List MCP servers: those connected in this session, those the profile provides, and those declared in project .mcp.json files, which mcp_connect accepts by name.
+
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+Source: [`packages/experimental/mcp-connect/src/index.ts`](../packages/experimental/mcp-connect/src/index.ts)
+
+Opt-in experimental bundle. Connects an MCP server to the calling Agent only, after user approval, either inline or by name from a project .mcp.json; the Session records it and resume reconnects it.
 
 <a id="deepseek-aidsh-experimental-browser-use-stagehand-native"></a>
 

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Serveurs MCP de session",
+    "description": "L'agent peut connecter un serveur MCP à la session en cours après votre accord, y compris les serveurs déclarés dans le .mcp.json de votre projet."
+  }
+}
