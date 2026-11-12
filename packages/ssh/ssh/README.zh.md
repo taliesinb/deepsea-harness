@@ -54,7 +54,7 @@ kind: "package-reference"
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-辅助进程通过其沙箱文件系统提供方分派 `fs.patch`、`fs.delete` 和 `fs.move`；严格 schema 校验 hunk、源/目标防护，以及完整或部分的移动结果。hunk 负载使用连接帧上限。
+辅助进程通过其沙箱文件系统提供方分派 `fs.patch`、`fs.delete`、`fs.move` 和 `fs.checkWrite`；严格 schema 校验 hunk、源/目标防护、完整或部分的移动结果，以及写入检查的回答。hunk 负载使用连接帧上限。
 
 <details>
 <summary>实现细节 — 点击展开</summary>

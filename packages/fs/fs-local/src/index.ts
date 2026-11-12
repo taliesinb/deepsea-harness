@@ -23,6 +23,7 @@ import type {
   FsInfo,
   FsPathInfo,
   FsTarget,
+  FsWriteCheck,
   FsWriteIntent,
   FsWriteOutcome,
 } from '@deepseek-ai/dsh-fs'
@@ -149,6 +150,14 @@ export class LocalFileSystem extends FileSystem {
     const local = await resolveLocalTarget(opts?.cwd ?? this.config.cwd, expandHomePrefix(path))
     if (opts?.signal?.aborted) throw new FsError('resolve aborted', 'FS_ABORTED')
     return { targetKey: local.targetKey, displayPath: local.displayPath }
+  }
+
+  /** This backend fences no mutation, so every target is `allowed` under every policy. */
+  override checkWrite(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: Parameters<FileSystem['checkWrite']>[2]): Promise<FsWriteCheck> {
+    void target
+    void signal
+    void sandboxPolicy
+    return Promise.resolve({ kind: 'allowed' })
   }
 
   override processPath(target: FsTarget): string {

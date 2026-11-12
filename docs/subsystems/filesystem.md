@@ -284,6 +284,22 @@ interface FsEditOutcome {
 }
 ```
 
+`checkWrite(target, signal, sandboxPolicy)` reports, without mutating, the decision a provider's sandbox fence makes for a mutation of the target under that policy: a write or create, an edit, a patch, a deletion, or either end of a move. `dsh-fs-sandbox` answers through the code its mutations run, `dsh-fs-local` answers `allowed`, `dsh-fs-ssh` asks the helper's sandboxed provider, and the base class answers `unknown`, which leaves the decision to the mutation. The answer reserves nothing; the mutation decides again.
+
+```ts type-equiv
+/**
+ * A provider's answer to {@link FileSystem.checkWrite}. `allowed` and `denied`
+ * are the decision the provider's own mutations make for that target and
+ * policy; `denied` carries the `FS_SANDBOX_DENIED` message a mutation would
+ * throw. `unknown` means the provider cannot decide without mutating, so the
+ * mutation decides.
+ */
+type FsWriteCheck =
+  | { readonly kind: 'allowed' }
+  | { readonly kind: 'denied'; readonly message: string }
+  | { readonly kind: 'unknown' }
+```
+
 ## The fs policy events (provider contract vocabulary)
 
 `dsh-fs` owns four events for mutation consumers and observation policy. Consumers dispatch intents before operations and record completed effects; they do not depend on the policy plugin. They carry only `dsh-fs` vocabulary plus an opaque `object` actor — no model-facing concepts and no agent/session owner structure.
@@ -383,7 +399,7 @@ type FsErrorCode = typeof FS_ERROR_CODES[number]
 
 ## The service and the plugin
 
-`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `processPath`, `processPathFromHostPath`, `fileUrl`, `contains`, `stat`, `lstat`, `readText`, `streamText`, `readBytes`, `listDir`, `writeText`, `editText`, `patchText`, `deleteFile`, and `moveFile`. `dsh-fs-observation-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit/delete intent waterfalls from unseen/absent/present state and records `FsObservation` values. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated [`ctx.fs` section](#ctxfs--filesystem-abstract-seam) below shows the exact signatures.
+`FileSystem` (`ctx.fs`, abstract) owns the provider primitives: `resolve`, `processPath`, `processPathFromHostPath`, `fileUrl`, `contains`, `stat`, `lstat`, `readText`, `streamText`, `readBytes`, `listDir`, `checkWrite`, `writeText`, `editText`, `patchText`, `deleteFile`, and `moveFile`. `dsh-fs-observation-policy` registers **no service** — it is a plugin that adds policy through the `fs/*` event gate: it decides the write/edit/delete intent waterfalls from unseen/absent/present state and records `FsObservation` values. The executor is `dsh-tool-fs`: it reads/writes/edits through `ctx.fs`, dispatches the waterfalls, and emits the recording event. The generated [`ctx.fs` section](#ctxfs--filesystem-abstract-seam) below shows the exact signatures.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -409,6 +425,26 @@ Abstract filesystem provider. Targets must preserve identity across aliases; rea
  * @throws when the provider does not support watching or cannot initialize the watcher.
  */
 watch(target: FsTarget, changed: (error?: Error) => void, signal: AbortSignal): Promise<() => Promise<void>>
+
+/**
+ * Answer, without mutating, whether this provider's sandbox fence would let
+ * a mutation of `target` run under `sandboxPolicy`: creating or replacing it
+ * ({@link writeText}), {@link editText}, {@link patchText},
+ * {@link deleteFile}, or either end of {@link moveFile}. A provider answers
+ * with the decision its mutations make, through the same code, performs no
+ * I/O beyond the reads that decision makes, and never prompts. The answer
+ * holds when it is made; each mutation decides again. Guard, existence, and
+ * host-permission failures are outside it. The base provider answers
+ * `unknown`.
+ * @param target - the resolved target a mutation would use.
+ * @param signal - aborts the decision's reads or round-trip.
+ * @param sandboxPolicy - the per-call mode and workspace root the mutation
+ *   would run under. Omit to leave the backend its own default.
+ * @returns `allowed`, `denied` with the refusal message, or `unknown`.
+ * @throws the error a mutation would throw while deciding, such as an
+ *   invalid writable root.
+ */
+checkWrite(target: FsTarget, signal?: AbortSignal, sandboxPolicy?: SandboxExecutionPolicy): Promise<FsWriteCheck>
 
 /**
  * Resolve a model/plugin-supplied path into a stable {@link FsTarget}. May perform I/O (a
