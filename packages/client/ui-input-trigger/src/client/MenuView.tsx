@@ -9,7 +9,8 @@
  * are mousedown-handled and the highlight is exposed via
  * aria-activedescendant on the listbox). A row reads title, then the
  * command-name alias when the title is not the name in another letter case
- * (a localized title), then the description right-aligned. A source publishing crumbs gets a breadcrumb
+ * (a localized title), then the description right-aligned; a candidate's
+ * label segments replace the title, dim ones in quiet ink. A source publishing crumbs gets a breadcrumb
  * header pinned above the scrolling list.
  */
 import { MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -183,7 +184,18 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
                               : <item.icon size={14} />}
                           </span>
                         )}
-                        <span className={css.itemName}>{item.label ?? item.name}</span>
+                        <span className={css.itemName}>
+                          {item.labelSegments === undefined
+                            ? (item.label ?? item.name)
+                            : item.labelSegments.map((segment, segmentIndex) => (
+                              <span
+                                key={`${String(segmentIndex)}-${segment.text}`}
+                                className={segment.dim === true ? css.itemNameDim : undefined}
+                              >
+                                {segment.text}
+                              </span>
+                            ))}
+                        </span>
                         {item.label !== undefined && item.label.toLowerCase() !== item.name.toLowerCase() && (
                           <span className={css.itemAlias}>{item.name}</span>
                         )}
