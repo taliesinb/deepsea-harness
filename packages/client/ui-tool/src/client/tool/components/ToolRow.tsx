@@ -9,7 +9,7 @@ import type { ContextMenuTriggerProps } from '@deepseek-ai/dsh-client-ui-context
 import type { PropsRenderSlots, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { OpenFileOptions, UseDisclosure } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { MessageImageLoader } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../models/diff-card-model.ts'
+import { CHAT_DIFF_MAX_LINES, type DiffCardModel, type PreparingDiffSource } from '../models/diff-card-model.ts'
 import { CHAT_READ_MAX_LINES, type ReadCardModel } from '../models/read-card-model.ts'
 import type { ImageCardModel } from '../models/image-card-model.ts'
 import { CHAT_SEARCH_MAX_LINES, type SearchCardModel } from '../models/search-card-model.ts'
@@ -27,6 +27,7 @@ import type { WebCardModelProps } from '../models/web-card-model.ts'
 import { AskQuestionCard } from './AskQuestionCard.tsx'
 import { ToolDetails, type ToolDetailsModel } from './ToolDetails.tsx'
 import { ExitCodeBadge } from './ExitCodeBadge.tsx'
+import { PreparingDiffBlock } from './PreparingDiffBlock.tsx'
 import css from './ToolRow.module.css'
 
 /** A summary that leads to another place in the same transcript. */
@@ -69,6 +70,12 @@ export interface ToolRowProps {
   terminal?: TerminalCardModel | null | undefined
   /** Diff card with inline totals colored on header hover and while expanded. */
   diff?: DiffCardModel | null | undefined
+  /**
+   * Diff card over a preparing call's streaming arguments. It makes the
+   * preparing row expandable and is read only while the row is expanded;
+   * other states ignore it. Keep one source for the whole preparation.
+   */
+  preparingDiff?: PreparingDiffSource | null | undefined
   read?: ReadCardModel | null | undefined
   /**
    * Image-card material for a call whose result is an image (derived by
@@ -135,7 +142,8 @@ function stateStatus(state: ToolRowState, t: TranslateNS<'conversation'>): strin
 
 /**
  * Render one localized tool summary and lazily mounted result card.
- * Preparation retains the icon, title, and optional tool-name summary without disclosure.
+ * Preparation retains the icon, title, and optional tool-name summary, with a
+ * disclosure only for a streaming diff card.
  * @param props - tool state, summary, output, and navigation callbacks.
  * @returns the tool disclosure.
  */
@@ -153,6 +161,7 @@ export const ToolRow = memo(function ToolRow({
   errorSummary,
   terminal,
   diff,
+  preparingDiff,
   read,
   image,
   renderSlot,
@@ -192,7 +201,10 @@ export const ToolRow = memo(function ToolRow({
   const inputRaw = bodyRaw ?? null
   const outputText = output ?? null
   const card = askQuestionBody ?? terminalBody ?? diffBody ?? readBody ?? imageBody ?? searchBody ?? webBody ?? detailsBody
-  const expandable = state !== 'preparing' && (inputRaw !== null || outputText !== null || card !== null)
+  const streaming = state === 'preparing' ? preparingDiff ?? null : null
+  const expandable = state === 'preparing'
+    ? streaming !== null
+    : inputRaw !== null || outputText !== null || card !== null
   const open = expanded && expandable
   const bodyText = useMemo(
     () => open && card === null && inputRaw !== null ? formatToolBody(variant, inputRaw) : null,
@@ -307,6 +319,10 @@ export const ToolRow = memo(function ToolRow({
   ])
   const expandedContent = useMemo(() => open ? (
     <div className={clsx(css.bodyWrap, detailsBody !== null && css.detailsBodyWrap)}>
+      {/* A preparing row has no other card, input, or output. */}
+      {streaming !== null && (
+        <PreparingDiffBlock source={streaming} labels={diffLabels} maxLines={CHAT_DIFF_MAX_LINES} className={css.diffBody} />
+      )}
       {askQuestionBody !== null
         ? <AskQuestionCard card={askQuestionBody} />
         : terminalBody !== null
@@ -428,7 +444,7 @@ export const ToolRow = memo(function ToolRow({
       )}
     </div>
   ) : undefined, [
-    open, detailsBody, askQuestionBody, terminalBody, terminalLabels, diffBody, diffLabels, readBody, readLabels,
+    open, streaming, detailsBody, askQuestionBody, terminalBody, terminalLabels, diffBody, diffLabels, readBody, readLabels,
     imageBody, renderSlot, loadImage, searchBody, searchLabels, webBody, webLabels, inspect, t, onOpenFile,
     variant, bodyText, cardBody, outputText, state,
   ])
