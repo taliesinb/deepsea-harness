@@ -144,6 +144,8 @@ describe('ui-settings-models apply', () => {
     expect(entry.options).toMatchObject({ id: 'models', order: 10 })
     // The section claims its two extension seats in the same registration.
     expect(before.slots.spec('settings.models.provider-card')).toMatchObject({ kind: 'keyed', scope: 'root' })
+    expect(before.slots.spec('settings.models.provider-status')).toMatchObject({ kind: 'keyed', scope: 'root' })
+    expect(before.slots.spec('settings.models.provider-actions')).toMatchObject({ kind: 'keyed', scope: 'root' })
     expect(before.slots.spec('settings.models.footer')).toMatchObject({ kind: 'list', scope: 'root' })
     // The nav label is a locale-following thunk; owners resolve at read time.
     expect(resolveSlotLabel(entry.options.label)).toBe('模型')

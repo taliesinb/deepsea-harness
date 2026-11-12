@@ -25,16 +25,16 @@ import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
-import type { LlmNativeAuth, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
-// Type-only: pulls this package's SlotMap merge (the two Models child slots).
-import type {} from './slot-contract.ts'
+import type { LlmNativeAuth, LlmSignInRoute, SettingsNamespaceView } from '@deepseek-ai/dsh-api-remotes/client'
+// Type-only: pulls this package's SlotMap merge (the Models child slots).
+import type { ProviderCardExtrasOwnerProps } from './slot-contract.ts'
 import { CustomProviderCard } from './CustomProviderCard.tsx'
 import { deriveKeyRef, protocolChoices, providerUsable, reasoningLevelChoices } from './store.ts'
 import type { ModelsSettingsStore, ProviderRow } from './store.ts'
 import type { ModelsOperations } from './operations.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import { ProviderEditor, type ProviderEditorProps } from './ProviderEditor.tsx'
-import type { en } from './locales.ts'
+import type { en, ModelsKey } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
 /** Injected dependencies of {@link ModelsSection} (slot `inject`). */
@@ -60,7 +60,11 @@ export interface ModelsSectionInjected {
 type AddMode = 'catalog' | 'custom'
 
 /** The child slots this section declares and dispatches (see ./slot-contract.ts). */
-type ModelsChildSlots = 'settings.models.provider-card' | 'settings.models.footer'
+type ModelsChildSlots =
+  | 'settings.models.provider-card'
+  | 'settings.models.provider-status'
+  | 'settings.models.provider-actions'
+  | 'settings.models.footer'
 
 /** The child-slot dispatch function the renderer binds for the section. */
 type ModelsRenderSlot = PropsRenderSlots<ModelsChildSlots>['renderSlot']
@@ -98,6 +102,8 @@ interface EditorTarget extends ProviderIdentity {
   baseURLEnv?: readonly string[]
   /** The route's native authentication (see {@link ProviderEditorProps.nativeAuth}). */
   nativeAuth?: LlmNativeAuth
+  /** The route is a browser sign-in route (directory `signIn`); it picks the deletion copy. */
+  signIn?: LlmSignInRoute
 }
 
 /** A dormant directory row the add card can adopt, with its registered namespace. */
@@ -197,6 +203,11 @@ function keyConfiguredOf(row: ProviderRow): boolean {
     : row.derivedCredential?.configured === true
 }
 
+/** The owner share every provider-card seat (body, status, actions) of one row is dispatched with. */
+function cardExtrasOf(row: ProviderRow): ProviderCardExtrasOwnerProps {
+  return { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) }
+}
+
 function targetOf(row: ProviderRow): EditorTarget {
   const managedRef = deriveKeyRef(row.entry.provider)
   const credentialRef = row.apiKeyEnv === managedRef
@@ -215,6 +226,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     ...row.entry.defaultBaseURL === undefined ? {} : { defaultBaseURL: row.entry.defaultBaseURL },
     ...row.entry.baseURLEnv === undefined ? {} : { baseURLEnv: row.entry.baseURLEnv },
     ...row.entry.nativeAuth === undefined ? {} : { nativeAuth: row.entry.nativeAuth },
+    ...row.entry.signIn === undefined ? {} : { signIn: row.entry.signIn },
   }
 }
 
@@ -228,6 +240,32 @@ export function providerTargetLabel(target: ProviderIdentity): string {
 /** Replace the one provider placeholder in localized destructive-action copy. */
 export function providerCopy(template: string, target: ProviderIdentity): string {
   return template.replace('{provider}', () => providerTargetLabel(target))
+}
+
+/**
+ * Replace the one provider placeholder with the display name alone, for copy
+ * that is already about one provider (the deletion dialog's title), where the
+ * route id would only lengthen it.
+ * @param template - localized copy with a `{provider}` placeholder.
+ * @param target - the provider it names.
+ * @returns the copy.
+ */
+function providerNameCopy(template: string, target: ProviderIdentity): string {
+  return template.replace('{provider}', () => target.displayName)
+}
+
+/**
+ * The deletion dialog's description for one target: a plan or another sign-in
+ * route by its kind, else a provider by whether the deletion also removes its
+ * page-managed key.
+ * @param target - the provider being deleted.
+ * @returns the copy key.
+ */
+function deleteDescriptionKey(target: Pick<EditorTarget, 'credentialRef' | 'signIn'>): ModelsKey {
+  if (target.signIn !== undefined) {
+    return target.signIn.kind === 'subscription' ? 'deletePlanDescription' : 'deleteSignInDescription'
+  }
+  return target.credentialRef === undefined ? 'deleteDescription' : 'deleteDescriptionWithCredential'
 }
 
 /**
@@ -367,9 +405,11 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
   const anyUsable = state.rows.some(providerUsable)
   const configured = state.rows.filter(row => row.configured)
   const configurable = state.rows.filter(row => state.namespaces.has(row.entry.settingsNs))
+  // A browser sign-in route is added by signing in (its flow creates the
+  // route); adopting it here would configure a route that holds no grant.
   const addable: AddableRow[] = state.rows.flatMap((row) => {
     const namespace = state.namespaces.get(row.entry.settingsNs)
-    return namespace === undefined || row.configured ? [] : [{ row, namespace }]
+    return namespace === undefined || row.configured || row.entry.signIn !== undefined ? [] : [{ row, namespace }]
   })
   // Hand-declared routes live in the pi-ai namespace, which is also the only
   // one whose schema names the protocols one may speak; without it mounted
@@ -447,11 +487,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                   readOnly: !state.writable,
                   onClose: (changed) => { closeSetup(changed, target) },
                 })}
-                {renderSlot(
-                  'settings.models.provider-card',
-                  { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
-                  { entryKey: row.entry.settingsNs },
-                )}
+                {renderSlot('settings.models.provider-card', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
               </li>
             )
           }
@@ -464,13 +500,18 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
                 <span className={styles['rowIdentity']}>
-                  <span className={styles['rowName']}>{row.entry.displayName}</span>
+                  {/* A sign-in route is named by its vendor, with the kind as
+                      its tag: "Anthropic [Plan]", not "Anthropic Plan". */}
+                  <span className={styles['rowName']}>{row.entry.signIn?.vendor ?? row.entry.displayName}</span>
                   {/* Only the adapter can tell a hand-declared route from a
                       shipped one it also has a stored profile for, so the tag
                       follows its answer and stays off when it gives none. */}
                   {row.entry.declared === true
                     ? <span className={styles['rowTag']}>{t('customTag')}</span>
                     : null}
+                  {row.entry.signIn === undefined
+                    ? null
+                    : <span className={styles['rowTag']}>{t(row.entry.signIn.kind === 'subscription' ? 'planTag' : 'oauthTag')}</span>}
                   {/* The store keeps the account row only while the account lists models. */}
                   {row.entry.provider === 'deepseek-account'
                     ? (
@@ -499,8 +540,10 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                         />
                       )
                       : null}
+                  {renderSlot('settings.models.provider-status', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
                 </span>
                 <span className={styles['rowActions']}>
+                  {renderSlot('settings.models.provider-actions', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
                   {/* The account catalog comes from the account listing; its model overrides live in cordis.patch.yml. */}
                   {row.entry.provider === 'deepseek-account'
                     ? null
@@ -544,11 +587,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                 </span>
               </div>
               {error}
-              {renderSlot(
-                'settings.models.provider-card',
-                { provider: row.entry, configured: row.configured, keyConfigured: keyConfiguredOf(row) },
-                { entryKey: row.entry.settingsNs },
-              )}
+              {renderSlot('settings.models.provider-card', cardExtrasOf(row), { entryKey: row.entry.settingsNs })}
               {open
                 ? renderProviderEditor({
                   target,
@@ -655,11 +694,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
                     />
                     {addRow === undefined
                       ? null
-                      : renderSlot(
-                        'settings.models.provider-card',
-                        { provider: addRow.entry, configured: addRow.configured, keyConfigured: keyConfiguredOf(addRow) },
-                        { entryKey: addRow.entry.settingsNs },
-                      )}
+                      : renderSlot('settings.models.provider-card', cardExtrasOf(addRow), { entryKey: addRow.entry.settingsNs })}
                   </div>
                 )
                 : null}
@@ -721,16 +756,9 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
       <Modal
         open={deleteTarget !== undefined}
         onClose={closeDelete}
-        title={deleteTarget === undefined ? '' : providerCopy(t('deleteTitle'), deleteTarget)}
+        title={deleteTarget === undefined ? '' : providerNameCopy(t('deleteTitle'), deleteTarget)}
         closeLabel={t('close')}
-        description={deleteTarget === undefined
-          ? ''
-          : providerCopy(
-            deleteTarget.credentialRef === undefined
-              ? t('deleteDescription')
-              : t('deleteDescriptionWithCredential'),
-            deleteTarget,
-          )}
+        description={deleteTarget === undefined ? '' : t(deleteDescriptionKey(deleteTarget))}
         className={styles['deleteDialog'] as string}
         footer={(
           <>
@@ -743,9 +771,7 @@ function Loaded({ injected, renderSlot }: { injected: ModelsSectionFace; renderS
               disabled={deleting}
               onClick={confirmDelete}
             >
-              {deleteTarget === undefined
-                ? ''
-                : providerCopy(deleting ? t('deleting') : t('deleteConfirm'), deleteTarget)}
+              {t(deleting ? 'deleting' : 'deleteConfirm')}
             </Button>
           </>
         )}

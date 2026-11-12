@@ -216,6 +216,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'userQuestions/answer': 'owner-only', // owner answers a pending question
   'userQuestions/attachWait': 'owner-only', // owner answers a pending question
   'llm/discoverModels': 'owner-only', // owner discovers models
+  'llm/describeSignIn': 'owner-only', // owner provider sign-ins and their accounts; the served page never reads it
   'agentPresets/list': 'owner-only', // owner agent presets
   'agentPresets/read': 'owner-only', // owner agent presets
   'agentPresets/select': 'owner-only', // owner agent presets

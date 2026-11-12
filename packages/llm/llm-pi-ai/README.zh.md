@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以使用已存储的 OAuth 或交互式密钥登录，并通过跨进程锁刷新凭据。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
+`@deepseek-ai/dsh-llm-pi-ai` 通过一份配置把模型请求路由到多个 pi-ai 提供方、OpenAI 兼容网关或自托管服务器。已安装的 pi-ai 提供方会提供端点、协议和模型目录默认值；自定义路由可以直接声明这些值，无需修改代码。profile 与凭据按请求解析，因此设置变更会在下一个请求生效，无需重启。受支持的提供方可以使用交互式密钥登录，也可以在独立的 `-oauth` 路由上使用已存储的 OAuth，并通过跨进程锁刷新凭据。本包可以在没有路由时启动，并在用户设置添加路由后将其激活。
 
 ## 目录
 
@@ -98,17 +98,35 @@ kind: "package-reference"
 
 ### 登录提供方
 
-pi-ai 提供登录的提供方可以通过 harness 授权 seam 登录：流程提供 OAuth 或交互式密钥提示（密钥键入 pi-ai 自己的登录提示，而非设置表单），得到的凭据存储在 harness 凭据存储的 `llm-pi-ai/<provider id>` 记录中。存储的登录在其路由的 `apiKeyEnv` 覆盖之下完成认证，并在存储的跨进程锁下自行刷新；退出登录即删除存储记录。落在记录文法之外——小写连字符标识符——的手工声明路由键无法登录，因为对它的记录写入会以 `LlmError('UNSTORABLE_PROVIDER_ID')` 拒绝；这类路由改用 `apiKeyEnv` 或提供方 ambient 设置认证。
+若 pi-ai 以交互方式收集某提供方的 API key，可以通过 harness 授权 seam 在其自身路由下登录：键为 `llm-pi-ai/<provider id>` 的流程提供该密钥提示（密钥输入到 pi-ai 自己的登录提示中，而非设置表单），密钥存入 harness 凭据存储的同一键下。已存储的登录在任何 `apiKeyEnv` 覆盖之下认证其路由；退出登录会删除已存储的记录。超出记录语法（小写连字符标识符）的手工声明路由键无法登录，因为对它的记录写入会以 `LlmError('UNSTORABLE_PROVIDER_ID')` 拒绝；此类路由改经 `apiKeyEnv` 或提供方环境设置认证。
+
+该路由从不提供提供方的 OAuth 登录。每个支持 OAuth 的已安装 pi-ai 提供方都有专用路由 `<provider id>-oauth`，并以其为键注册一个 `ctx.authorization` 流程：例如 `anthropic-oauth`，其 grant 存入 `llm-pi-ai/anthropic-oauth`。运行该流程的界面负责把 `anthropic-oauth` 路由加入配置并发起授权。每个 OAuth 提供方都遵循这一规则，包括 `openai-codex` 等仅支持 OAuth 的提供方，因此同一提供方的订阅与 API key 可以并存，互不覆盖。
+
+OAuth 路由使用原生目录与传输实现，拒绝 `apiKeyEnv`、`api` 和 `baseURL` 覆盖，也不会回退到 API 密钥记录或环境密钥。不带后缀的提供方路由、设置和存储凭据保持独立。与浏览器回调竞争的问题（手动输入授权码的后备方式）带有一个信号，在回调胜出或尝试被取消时触发，因此被取消的回环登录会关闭其回调服务器。刷新仅在凭据存储的跨进程锁下写入 OAuth 路由自己的记录；退出登录仅删除该记录，不移除路由。旧版本存于不带后缀路由下的 grant 既不会被移动也不会被删除；经 `-oauth` 流程登录即授权专用路由。
+
+`-oauth` 后缀表示登录方式，而不是路由的计费方式。`oauthRouteAuth(route)` 读取 pi-ai 在提供方 OAuth 认证上声明的 `isSubscription`：订阅计划登录（Claude Pro/Max、经 `openai` 与旧版 `openai-codex` 流程的 ChatGPT、GitHub Copilot、Kimi Code、Muse、SuperGrok）为 `subscription`，pi-ai 未标为订阅、签发普通按量计费密钥的流程（OpenRouter、Radius）为 `api-key`。显示名称随之确定——`Anthropic Plan`，但 `OpenRouter OAuth`——用于路由目录、Settings 表单和授权流程；路由 ID 与凭据键保留 `-oauth` 写法。
+
+Sign in with ChatGPT（`openai-oauth`）用稳定的设备 id 向 OpenAI 标识安装实例。流程为每个 DSH home 提供一个：首次有登录请求它时创建的随机 UUID，存于凭据存储的 `llm-pi-ai-installation/device-id`，此后该 home 的每次登录都出示它。从不请求设备 id 的提供方登录不会存储任何 id。
+
+传输分派会恢复 pi-ai 用于提供方专属标头与重放的原生提供方 id。持久化重放仍标识已配置的路由，使 OAuth 与 API 密钥历史保持独立。
 
 ### 解析模型目录
 
 profile 的 `models` 列表会替换而非扩展路由的已安装目录；每个条目从同 id 已安装模型取未设置字段的默认值，因此把路由收窄到两个模型、修正一个容量或添加比已安装目录更新的模型都是一行编辑。`modelOverrides` 无需该代价即可重塑个别已安装目录模型——修正一个模型，保留其余三十七个——当它与 `models` 列表并存、位于手工声明路由上、或点名目录未描述的模型时会被拒绝，因为静默不变的模型会成为别人日后寻找的拼写错误。
+
+路由提供和列出的已安装目录不包含 OpenRouter 的 `<model>:batch` 别名，尽管 pi-ai 目录把它们记录为聊天模型：OpenRouter 只在 `/api/v1/batches` 提供它们，对它们的 Chat Completions 或 Messages 请求会得到 404。草稿提供方的模型发现同样会丢弃 `endpoints` 只列出批处理端点的模型。
 
 ### 带推理（reasoning）与协议兼容运行
 
 `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
 确切模型元数据将 `reasoning.efforts` 按可选强度从低到高排列。配置函数可从该列表中选择，再由 `prepareCall()` 校验具体强度。适配器只接收解析后的控制项。选择 `off` 不保证禁用推理：以省略推理字段表达该值的协议会沿用网关默认行为。所选等级下产生的推理 token 都计入该请求的输出上限。
+
+`resolveModelInfo()` 会把已安装目录中的美元标价作为 `pricing`（来源 `pi-ai catalog <生成日期>`）发布给目录中费率非零的模型。订阅路由不发布：归类为订阅的专用 `-oauth` 路由（除 OpenRouter 外的所有流程；OpenRouter 的登录签发按量计费密钥），以及唯一认证方式是订阅登录的目录提供方（例如 `openai-codex`），因为其目录费率并不是该路由实际收取的费用。它们改为以 `listPricing` 发布同样的目录费率：即这些用量在提供方按 token 计费 API 上的花费，用于与 API 价格比较。`providerInfo()` 为每个目录路由报告其 `catalogProvider`（原生 ID，`anthropic-oauth` 为 `anthropic`）、`vendor`（目录提供方的名称，`Anthropic`）以及 `auth` 类型：路由声明了自己的 `auth` 设置（`subscription`、`api-key` 或 `local`）时用该设置，否则上述路由为 `subscription`，其他目录路由为 `api-key`（即使经由本地代理），`baseURL` 为回环地址（`localhost`、`127.0.0.0/8`、`::1`）的自定义路由为 `local`，其他自定义路由不报告。OAuth 路由只能声明自己的类别（`subscription`，或 OpenRouter 的 `api-key`）。Anthropic 的 1 小时缓存写入附加费未被体现，因为用量不区分 5 分钟与 1 小时的写入。
+
+`subscriptionUsage()` 为 `anthropic-oauth` 与 `openai-codex` 路由实现（后者包括其原生 ID 与 `-oauth` 路由），每次都是一条 GET 请求，使用该路由自己的登录令牌（通过 pi-ai 的 `Models.getAuth` 解析，必要时刷新）。Anthropic：`https://api.anthropic.com/api/oauth/usage`，归一化为 `5h` 与 `7d` 窗口，外加 `extra_usage.is_enabled`。Codex：`https://chatgpt.com/backend-api/wham/usage`，带上从令牌 `https://api.openai.com/auth` 声明中取得的 `chatgpt-account-id` 请求头，与 pi-ai 的 Codex 传输发送的一致；`rate_limit.primary_window` 与 `secondary_window` 成为按 `limit_window_seconds` 标注的窗口（`5h`、`7d`，否则为整小时、整天或整分钟），额度与模型可用性不予报告。两种读数在已知时都携带已登录的 `account`：Anthropic 的来自第二条 GET 请求 `https://api.anthropic.com/api/oauth/profile`（`id` = 账号 uuid `/` 组织 uuid、邮箱、全名或显示名、组织名称与类型），每个访问令牌只读取一次并缓存在内存中（十六个令牌），读取失败时该读数不带账号；Codex 的来自访问令牌的 `https://api.openai.com/profile`（邮箱、姓名）与 `https://api.openai.com/auth`（`id` = `chatgpt_account_id` `/` 成员的用户 ID，`chatgpt_plan_type`）声明，不发出请求。两个端点都未公开文档（分别支撑 Claude Code 的 `/usage` 与 Codex CLI 的 `/status`）；HTTP 429 表现为 `RATE_LIMIT`，401/403 表现为 `AUTH`。自定义基础 URL、没有账号 ID 的令牌以及其他 OAuth 路由返回 `undefined`。不发出任何模型请求。
+
+`responseCost()` 为 `openrouter` 路由实现：一条 `GET https://openrouter.ai/api/v1/generation?id=<gen-…>` 请求，使用该路由的 API 密钥，返回以美元计的 `data.total_cost`。其他路由以及不是 generation ID 的 ID 返回 `undefined`。
 
 对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
 
@@ -158,8 +176,8 @@ Config 更新严格验证发生变化的 provider。初始加载将已存储的�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Config 快照、目录及路由注册 |
-| [`src/auth.ts`](src/auth.ts) | 覆盖 harness 凭据平面的凭据存储与 ambient auth context |
-| [`src/login.ts`](src/login.ts) | 面向提供登录的已安装提供方的授权流程 |
+| [`src/auth.ts`](src/auth.ts) | 覆盖 harness 凭据平面的凭据存储与 ambient auth context，以及安装设备 id |
+| [`src/login.ts`](src/login.ts) | 提供方路由上的密钥登录流程，以及其 `-oauth` 路由上的 OAuth 流程 |
 | [`src/config.ts`](src/config.ts) | Profile schema、解析与可服务性校验 |
 | [`src/catalog.ts`](src/catalog.ts) | 已安装目录集成与漂移门禁 |
 | [`src/provider-data.ts`](src/provider-data.ts) | 配置界面使用的认证与端点生成数据 |
@@ -256,7 +274,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **`maxRequestImageBytes` 只计算 base64 图片载荷**，文本、工具、描述符与 JSON 结构在该上限之外，因此它必须留有余量地低于网关请求体上限。
 - **字节上限没有移除量子**：达到 `maxRequestImageBytes` 后，每张新图片都只省略最少的最老前缀，因此每个新增图片的请求都会让提示词缓存复用从该位置重新开始。
 - **登录只存在于发起它的进程中**——授权尝试不持久，因此登录中途刷新页面会放弃它，用户需要重新开始。退出登录是对已存储记录执行 `deleteRecord`，只在本地忘记它，不会告知签发方。
-- **OpenAI 不提供 ChatGPT 登录**——pi-ai 的 Sign in with ChatGPT 用应用提供的稳定 UUID 向 OpenAI 标识安装实例，而 harness 没有用于第三方账号登录的安装 ID；`openai` 路由改用 API key 登录。
+- **设备 id 存于凭据存储中**——删除 `llm-pi-ai-installation/device-id` 或换用另一个 DSH home，会使下一次 Sign in with ChatGPT 出示新的 id，OpenAI 会将其视为另一个安装实例。
 - **提供方原生发现经本插件的 ambient context 回答**——不点名凭据的路由交由目录提供方自身解析，它会询问环境值（`AZURE_OPENAI_API_KEY`、`AWS_PROFILE` 及各提供方自有集合）与本地凭据文件。两个问题都在这里得到回答：凭据 seam 先于进程环境被查询，文件存在性则针对宿主进程的文件系统以 `~` 展开后检查。它做不到的是*读取*凭据文件内容——自行解析 `~/.aws/credentials` 的提供方会直接读取，不经该 seam。
 - **重置恢复继承配置**——重置下层 profile 提供的路由会恢复该路由。
 - **完整替换 Config 可以移除继承的字典条目**——字段重置则恢复其继承值。
