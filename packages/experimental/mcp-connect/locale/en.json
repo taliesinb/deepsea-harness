@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session MCP servers",
+    "description": "Let the agent connect an MCP server to the current session, after you approve it, including servers your project's .mcp.json declares."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP-Server pro Sitzung",
+    "description": "Der Agent kann nach Ihrer Zustimmung einen MCP-Server mit der aktuellen Sitzung verbinden, auch Server aus der .mcp.json Ihres Projekts."
+  }
+}

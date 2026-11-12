@@ -376,6 +376,7 @@
       "@deepseek-ai/dsh-experimental-tool-agent-team": ["./packages/experimental/tool-agent-team/src"],
       "@deepseek-ai/dsh-experimental-worktree": ["./packages/experimental/worktree/src"],
       "@deepseek-ai/dsh-experimental-tool-worktree": ["./packages/experimental/tool-worktree/src"],
+      "@deepseek-ai/dsh-experimental-mcp-connect": ["./packages/experimental/mcp-connect/src"],
       "@deepseek-ai/dsh-experimental-forge": ["./packages/experimental/forge/src"],
       "@deepseek-ai/dsh-experimental-forge/types": ["./packages/experimental/forge/src/types.ts"],
       "@deepseek-ai/dsh-experimental-forge-github": ["./packages/experimental/forge-github/src"],

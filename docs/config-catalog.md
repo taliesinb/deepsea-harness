@@ -1257,6 +1257,25 @@ export interface InspectorOptions {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-inspector -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-mcp-connect -->
+<a id="deepseek-aidsh-experimental-mcp-connect"></a>
+
+## `@deepseek-ai/dsh-experimental-mcp-connect`
+
+- `inject`: `tools` · `agents` · `workingDirectory` · `sessionProjections`
+- `source`: [`packages/experimental/mcp-connect/src/index.ts:35`](../packages/experimental/mcp-connect/src/index.ts)
+
+```ts config-catalog
+/** Deployment settings. */
+export interface Config {
+  /** Longest wait for a server to start and list its tools, in milliseconds. */
+  startupTimeoutMs: number
+  /** Offer servers declared in project `.mcp.json` files to `mcp_connect` and `mcp_list`. */
+  projectFiles: boolean
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-mcp-connect -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-experimental-ptc-runtime-python -->
 <a id="deepseek-aidsh-experimental-ptc-runtime-python"></a>
 
