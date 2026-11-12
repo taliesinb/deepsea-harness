@@ -5393,6 +5393,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'tool-jobs/wait-started',
+    mode: 'emit',
+    signature: '\'tool-jobs/wait-started\'(wait: JobOutputWait): void',
+    summary: 'A `job_output` call began waiting on a job.',
+    description: 'A `job_output` call began waiting on a job. Dispatched to every listener (not scope-filtered), before the wait can end, with each listener\'s failure contained and logged.',
+    parameters: [{ name: 'wait', description: 'the running wait, with its deadline and release.' }],
+  },
+  {
     name: 'tools/change',
     mode: 'emit',
     signature: '\'tools/change\'(): void',
@@ -6955,6 +6963,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JobOutputSource',
     declaration: 'export interface JobOutputSource {\n    channel?: JobChannel;\n    read(fromByte: number): JobSourceRead;\n}',
+  },
+  {
+    name: 'JobOutputWait',
+    declaration: 'export interface JobOutputWait {\n    readonly callId: ToolCallId;\n    readonly agent?: Agent;\n    readonly jobId: JobId;\n    readonly startedAt: number;\n    readonly deadline: number;\n    readonly ended: Promise<void>;\n    release(detail?: string): boolean;\n}',
   },
   {
     name: 'JobRead',
