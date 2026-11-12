@@ -3,7 +3,7 @@ import { memo } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createSnapshotStore, type ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { UseDisclosure } from '../src/client/contract/slots.ts'
+import type { TurnDisclosureBinding, UseDisclosure } from '../src/client/contract/slots.ts'
 import { bindDisclosure, useDisclosure } from '../src/client/chat/use-disclosure.ts'
 
 afterEach(cleanup)
@@ -95,5 +95,46 @@ describe('injected disclosure state', () => {
     fireEvent.click(second)
     act(() => { reset.set(2) })
     expect(second.getAttribute('aria-expanded')).toBe('false')
+  })
+})
+
+describe('default state and whole-Turn choices', () => {
+  function Row({ useDisclosure: use, defaultOpen }: { useDisclosure: UseDisclosure; defaultOpen?: boolean }) {
+    const { expanded, toggle } = use(defaultOpen)
+    return <button aria-expanded={expanded} onClick={toggle}>Row</button>
+  }
+
+  it('shows the default until the reader toggles, and follows a changing default', () => {
+    const view = render(<Row useDisclosure={useDisclosure} defaultOpen={false} />)
+    const row = view.getByRole('button')
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    view.rerender(<Row useDisclosure={useDisclosure} defaultOpen />)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('applies an Option-click to the Turn, and lets a newer choice override the reader\'s own toggle', () => {
+    const applyToTurn = vi.fn()
+    const turn = createSnapshotStore<TurnDisclosureBinding>({ choice: undefined, applyToTurn })
+    const bound = bindDisclosure(createSnapshotStore(0), turn)
+    const view = render(<Row useDisclosure={bound} />)
+    const row = view.getByRole('button')
+    fireEvent.click(row, { altKey: true })
+    expect(applyToTurn).toHaveBeenCalledWith(true)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    act(() => { turn.set({ choice: { open: true, generation: 1 }, applyToTurn }) })
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    act(() => { turn.set({ choice: { open: true, generation: 2 }, applyToTurn }) })
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('toggles only itself on Option-click outside a Turn', () => {
+    const view = render(<Row useDisclosure={bindDisclosure(createSnapshotStore(0))} />)
+    const row = view.getByRole('button')
+    fireEvent.click(row, { altKey: true })
+    expect(row.getAttribute('aria-expanded')).toBe('true')
   })
 })

@@ -8,7 +8,7 @@ import type { ChatNode } from '../contract/chat-nodes.ts'
 import type { ChatNodeStore } from '../contract/snapshot.ts'
 import { isAtOrOutside } from '../contract/group-tree.ts'
 import { turnProcessAlwaysOpen } from '../contract/turn-process.ts'
-import { turnProcessOpen } from '../stores.ts'
+import { turnDisclosure, turnProcessOpen } from '../stores.ts'
 import { hiddenOrCollapsing } from './flow-motion.ts'
 import css from './ChatView.module.css'
 
@@ -64,11 +64,19 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const interleavedInput = processPresentation?.hasInterleavedInput === true
   const alwaysOpen = liveProcess || interleavedInput || turnProcessAlwaysOpen(routedNode)
   const processOpen = alwaysOpen || storedOpen
-  const setOpen = useCallback((open: boolean) => {
+  const setOpen = useCallback((open: boolean, everything = false) => {
     if (processSpec !== undefined && !alwaysOpen) {
       actions.setTurnProcessOpen(processSpec.turn, processSpec.answerStep ?? 0, open)
     }
+    if (processSpec !== undefined && everything) actions.setTurnDisclosure(processSpec.turn, open)
   }, [actions, processSpec, alwaysOpen])
+  const disclosureChoice = useStore(state => turn === undefined ? undefined : turnDisclosure(state, turn))
+  const applyToTurn = useMemo(() => turn === undefined
+    ? undefined
+    : (open: boolean) => { actions.setTurnDisclosure(turn, open) }, [actions, turn])
+  const disclosureBinding = useMemo(
+    () => ({ choice: disclosureChoice, applyToTurn }), [disclosureChoice, applyToTurn],
+  )
   const foldCompleted = usePresentation(policy => policy.foldCompletedTurns)
   const keepReplies = usePresentation(policy => policy.foldedReplies === 'all')
   // A loaded end makes a partial historical Turn eligible without its start.
@@ -120,9 +128,15 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   }, [processMember, setOpen])
   const wrapperRef = useGroupAction(processHidden, revealProcess)
   const [disclosureReset] = useState(() => createSnapshotStore(0))
+  // Node renderers read the binding through the seat's bound disclosure Hook, which takes sources.
+  const [turnDisclosureSource] = useState(() => createSnapshotStore(disclosureBinding))
+  useEffect(() => {
+    if (turnDisclosureSource.getSnapshot() !== disclosureBinding) turnDisclosureSource.set(disclosureBinding)
+  }, [turnDisclosureSource, disclosureBinding])
   const turnData = turnDataOf(routedNode)
   const hookContext = useMemo<ChatNodeHookContext>(
-    () => ({ turnData, disclosureReset, useGroupAction }), [turnData, disclosureReset, useGroupAction],
+    () => ({ turnData, disclosureReset, turnDisclosure: turnDisclosureSource, useGroupAction }),
+    [turnData, disclosureReset, turnDisclosureSource, useGroupAction],
   )
   useEffect(() => {
     if (processMember && processHidden && wrapperRef.current !== null && hiddenOrCollapsing(wrapperRef.current)) {

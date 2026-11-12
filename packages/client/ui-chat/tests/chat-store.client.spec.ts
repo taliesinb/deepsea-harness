@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createChatStore, storedTurnProcessEntry, turnProcessOpen } from '../src/client/stores.ts'
+import { createChatStore, storedTurnProcessEntry, turnDisclosure, turnProcessOpen } from '../src/client/stores.ts'
 
 describe('createChatStore', () => {
   it('stores manual expansion and collapse for the current answer generation', () => {
@@ -43,5 +43,20 @@ describe('createChatStore', () => {
     expect(open()).toBe(false)
     expect(turnProcessOpen(store.store.getSnapshot(), { turn: 2, answerStep: 4 }, defaultOpen)).toBe(defaultOpen)
     expect(turnProcessOpen(store.store.getSnapshot(), { turn: 3, answerStep: 3 }, defaultOpen)).toBe(defaultOpen)
+  })
+
+  it('orders whole-Turn disclosure choices and ends a Turn\'s choice when the Turn folds', () => {
+    const store = createChatStore().create()
+    const choice = (turn: number) => turnDisclosure(store.store.getSnapshot(), turn)
+    store.actions.setTurnDisclosure(2, true)
+    store.actions.setTurnDisclosure(3, false)
+    store.actions.setTurnDisclosure(2, false)
+    expect(choice(2)).toEqual({ turn: 2, open: false, generation: 3 })
+    expect(choice(3)).toEqual({ turn: 3, open: false, generation: 2 })
+    store.actions.setTurnProcessOpen(2, 0, true)
+    expect(choice(2)).toBeDefined()
+    store.actions.setTurnProcessOpen(2, 0, false)
+    expect(choice(2)).toBeUndefined()
+    expect(choice(3)).toBeDefined()
   })
 })

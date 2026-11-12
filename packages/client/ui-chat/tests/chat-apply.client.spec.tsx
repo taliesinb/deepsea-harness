@@ -352,7 +352,7 @@ describe('Chat apply wiring', () => {
     const useChat = vi.fn(() => { throw new Error('Turn data must not read the Chat snapshot') })
     const useTurnData = spec.inject.hooks.turnData(
       { useChat } as unknown as Parameters<typeof spec.inject.hooks.turnData>[0],
-      { turnData: data, disclosureReset: createSnapshotStore(0), useGroupAction: () => { throw new Error('unused group action') } },
+      { turnData: data, disclosureReset: createSnapshotStore(0), turnDisclosure: createSnapshotStore({ choice: undefined }), useGroupAction: () => { throw new Error('unused group action') } },
     )
     const Probe = ({ useData }: { useData: UseChatNodeTurnData }) => (
       <output>{useData('metric') ?? 'missing'}</output>
@@ -370,7 +370,7 @@ describe('Chat apply wiring', () => {
 
     view.rerender(<Probe useData={spec.inject.hooks.turnData(
       { useChat } as unknown as Parameters<typeof spec.inject.hooks.turnData>[0],
-      { turnData: undefined, disclosureReset: createSnapshotStore(0), useGroupAction: () => { throw new Error('unused group action') } },
+      { turnData: undefined, disclosureReset: createSnapshotStore(0), turnDisclosure: createSnapshotStore({ choice: undefined }), useGroupAction: () => { throw new Error('unused group action') } },
     )} />)
     expect(view.getByText('missing')).toBeTruthy()
     expect(useChat).not.toHaveBeenCalled()
@@ -399,7 +399,10 @@ describe('Chat apply wiring', () => {
     const useFirstHeader = spec.inject.hooks.groupHeaderAction(standard, { motion: first })
     const useSecondHeader = spec.inject.hooks.groupHeaderAction(standard, { motion: second })
     expect(nodeSpec.inject.hooks.groupAction(standard, {
-      turnData: undefined, disclosureReset: createSnapshotStore(0), useGroupAction: useFirst,
+      turnData: undefined,
+      disclosureReset: createSnapshotStore(0),
+      turnDisclosure: createSnapshotStore({ choice: undefined }),
+      useGroupAction: useFirst,
     })).toBe(useFirst)
     const reveal = vi.fn()
     function Probe({ useHidden, hidden, label }: { useHidden: UseGroupAction; hidden: boolean; label: string }) {
@@ -487,7 +490,7 @@ describe('Chat apply wiring', () => {
       const reset = createSnapshotStore(0)
       const useDisclosure = spec.inject.hooks.disclosure(
         {} as Parameters<typeof spec.inject.hooks.disclosure>[0],
-        { turnData: undefined, disclosureReset: reset, useGroupAction: () => { throw new Error('unused group action') } },
+        { turnData: undefined, disclosureReset: reset, turnDisclosure: createSnapshotStore({ choice: undefined }), useGroupAction: () => { throw new Error('unused group action') } },
       )
       function Probe({ useDisclosure }: { useDisclosure: UseDisclosure }) {
         const { expanded, toggle } = useDisclosure()

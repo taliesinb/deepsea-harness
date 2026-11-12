@@ -10,7 +10,11 @@ export interface DisclosureRowProps {
   title: string
   open: boolean
   expandable: boolean
-  onToggle: () => void
+  /**
+   * Flip the disclosure.
+   * @param event - the click or key event; `altKey` marks an Option-click for callers that act on it.
+   */
+  onToggle: (event: { readonly altKey: boolean }) => void
   /** Animate the complete header while its owning operation is running. */
   running?: boolean | undefined
   /** Makes the title row the disclosure target; with an accessory, it shrinks to its content width. */
@@ -64,12 +68,12 @@ export const DisclosureRow = memo(function DisclosureRow({
   const rowExpands = expandable && expandOnRowClick
   const toggleFromLeading = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
-    onToggle()
+    onToggle(event)
   }
   const toggleFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!rowExpands || (event.key !== 'Enter' && event.key !== ' ')) return
     event.preventDefault()
-    onToggle()
+    onToggle(event)
   }
   const collapsedLeading = previewChevron
     ? (

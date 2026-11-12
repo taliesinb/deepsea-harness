@@ -423,6 +423,9 @@ describe('ToolRow', () => {
     expect(runningView.queryByTestId('tool-icon')).not.toBeNull()
     expect(runningView.container.querySelector('[data-state="running"]')).not.toBeNull()
     const errorView = render(<ToolRow {...rowProps} state="error" />)
+    // A failed call starts open; collapsing it shows the business icon again.
+    const errorToggle = errorView.getAllByRole('button').find(button => button.getAttribute('aria-expanded') === 'true')!
+    fireEvent.click(errorToggle)
     expect(errorView.container.querySelector('[data-testid="tool-icon"]')).not.toBeNull()
     expect(errorView.container.querySelector('[class*="chevronHover"]')).not.toBeNull()
   })
@@ -484,15 +487,16 @@ describe('ToolRow', () => {
     expect(open).not.toHaveBeenCalled()
   })
 
-  it('an error row shows the failure first line in the collapsed summary and the full text expanded', () => {
+  it('an error row starts open with the failure first line as its summary and the full text below', () => {
     const view = render(
       <ToolRow {...rowProps} state="error" errorSummary="boom" output={'boom\ndetail'} />,
     )
     expect(view.getByText('boom')).toBeTruthy()
     expect(view.queryByText('List files')).toBeNull()
-    fireEvent.click(view.getByRole('button'))
     expect(view.getByText(/detail/)).toBeTruthy()
     expect(view.container.querySelector('[data-error]')).not.toBeNull()
+    fireEvent.click(view.getByRole('button'))
+    expect(view.queryByText(/detail/)).toBeNull()
   })
 
   it('an error row without an error summary keeps the args summary', () => {
@@ -684,7 +688,6 @@ describe('GenericToolCard', () => {
     const view = render(<GenericToolCard {...props('mystery', denied)}
       getFileTriggerProps={() => ({})} />)
     expect(view.getByText('Auto review 已拒绝')).toBeTruthy()
-    fireEvent.click(view.getByRole('button'))
     expect(view.getByText('工具未执行。原因：scope was not authorized')).toBeTruthy()
     expect(view.queryByText('输入')).toBeNull()
     expect(view.getAllByText('输出')).toHaveLength(1)

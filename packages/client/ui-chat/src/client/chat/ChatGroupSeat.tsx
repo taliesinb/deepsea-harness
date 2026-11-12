@@ -1,5 +1,5 @@
 /** Stable process container; display policy changes visibility, never member parents. */
-import { memo, useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react'
 import {
   IconAgentPresetOutlineRegular, IconApiOutlineRegular, IconBrowseOutlineRegular, IconChevronDownOutlineRegular,
   IconChevronUpOutlineRegular, IconCodeOutlineRegular, IconEditOutlineRegular, IconGlobeOutlineRegular,
@@ -9,8 +9,8 @@ import {
 import type { GroupKey, NodeReference } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ProcessActivity } from '../contract/process-groups.ts'
 import type { ChatStoreState } from '../contract/store.ts'
-import type { ChatFlowSlotProps } from '../contract/slots.ts'
-import { turnProcessOpen } from '../stores.ts'
+import type { ChatFlowSlotProps, DisclosureToggleEvent } from '../contract/slots.ts'
+import { turnDisclosure, turnProcessOpen } from '../stores.ts'
 import { ChatNodeSeat } from './ChatNodeSeat.tsx'
 import { hiddenOrCollapsing } from './flow-motion.ts'
 import { chatRenderKey } from './render-entry.ts'
@@ -96,7 +96,7 @@ const ProcessGroupHeader = memo(function ProcessGroupHeader({ groupKey, useChatG
   readonly t: ChatFlowSlotProps['t']
   readonly open: boolean
   readonly bodyId: string
-  readonly toggle: () => void
+  readonly toggle: (event: DisclosureToggleEvent) => void
 }) {
   const data = useChatGroup(groupKey, group => group?.data)
   const detailed = usePresentation(policy => data?.closed === false && policy.liveProcessDetail)
@@ -114,7 +114,7 @@ const ProcessGroupHeader = memo(function ProcessGroupHeader({ groupKey, useChatG
   const activity = data.closed ? data.summary.counts[0]?.kind ?? 'thinking' : live.activity
   return (
     <button type="button" className={css.title} aria-expanded={open} aria-controls={bodyId}
-      data-process-activity={activity} onClick={(event) => { event.currentTarget.focus(); toggle() }}>
+      data-process-activity={activity} onClick={(event) => { event.currentTarget.focus(); toggle(event) }}>
       <span className={css.leading} aria-hidden="true">
         <span className={css.activityIcon} data-step-process-icon>{PROCESS_ICONS[activity]}</span>
         <span className={css.chevron} data-step-process-chevron>
@@ -134,7 +134,13 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   const turn = useChatGroup(groupKey, group => group?.data.turn)
   const closed = useChatGroup(groupKey, group => group?.data.closed)
   const foldCompleted = props.usePresentation(policy => policy.foldCompletedTurns)
-  const { expanded: open, setExpanded: setOpen } = useDisclosure()
+  const disclosureChoice = props.useStore(state => turn === undefined ? undefined : turnDisclosure(state, turn))
+  const applyToTurn = useMemo(() => turn === undefined
+    ? undefined
+    : (next: boolean) => { props.actions.setTurnDisclosure(turn, next) }, [props.actions, turn])
+  const { expanded: open, setExpanded: setOpen, toggle: toggleDisclosure } = useDisclosure(
+    false, 0, { choice: disclosureChoice, applyToTurn },
+  )
   const firstKey = members?.[0]?.key ?? ''
   const bottom = props.useChatNodeBottom(firstKey)
   const deferCollapse = bottom === true && props.deferCollapse
@@ -172,10 +178,10 @@ export const ChatGroupSeat = memo(function ChatGroupSeat({ groupKey, useChatGrou
   const contentRef = useRef<HTMLDivElement>(null)
   const bodyId = useId()
   const { edges, events, initialize } = useProcessScroll(bodyRef, contentRef, open, grouped)
-  const toggle = useCallback(() => {
+  const toggle = useCallback((event: DisclosureToggleEvent) => {
     if (!open) initialize(closed === false ? 'bottom' : 'top')
-    setOpen(!open)
-  }, [closed, initialize, open, setOpen])
+    toggleDisclosure(event)
+  }, [closed, initialize, open, toggleDisclosure])
   // With next-input timing the height cap applies only to a group the reader opened. A closing body keeps
   // the cap it was last shown with, so the transition starts from what is on screen: a reader-opened group
   // closes from its cap, and a flat latest Turn becoming historical closes from its flat height.
