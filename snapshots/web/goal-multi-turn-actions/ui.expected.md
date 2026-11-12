@@ -22,11 +22,9 @@
   - text: — 随机选中的包：
   - code: packages/context/session-reference
   - text: 📦
-- text: Code block
 - button "Wrap lines" [pressed]
 - button "Copy"
 - code: session-reference ├── README.md ├── package.json ├── src │ ├── index.ts │ └── uri.ts └── tests └── session-reference.spec.ts
-- text: Code block
 - button "Wrap lines" [pressed]
 - button "Copy"
 - code: "session-reference/ ├── README.md # 包说明文档 ├── package.json # 包元数据与依赖声明 ├── src/ │ ├── index.ts # 入口，导出公共 API │ └── uri.ts # 会话引用 URI 相关实现 └── tests/ └── session-reference.spec.ts # 单元测试"
@@ -46,11 +44,9 @@
   - text: — 随机选中的包：
   - code: packages/llm/token-meter
   - text: 📦
-- text: Code block
 - button "Wrap lines" [pressed]
 - button "Copy"
 - code: token-meter ├── README.md ├── package.json ├── src │ └── index.ts └── tests └── token-meter.spec.ts
-- text: Code block
 - button "Wrap lines" [pressed]
 - button "Copy"
 - code: "token-meter/ ├── README.md # 包说明文档 ├── package.json # 包元数据与依赖声明 ├── src/ │ └── index.ts # 入口，导出公共 API（token 计量逻辑） └── tests/ └── token-meter.spec.ts # 单元测试"
@@ -69,7 +65,7 @@
     - strong: Turn 1
     - text: — 随机选中
     - code: packages/context/session-reference
-    - text: ，输出了文件结构： Code block
+    - text: ，输出了文件结构：
     - button "Wrap lines" [pressed]
     - button "Copy"
     - code: session-reference/ ├── README.md ├── package.json ├── src/ │ ├── index.ts │ └── uri.ts └── tests/ └── session-reference.spec.ts
@@ -77,7 +73,7 @@
     - strong: Turn 2
     - text: — 随机选中
     - code: packages/llm/token-meter
-    - text: ，输出了文件结构： Code block
+    - text: ，输出了文件结构：
     - button "Wrap lines" [pressed]
     - button "Copy"
     - code: token-meter/ ├── README.md ├── package.json ├── src/ │ └── index.ts └── tests/ └── token-meter.spec.ts

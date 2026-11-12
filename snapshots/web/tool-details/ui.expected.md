@@ -523,7 +523,7 @@
 - text: Recorded result
 - list:
   - listitem:
-    - text: job-demo-build Running Code block
+    - text: job-demo-build Running
     - button "Wrap lines" [pressed]
     - button "Copy"
     - code: Building client assets… ✓ 184 modules transformed. dist/index.js 92.4 kB
@@ -542,7 +542,6 @@
     - text: preview Started terminal-demo-1
     - term: Type
     - definition: shell
-    - text: Code block
     - button "Wrap lines" [pressed]
     - button "Copy"
     - code: /workspace/demo %
@@ -551,7 +550,7 @@
 - text: Recorded result
 - list:
   - listitem:
-    - text: terminal-demo-1 Lines 16–18 of 18 Code block
+    - text: terminal-demo-1 Lines 16–18 of 18
     - button "Wrap lines" [pressed]
     - button "Copy"
     - code: "VITE v7.0.0 ready in {{duration}} Local: http://localhost:5173/ Watching for file changes…"
