@@ -47,6 +47,8 @@ The backend's config is unchanged from the local backend's (`cwd` resolution def
 
 The effective mode comes from the calling session's override or escalation grant, falling back to the deployment default when neither is in force. `read-only` denies every mutation with the structured `FS_SANDBOX_DENIED`. `workspace-write` allows a mutation only when the target canonicalizes under the workspace root, an explicit additional writable root, or a platform temp area (`/tmp`, `os.tmpdir()`) — the same writable set the Seatbelt profile grants. `danger-full-access` delegates unfenced.
 
+`checkWrite` answers the same decision without mutating. It runs the fence's one implementation, so `allowed` and `denied` (with the message the mutation would throw) are what a mutation of that target decides at that moment, and an invalid writable root throws as it would for the mutation.
+
 ### Observable success and failures
 
 Reads, listings, metadata, and read-only watches work exactly as with `fs-local`; the mutation fence does not restrict observation. A denied mutation returns an `FS_SANDBOX_DENIED` error carrying the effective mode; through the tools the model sees `[sandbox: file access denied under <mode> mode]` plus the one-approved-wider retry hint, identical to bash's denials. A session with an approved escalation may retry the same operation at a strictly wider mode for that one call.
@@ -69,7 +71,7 @@ The fence is a policy check in trusted code over a model-controlled path — not
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `SandboxedFileSystem`: mode fence on `writeText`/`editText`/`patchText`/`deleteFile`/`moveFile`, `sandboxMode` fact |
+| [`src/index.ts`](src/index.ts) | `SandboxedFileSystem`: mode fence on `writeText`/`editText`/`patchText`/`deleteFile`/`moveFile`, its answer through `checkWrite`, `sandboxMode` fact |
 | [`src/containment.ts`](src/containment.ts) | Ancestor containment check with lexical fast path and identity-based fallback |
 
 ### How a mutation is fenced
