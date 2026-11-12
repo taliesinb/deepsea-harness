@@ -21,6 +21,7 @@
   en: cc4dafd1aae02468
   zh: be6b67724b7ac4a3
 /deepseek-ai-dsh-client-ui-conversation/shell-and-standard-props:
+<<<<<<< 5890fa0f81d7a0da9aa3f8dc3cab37ba9241f59b
 <<<<<<< 2014e36d44653308ed05653084e9d5955a10ccb6
   en: 33b34c1318b4d67f
   zh: 741148be69ec1552
@@ -28,6 +29,10 @@
   en: 59305d446a1c6328
   zh: 850f3df38e1722eb
 >>>>>>> 353b01ac5f59b2f1d8d7141d83c1f5ac3563e008
+=======
+  en: 5fb638141706a459
+  zh: 054db2c3552eaaa7
+>>>>>>> e015e13be469e557d55e2e0100631f3996abe084
 /deepseek-ai-dsh-client-ui-conversation/temporary-composer-entries:
   en: 59cd63057dfb6eeb
   zh: b2e2c86e810b7bb8

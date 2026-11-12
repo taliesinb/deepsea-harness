@@ -21,7 +21,7 @@ import { collapseWhitespaceRule, trimWhitespaceRule } from './user-text/whitespa
 import type { ViewTab } from './contract/views.ts'
 import type {
   ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
-  ConversationSessionInjected, DraftFileUploads, UserTextInjected,
+  ConversationSessionInjected, DraftDocumentEditorInjected, DraftFileUploads, UserTextInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
 import type { ReferenceInsert } from './contract/draft-editor.ts'
@@ -43,6 +43,7 @@ import { ConversationPanel } from './skeleton/ConversationPanel.tsx'
 import { ConversationHeader } from './skeleton/ConversationHeader.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
 import { InputBar } from './skeleton/InputBar.tsx'
+import { DraftDocumentEditor } from './input/editor/DraftDocumentEditor.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { installStopShortcut } from './stop-shortcut.ts'
 import { TRAJECTORY_VIEW_ID, resolveActiveView } from './view-selection.ts'
@@ -406,11 +407,15 @@ export function apply(ctx: Context, config: Config = Config({})): void {
     },
     store: conversationStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof conversationStore>): ConversationSessionInjected => {
-      const openView = (view: string, focus: string): void => {
-        if (!viewTabs().some(tab => tab.id === view)) return
+      const selectView = (view: string, focus: string): boolean => {
+        if (!viewTabs().some(tab => tab.id === view)) return false
         activateView(sessionId, view)
         actions.openView(view, focus)
+        return true
       }
+      const openView = (view: string, focus: string): void => { selectView(view, focus) }
+      // The store instance is cached per Session, so the selector stays valid after this body unmounts.
+      uiConversation.bindViewSelector(sessionId, selectView)
       const inspectionTarget = () => uiConversation.views.entries().find(definition =>
         definition.toolCallFocus !== undefined
         && conversationViews.getSnapshot().some(view => view.id === definition.target),
@@ -581,6 +586,15 @@ export function apply(ctx: Context, config: Config = Config({})): void {
       }
     },
   }, InputBar)
+
+  slots.registerFactory({
+    name: 'conversation.draft.editor',
+    scope: 'session',
+    locale: NS,
+    inject: (sessionId: SessionId): DraftDocumentEditorInjected => ({
+      openReference: (source, reference) => inputHub.inputTriggers(sessionId)?.openReference(source, reference) ?? false,
+    }),
+  }, DraftDocumentEditor)
 
   slots.inject('main', function* () {
     yield slots.register({
