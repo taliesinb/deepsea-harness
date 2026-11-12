@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-file-upload/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { FileAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type {
   ComposerAttachment, ComposerFileAttachment, ComposerImageAttachment, DraftFileUpload,
 } from './contract/slots.ts'
@@ -76,6 +76,28 @@ export interface IConversation {
    * @returns completion of the page pull.
    */
   loadOlder(): Promise<void>
+  /** Upload state of each draft attachment that uploads when added, keyed by draft attachment id; a send needs `ready`. */
+  readonly fileUploads: ObservableSnapshot<Readonly<Record<string, DraftFileUpload>>>
+  /**
+   * Register browser files as draft attachments of one Session, starting their background uploads;
+   * a composer adopts the returned ids through `addAttachments`.
+   * @param sessionId - target Agent-scope identity.
+   * @param files - browser files in order.
+   * @param uploadImages - whether the Session stages image uploads; a subagent continuation does not.
+   * @returns ordered draft descriptors.
+   */
+  createDrafts(sessionId: SessionId, files: readonly File[], uploadImages: boolean): readonly ComposerAttachment[]
+  /**
+   * Resolve draft attachment ids to their live descriptors, including their browser files.
+   * @param ids - draft attachment ids, such as a composer's `attachmentIds`.
+   * @returns descriptors that remain live, in requested order.
+   */
+  resolveDraftAttachments(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[]
+  /**
+   * Release one draft attachment and abort its upload; the composer that listed it must remove the id.
+   * @param id - draft attachment id.
+   */
+  releaseDraftAttachment(id: DraftAttachmentId): void
 }
 
 /** Create one browser-only image draft descriptor; only its id enters input state. */
