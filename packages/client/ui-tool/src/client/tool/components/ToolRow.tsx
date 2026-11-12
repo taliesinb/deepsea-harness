@@ -156,7 +156,8 @@ export const ToolRow = memo(function ToolRow({
   inspect,
   useDisclosure,
 }: ToolRowProps) {
-  const { expanded, toggle: toggleExpand } = useDisclosure()
+  // A failed call starts open: its error and input are what the reader looks for.
+  const { expanded, toggle: toggleExpand } = useDisclosure(state === 'error')
   const terminalLabels = useMemo(() => terminalBlockLabels(t), [t])
   const diffLabels = useMemo(() => diffBlockLabels(t), [t])
   const readLabels = useMemo(() => readBlockLabels(t), [t])

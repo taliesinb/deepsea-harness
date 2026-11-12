@@ -164,16 +164,46 @@ export type UseChatNodeTurnData = <Key extends Extract<keyof ConversationTurnDat
   key: Key,
 ) => Readonly<ConversationTurnDataMap[Key]> | undefined
 
+/** The whole-Turn choice a disclosure follows until its own next toggle. */
+export interface TurnDisclosureChoice {
+  readonly open: boolean
+  /** Order of the choice; a disclosure's own toggle made under an older generation no longer applies. */
+  readonly generation: number
+}
+
+/** Where a Chat Node's disclosures read and make whole-Turn choices. */
+export interface TurnDisclosureBinding {
+  /** The current choice for the node's Turn, when one is in effect. */
+  readonly choice: TurnDisclosureChoice | undefined
+  /**
+   * Apply one open state to every disclosure of the Turn; absent outside a Turn.
+   * @param open - the state every disclosure of the Turn takes.
+   */
+  readonly applyToTurn?: ((open: boolean) => void) | undefined
+}
+
+/** The part of a click or key event a disclosure toggle reads; React mouse and keyboard events satisfy it. */
+export interface DisclosureToggleEvent {
+  /** Option (Alt) held: the toggled state applies to every disclosure of the enclosing Turn. */
+  readonly altKey: boolean
+}
+
 /**
- * Subscribe to enclosing-Turn resets and own one initially collapsed disclosure.
+ * Subscribe to enclosing-Turn resets and whole-Turn choices, and own one disclosure.
  * Each invocation has independent open state; display-mode changes do not reset it.
+ * The reader's own toggle wins until the Turn folds or a newer whole-Turn choice arrives.
+ * @param defaultOpen - the state shown before the reader chooses; may change between renders.
  * @returns the current open state, explicit setter, and toggle action.
  */
-export type UseDisclosure = () => {
+export type UseDisclosure = (defaultOpen?: boolean) => {
   readonly expanded: boolean
   /** @param open - whether this disclosure is expanded. */
   readonly setExpanded: (open: boolean) => void
-  readonly toggle: () => void
+  /**
+   * Flip this disclosure; with `event.altKey`, set every disclosure of the enclosing Turn to the flipped state.
+   * @param event - the triggering click or key event, when there is one.
+   */
+  readonly toggle: (event?: DisclosureToggleEvent) => void
 }
 
 /**
@@ -208,6 +238,8 @@ export interface ChatFlowInjected {
 export interface ChatNodeHookContext {
   readonly turnData: ConversationLocationDataStore<ConversationTurnDataMap> | undefined
   readonly disclosureReset: ObservableSnapshot<number>
+  /** The node's whole-Turn disclosure choice and how to make one. */
+  readonly turnDisclosure: ObservableSnapshot<TurnDisclosureBinding>
   readonly useGroupAction: UseGroupAction
 }
 
@@ -278,7 +310,12 @@ export interface TurnProcessOwnerProps {
   readonly spec: TurnProcessSpec
   readonly foldable: boolean
   readonly open: boolean
-  setOpen(open: boolean): void
+  /**
+   * Open or fold the Turn's process.
+   * @param open - the new state.
+   * @param everything - also set every disclosure inside the Turn to `open` (Option-click).
+   */
+  setOpen(open: boolean, everything?: boolean): void
 }
 
 /** Shared presentation policy source for renderers that depend on the work-details mode. */

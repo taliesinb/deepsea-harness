@@ -258,7 +258,7 @@ describe('FileMutationRow diff card', () => {
     expect(model.errorSummary).toBe('Patch stopped after 1 of 3 operations.')
     const view = render(<FileMutationRow {...rowProps(block, 'apply_patch')} />)
     expect(view.getByText('应用补丁')).toBeTruthy()
-    toggleRow(view)
+    // A failed call starts open.
     expect(view.container.querySelectorAll('[data-diff]').length).toBeGreaterThan(0)
     expect(view.getByText('created')).toBeTruthy()
     expect(view.getByText('after')).toBeTruthy()
@@ -324,7 +324,8 @@ describe('FileMutationRow diff card', () => {
       content: [{ type: 'text', text: 'old_string not found in notes/demo.txt' }],
     }))} />)
     expect(view.container.querySelector('[data-diff]')).toBeNull()
-    expect(view.getByText('old_string not found in notes/demo.txt')).toBeTruthy()
+    // The collapsed summary and, since a failed call starts open, the Output section.
+    expect(view.container.querySelector('[data-error]')?.textContent).toBe('old_string not found in notes/demo.txt')
   })
 
   it('falls back to the error name/code when an errored result has no text block', () => {
@@ -332,7 +333,7 @@ describe('FileMutationRow diff card', () => {
       isError: true, content: [],
       error: { name: 'ToolError', code: 'sandbox_denied' },
     }))} />)
-    expect(view.getByText('ToolError: sandbox_denied')).toBeTruthy()
+    expect(view.container.querySelector('[data-error]')?.textContent).toBe('ToolError: sandbox_denied')
   })
 
   it('shows no error summary for a successful diff or a running call', () => {

@@ -193,10 +193,8 @@ describe('keyed toolview hole through the real machinery', () => {
 
     expect(view.getByText('Rejected by Auto review')).toBeTruthy()
     expect(view.queryByText('Tool execution rejected by user')).toBeNull()
-    const row = view.container.querySelector<HTMLElement>('[data-expandable]')
-    expect(row).not.toBeNull()
-    fireEvent.click(row!)
-
+    // A denied call starts open.
+    expect(view.container.querySelector('[data-expandable]')?.getAttribute('aria-expanded')).toBe('true')
     expect(view.queryByText('IN')).toBeNull()
     expect(view.getByText('OUT')).toBeTruthy()
     expect(view.getByText('Tool was not executed. Reason: precise scope was not authorized')).toBeTruthy()

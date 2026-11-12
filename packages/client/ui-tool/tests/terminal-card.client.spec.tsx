@@ -490,8 +490,7 @@ describe('chat row terminal body', () => {
       content: [{ type: 'text', text: 'boom\n[exit code: 2]' }],
     }))} />)
     expect(view.container.querySelector('[data-state]')?.getAttribute('data-state')).toBe('error')
-    expect(view.getByText('退出码 2')).toBeTruthy()
-    expect(view.getByText('退出码 2').previousElementSibling?.textContent).toBe('List files')
+    expect(view.getAllByText('退出码 2')[0]?.previousElementSibling?.textContent).toBe('List files')
     expect(view.container.querySelector('[class*="_errorSummary_"]')).toBeNull()
   })
 })

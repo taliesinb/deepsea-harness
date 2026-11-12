@@ -70,7 +70,7 @@ export const CHAT_NODE_INJECT: ChatNodeInjected = {
     turnData: (_standard, { turnData }) => function useTurnData(key) {
       return useTurnDataValue(turnData, key)
     },
-    disclosure: (_standard, { disclosureReset }) => bindDisclosure(disclosureReset),
+    disclosure: (_standard, { disclosureReset, turnDisclosure }) => bindDisclosure(disclosureReset, turnDisclosure),
     groupAction: (_standard, { useGroupAction }) => useGroupAction,
   },
 }

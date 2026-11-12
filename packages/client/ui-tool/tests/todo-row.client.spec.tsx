@@ -127,7 +127,7 @@ describe('TodoRow', () => {
     const view = render(<TodoRow {...rowProps(resultNode('not json', { isError: true }))} />)
     expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
     expect(view.container.querySelector('[data-state="error"] svg')).not.toBeNull()
-    expect(screen.getByText('not json')).toBeTruthy()
+    expect(screen.getAllByText('not json').length).toBeGreaterThan(0)
   })
 
   it('falls back when parsed args carry no todos array', () => {

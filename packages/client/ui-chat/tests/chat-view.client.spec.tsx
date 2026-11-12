@@ -957,6 +957,28 @@ describe('ChatView', () => {
     expect([...view.container.querySelectorAll<HTMLElement>('[data-chat-group-key]')]).toEqual(roots)
   })
 
+  it('opens or folds every disclosure of a Turn on Option-click, until the Turn folds', () => {
+    const h = makeCompletionHarness('standard')
+    const view = render(<h.ChatView {...h.props} />)
+    act(() => { h.complete() })
+    const [older, current] = [...view.container.querySelectorAll<HTMLElement>('[data-chat-group-key]')]
+    const hidden = (root: HTMLElement) => root.querySelector('[data-step-process-body]')!.hasAttribute('hidden')
+    const header = current!.querySelector<HTMLButtonElement>('[data-process-activity]')!
+    const control = view.container.querySelector<HTMLButtonElement>('[data-turn-process="2"]')!
+    fireEvent.click(control, { altKey: true })
+    expect(control.getAttribute('aria-expanded')).toBe('true')
+    expect(hidden(current!)).toBe(false)
+    expect(hidden(older!)).toBe(true)
+    fireEvent.click(header, { altKey: true })
+    expect(hidden(current!)).toBe(true)
+    fireEvent.click(header)
+    expect(hidden(current!)).toBe(false)
+    fireEvent.click(control)
+    fireEvent.click(control)
+    expect(control.getAttribute('aria-expanded')).toBe('true')
+    expect(hidden(current!)).toBe(true)
+  })
+
   it.each(['compact', 'standard', 'detailed', 'verbose'] as const)(
     'defaults %s to completion-time historical presentation without motion', (mode) => {
       const h = makeCompletionHarness(mode)

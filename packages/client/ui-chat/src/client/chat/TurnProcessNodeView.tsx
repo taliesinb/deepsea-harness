@@ -46,7 +46,7 @@ export const TurnProcessNodeView = memo(function TurnProcessNodeView({
         aria-expanded={turnProcess.hasContent ? open : undefined}
         onClick={(event) => {
           event.currentTarget.focus()
-          turnProcess.setOpen(!open)
+          turnProcess.setOpen(!open, event.altKey)
         }}
       >
         <span className={css.label}>

@@ -1,6 +1,6 @@
 /** Per-Session Chat view store. */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
-import type { ChatStoreState, TurnProcessViewEntry } from './contract/store.ts'
+import type { ChatStoreState, TurnDisclosureEntry, TurnProcessViewEntry } from './contract/store.ts'
 import type { TurnProcessSpec } from './contract/turn-process.ts'
 
 type ChatActions = {
@@ -10,6 +10,20 @@ type ChatActions = {
     answerStep: number,
     open: boolean,
   ) => void
+  setTurnDisclosure: (draft: ChatStoreState, turn: number, open: boolean) => void
+}
+
+/**
+ * Read the whole-Turn disclosure choice of one Turn.
+ * @param state - Chat store snapshot.
+ * @param turn - owning Turn.
+ * @returns the Turn's latest choice, when one is in effect.
+ */
+export function turnDisclosure(
+  state: Readonly<ChatStoreState>,
+  turn: number,
+): Readonly<TurnDisclosureEntry> | undefined {
+  return state.turnDisclosures.find(entry => entry.turn === turn)
 }
 
 /**
@@ -49,13 +63,22 @@ export function turnProcessOpen(
  */
 export function createChatStore(): EngineStoreHandle<ChatStoreState, ChatActions> {
   return defineStore({
-    init: (): ChatStoreState => ({ turnProcesses: [] }),
+    init: (): ChatStoreState => ({ turnProcesses: [], turnDisclosures: [], disclosureGeneration: 0 }),
     actions: {
       setTurnProcessOpen: (draft, turn, answerStep, open) => {
         const index = draft.turnProcesses.findIndex(entry => entry.turn === turn)
         const next = (open ? { turn, answerStep } : { turn, answerStep, collapsed: true }) satisfies TurnProcessViewEntry
         if (index < 0) draft.turnProcesses.push(next)
         else draft.turnProcesses[index] = next
+        // Folding a Turn ends its whole-Turn choice, so reopening it shows each disclosure's default again.
+        if (!open) draft.turnDisclosures = draft.turnDisclosures.filter(entry => entry.turn !== turn)
+      },
+      setTurnDisclosure: (draft, turn, open) => {
+        draft.disclosureGeneration += 1
+        const next = { turn, open, generation: draft.disclosureGeneration } satisfies TurnDisclosureEntry
+        const index = draft.turnDisclosures.findIndex(entry => entry.turn === turn)
+        if (index < 0) draft.turnDisclosures.push(next)
+        else draft.turnDisclosures[index] = next
       },
     },
   })

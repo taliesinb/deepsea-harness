@@ -311,10 +311,8 @@ describe('SearchRow keyed card', () => {
       content: [{ type: 'text', text: 'grep: invalid regular expression' }],
     }), 'grep')} />)
     expect(searchKindOf(view.container)).toBeNull()
-    // Error state: the first line is the collapsed summary.
-    expect(view.getByText('grep: invalid regular expression')).toBeTruthy()
-    toggleRow(view)
-    // Now in ToolRow's Output section too (the kept summary makes it appear twice).
+    // Error state: the first line is the summary, and the row starts open with the Output section.
+    expect(view.getAllByText('grep: invalid regular expression')).toHaveLength(2)
     expect(view.container.querySelector('[data-error]')?.textContent).toBe('grep: invalid regular expression')
   })
 
@@ -355,8 +353,8 @@ describe('SearchRow keyed card', () => {
       isError: true, content: [],
       error: { name: 'ToolError', code: 'timeout' },
     }), 'grep')} />)
-    // Error state: the derived name/code line is the collapsed summary.
-    expect(view.getByText('ToolError: timeout')).toBeTruthy()
+    // Error state: the derived name/code line is the summary and the open row's output.
+    expect(view.container.querySelector('[data-error]')?.textContent).toBe('ToolError: timeout')
   })
 
   it('keeps the args-derived summary beside the metadata-derived card', () => {
