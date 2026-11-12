@@ -24,7 +24,7 @@ describe('keymap keydown routing', () => {
     editor.setRootElement(first)
     const unregister = registerComposerKeymap(editor, {
       arbitrate: () => 'pass', space: () => false, dismissPopup: () => {},
-      canSubmit: () => false, submit: () => {}, intakeFiles: () => {}, pasteText: () => {},
+      canSubmit: () => false, submit: () => {}, intakeFiles: () => {}, pasteText: () => {}, recall: () => false,
     })
     onTestFinished(unregister)
     fireEvent.compositionStart(first)
@@ -59,7 +59,7 @@ describe('keymap keydown routing', () => {
       canSubmit: () => true,
       submit,
       intakeFiles: () => {},
-      pasteText: () => {},
+      pasteText: () => {}, recall: () => false,
     })
     fireEvent.keyDown(root, { key: 'Enter' })
     expect(submit).toHaveBeenCalledWith(false)
@@ -87,7 +87,7 @@ describe('keymap keydown routing', () => {
     const arbitrate = vi.fn(() => 'pass' as const)
     onTestFinished(registerComposerKeymap(editor, {
       arbitrate, space: () => false, dismissPopup: () => {}, canSubmit: () => true,
-      submit, intakeFiles: () => {}, pasteText: () => {},
+      submit, intakeFiles: () => {}, pasteText: () => {}, recall: () => false,
     }))
     editor.update(() => {
       const paragraph = $createParagraphNode().append($createTextNode('unsent draft'))
@@ -109,6 +109,41 @@ describe('keymap keydown routing', () => {
     expect(editor.getEditorState().read(() => $getRoot().getTextContent())).toBe('unsent draft')
   })
 
+  it('offers an unmodified ArrowUp the trigger menu passed to prompt recall', () => {
+    const editor = createEditor({ namespace: 'arrow-up-recall', onError: (error) => { throw error } })
+    const root = document.createElement('div')
+    root.contentEditable = 'true'
+    document.body.appendChild(root)
+    onTestFinished(() => { editor.setRootElement(null); root.remove() })
+    editor.setRootElement(root)
+    onTestFinished(registerPlainText(editor))
+    let menu: 'consumed' | 'pass' = 'pass'
+    let recalled = true
+    const recall = vi.fn(() => recalled)
+    onTestFinished(registerComposerKeymap(editor, {
+      arbitrate: () => menu, space: () => false, dismissPopup: () => {}, canSubmit: () => true,
+      submit: () => {}, intakeFiles: () => {}, pasteText: () => {}, recall,
+    }))
+    const arrowUp = (init: KeyboardEventInit & { keyCode?: number } = {}): boolean =>
+      fireEvent.keyDown(root, { key: 'ArrowUp', keyCode: 38, ...init })
+
+    expect(arrowUp()).toBe(false) // recalled: the caret does not move as well
+    expect(recall).toHaveBeenCalledOnce()
+    recalled = false
+    expect(arrowUp()).toBe(true) // nothing to recall: the caret moves as usual
+    expect(recall).toHaveBeenCalledTimes(2)
+
+    recall.mockClear()
+    recalled = true
+    for (const modifier of ['shiftKey', 'altKey', 'ctrlKey', 'metaKey'] as const) {
+      expect(arrowUp({ [modifier]: true })).toBe(true)
+    }
+    expect(arrowUp({ keyCode: 229 })).toBe(true) // IME composition keeps ArrowUp
+    menu = 'consumed'
+    expect(arrowUp()).toBe(false) // an open menu moves its highlight instead
+    expect(recall).not.toHaveBeenCalled()
+  })
+
   it('routes Tab through arbitration and passes when unconsumed', () => {
     const editor = createEditor({ namespace: 'keymap-routing', onError: (e) => { throw e } })
     const root = document.createElement('div')
@@ -127,7 +162,7 @@ describe('keymap keydown routing', () => {
       canSubmit: () => true,
       submit: () => {},
       intakeFiles: () => {},
-      pasteText: () => {},
+      pasteText: () => {}, recall: () => false,
     })
     const consumed = fireEvent.keyDown(root, { key: 'Tab', keyCode: 9 })
     expect(arbitrate).toHaveBeenCalledWith('tab', false)

@@ -300,6 +300,14 @@ export function apply(ctx: Context, config: Config = Config({})): void {
   })
 
   const inputHub = new InputHub(ctx, t)
+  ctx.effect(() => {
+    inputHub.observeSessionList(sessions.list.getSnapshot())
+    const unsubscribe = sessions.list.subscribe(() => { inputHub.observeSessionList(sessions.list.getSnapshot()) })
+    return () => {
+      unsubscribe()
+      inputHub.stopParking()
+    }
+  }, 'conversation.input: parked draft attachments')
   const composerBlocks = new ComposerBlockRegistry()
 
   ctx.inject(['commandUi'], (scope) => {
@@ -423,7 +431,7 @@ export function apply(ctx: Context, config: Config = Config({})): void {
             },
           },
         },
-        bindDraftPersistence: write => inputHub.shell(sessionId).bindDraftPersistence(write),
+        bindDraftPersistence: (write, writePrompt) => inputHub.shell(sessionId).bindDraftPersistence(write, writePrompt),
         openView,
       }
     },
