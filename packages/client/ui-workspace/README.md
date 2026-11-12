@@ -105,6 +105,10 @@ The package injects the Client `remoteAccess` service and provides the root stan
 
 The package is one composition: both target slots are declared by other plugins, so `apply` uses `slots.inject()` to register for each declaration lifetime and re-register after a declaring slot is restored.
 
+Two more root-scoped `list` seats let a plugin add a kind of workspace that is not a local directory. `sidebar.workspaces.headerAction` renders icon buttons beside "Add workspace" and hides with the other header actions while search is open; `sidebar.workspaces.extra` renders groups below the local tree in the same list area, only while the sidebar is wide and no search is active, and its entries size themselves so the local tree keeps the remaining height. Their owner share is the column's `wide` state.
+
+`ctx.uiWorkspace.handleSessionDrop(handler)` lets a plugin receive the Session rows the user drags onto another Workspace group in the grouped tree. While a handler is registered, such a group lights up under the dragged row and a drop calls the handler with `{ sessionId, displayTitle, workspaceId }`; what the drop means (moving the Session, for instance) is the plugin's. Without one, a row stays within its own group as before. The registration belongs to the caller's fiber; with several, the latest receives the drops.
+
 The browser entry declares three root-scoped `list` child seats on each Session row: `sidebar.session.row.leading`, `sidebar.session.row.trailing`, and `sidebar.session.row.hover`. All receive only `sessionId`, which occupants use to address their own data without creating a Session binding. A Session-scoped seat would activate and retain every listed Session.
 
 The leading seat occupies the status cell only while the row's primary status is idle and leaves archived rows blank. The trailing seat accepts non-interactive icons in ascending `order`, after the time label and before the pin marker. Blank rows omit the trailing seat; an empty seat adds no spacing. The hover seat mounts only while the row's hover card is open.

@@ -135,7 +135,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  max-width: 60px;
+  /* Collapse ceiling for the search animation (headerActionsHidden → 0), wide
+     enough for the two shipped buttons plus headerAction seat entries. */
+  max-width: 160px;
   opacity: 1;
   overflow: hidden;
   visibility: visible;
@@ -353,6 +355,12 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  /* Rows are pointer targets, not prose: a press that slides across rows (or
+     starts in the gap between them) starts a row drag or nothing, never a
+     text selection. Prefixed for Safari, which otherwise still selects
+     through row gaps and can lift the selection as a native drag. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Bottom fade: compact overlay pinned to the visible bottom,
@@ -517,6 +525,12 @@
 
 .listTopDropActive > .workspaceDropBefore:first-child::before {
   display: none;
+}
+
+/* A Session row from another group hovers this one: dropping hands it to the session-drop handler. */
+.workspaceDropInto {
+  border-radius: var(--dsw-radius-md);
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-state-business-primary);
 }
 
 .workspaceDropBefore::before {
