@@ -31,6 +31,8 @@ Mount `dsh-agent` with `dsh-session-projection`: it provides `ctx.agents`, the `
 
 `ctx.agents.create()` builds a fresh agent and session under one identity; `ctx.agents.resume()` loads a persisted session and rebuilds the agent on it. Both delegate to the registered factory and return an `AgentHandle` — the only object that can tear that agent down. See [`AgentFactory`](src/index.ts) for publication and failure-cleanup timing. Set `parentAgent` in either operation's options to make the result a runtime child; omit it for a runtime root. `get(id)`, `list()`, and `roots()` find live agents, and `isOwnedBy(id, parent)` tests that exact live relation.
 
+`reserveHistory(id)` holds a Session's identity while its stored history is replaced: it refuses when the live Agent is running, has queued input, or has an open turn, and until its returned release runs, `create`, `resume`, and publication for that id throw, as do AgentLoop's `send()` and maintenance work. `assertHistoryAvailable(id)` is the check those paths call. The Session Controller's rewind is the only holder.
+
 ```text
 const handle = await ctx.agents.create({
   sessionId,

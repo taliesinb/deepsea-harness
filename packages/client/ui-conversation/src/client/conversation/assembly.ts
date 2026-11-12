@@ -136,6 +136,9 @@ class BoundConversation implements ConversationBinding {
           window.change.entry,
         ))
         return
+      case 'truncate':
+        this.publish(this.assembler.truncate(window.change.cursor))
+        return
     }
   }
 

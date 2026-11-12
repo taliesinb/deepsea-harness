@@ -448,6 +448,30 @@ describe('Session file uploads', () => {
     })).rejects.toMatchObject({ code: 'session/not-found' })
   })
 
+  it('restages stored attachments under fresh receipts that a prompt admits without storing bytes', async () => {
+    const { controller, uploads, agent, followup, saveFile, saveImages } = await uploadHarness()
+    const file: FileAttachmentRef = { attachmentId: AttachmentId(`sha256:${'ab'.repeat(32)}`), name: 'notes.txt', bytes: 5 }
+    const [imageReceipt, fileReceipt] = uploads.restage(agent, [
+      { type: 'image', attachment: STAGED_IMAGE, encodedBytes: 3 },
+      { type: 'file', attachment: file },
+    ])
+    await controller.prompt(promptRequest([
+      { type: 'file', receiptId: imageReceipt! },
+      { type: 'file', receiptId: fileReceipt! },
+      { type: 'text', text: 'again' },
+    ]), USER_SOURCE)
+    expect(saveFile).not.toHaveBeenCalled()
+    expect(saveImages).not.toHaveBeenCalled()
+    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([
+      { type: 'image', attachment: STAGED_IMAGE },
+      { type: 'file', attachment: file },
+      { type: 'text', text: 'again' },
+    ])
+    const child = await uploadHarness('subagent')
+    expect(() => child.uploads.restage(child.agent, [{ type: 'file', attachment: file }]))
+      .toThrow('subagent conversations do not accept file uploads')
+  })
+
   it('rejects subagent uploads before storing bytes', async () => {
     const child = await uploadHarness('subagent')
     await expect(child.uploads.upload(

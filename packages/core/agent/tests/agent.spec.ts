@@ -119,6 +119,43 @@ describe('AgentRegistry', () => {
     expect(lifecycle).toEqual(['created:a1', 'disposed:a1'])
   })
 
+  it('reserves an idle Session\'s history and refuses publication until released', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    const idle = stubAgent('idle')
+    const dispose = await ctx.agents.register(idle)
+    const release = ctx.agents.reserveHistory(idle.id)
+    expect(() => ctx.agents.reserveHistory(idle.id)).toThrow(/history is being replaced/)
+    expect(() => { ctx.agents.assertHistoryAvailable(idle.id) }).toThrow(/history is being replaced/)
+    await dispose()
+    expect(() => ctx.agents.enter(stubAgent('idle'), undefined)).toThrow(/history is being replaced/)
+    await expect(ctx.agents.create({ sessionId: idle.id })).rejects.toThrow(/history is being replaced/)
+    await expect(ctx.agents.resume({ resumeSessionId: idle.id })).rejects.toThrow(/history is being replaced/)
+    release()
+    release()
+    expect(() => { ctx.agents.assertHistoryAvailable(idle.id) }).not.toThrow()
+    expect(ctx.agents.reserveHistory(SessionId('never-live'))).toBeTypeOf('function')
+  })
+
+  it('refuses to reserve a Session whose Agent is running, has queued input, or has an open turn', async () => {
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    const queued = { id: 'm' } as never
+    const running = stubAgent('running', { status: 'running' })
+    const nextTurn = stubAgent('next-turn', { inbox: { nextTurn: [queued], nextStep: [] } as never })
+    const nextStep = stubAgent('next-step', { inbox: { nextTurn: [], nextStep: [queued] } as never })
+    const open = stubAgent('open-turn')
+    open.session.append('turn/start', { turn: 1 })
+    for (const agent of [running, nextTurn, nextStep, open]) {
+      onTestFinished(await ctx.agents.register(agent))
+      expect(() => ctx.agents.reserveHistory(agent.id)).toThrow(/has active or queued work/)
+      expect(() => { ctx.agents.assertHistoryAvailable(agent.id) }).not.toThrow()
+    }
+  })
   it('rejects an agent whose registry and session identities differ', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionProjectionRegistry)

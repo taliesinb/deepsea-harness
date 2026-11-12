@@ -1016,6 +1016,17 @@ importSessionArchive( entries: Readonly<Record<string, Uint8Array>>, target: Ses
 @Remote('prompt') async prompt(request: SessionPromptRequest, signal: AbortSignal): Promise<SessionPromptValue>
 
 /**
+ * Remove one historical human prompt and everything after it in the same Session.
+ * Rejects active turns and queued input; edit returns exact original content,
+ * replay immediately queues that content, and delete submits nothing.
+ * A successful response follows durable replacement and projection reconstruction.
+ * Files and external side effects are not rolled back.
+ * @param request - Session identity, exact user-event sequence, and requested action.
+ * @returns original content and the unchanged Session identity.
+ */
+@Remote('rewind') async rewind(request: SessionRewindRequest): Promise<SessionRewindValue>
+
+/**
  * Read one image from the attachment store after gateway authorization.
  * @param request - image reference and gateway permission scope; Session existence is not checked.
  * @returns the durable attachment reference and base64-encoded bytes.
@@ -1338,6 +1349,27 @@ One Agent failed outside a durable turn position.
  * @param message - user-safe failure chain.
  */
 'api-session/error'(sessionId: SessionId, message: string): void
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/types.ts`](../../packages/api/session-controller/src/types.ts)
+
+<a id="api-sessionhistory-trimmed--emit"></a>
+
+#### `api-session/history-trimmed` — emit
+
+One Session's stored history was destructively replaced while no Agent was attached. Event subscribers deliver it as a SessionHistoryTrim followed by `tail`.
+
+```ts cordis-catalog
+/**
+ * One Session's stored history was destructively replaced while no Agent was attached.
+ * Event subscribers deliver it as a {@link SessionHistoryTrim} followed by `tail`.
+ * @mode emit
+ * @param sessionId - Session whose history changed.
+ * @param trim - last kept seq, the replaced log's events after it, and its projection baseline.
+ */
+'api-session/history-trimmed'(sessionId: SessionId, trim: SessionHistoryTrimmed): void
 ```
 
 Types: [SessionId](core.zh.md)

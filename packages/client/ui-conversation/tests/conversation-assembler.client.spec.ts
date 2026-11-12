@@ -219,6 +219,53 @@ describe('ConversationNodeAssembler', () => {
     }
   })
 
+  it('withdraws a truncated tail while every surviving Node keeps its identity', () => {
+    const built = vi.fn()
+    const counted: ConversationNodeDefinition<number> = {
+      kind: 'count',
+      target: 'test',
+      match: (event) => {
+        const type: string = event.type
+        if (type !== 'count/start' && type !== 'count/update') return null
+        return { id: String((event.data as { id: number }).id), role: type === 'count/start' ? 'start' : 'update' }
+      },
+      start: () => 1,
+      update: context => context.state + 1,
+      buildViewNode: (context) => {
+        built(context.key)
+        return node(context, context.state)
+      },
+    }
+    const assembler = new ConversationNodeAssembler(
+      new TestEventDefinitions([counted]), new TestViewDefinitions([testView()]),
+    )
+    assembler.replaceWindow([
+      input(at(SessionSeq(1), 'count/start', { id: 1 })),
+      input(at(SessionSeq(2), 'count/start', { id: 2 })),
+      input(at(SessionSeq(3), 'count/update', { id: 2 })),
+      input(at(SessionSeq(4), 'count/update', { id: 2 })),
+      input(at(SessionSeq(5), 'count/start', { id: 3 })),
+    ], false)
+    assembler.flush()
+    const before = testSnapshot(assembler)!
+    expect([...before.nodes.values()].map(value => value.data)).toEqual([1, 3, 1])
+    built.mockClear()
+
+    // Context 1 is untouched, Context 2 loses one update, Context 3 loses its only Match.
+    expect(assembler.truncate(3)).toBe('immediate')
+    assembler.flush()
+    const after = testSnapshot(assembler)!
+    expect(after.order).toEqual(before.order.slice(0, 2))
+    expect(after.nodes.get(before.order[0]!)).toBe(before.nodes.get(before.order[0]!))
+    expect(after.nodes.get(before.order[1]!)?.data).toBe(2)
+    expect(built.mock.calls).toEqual([[before.order[1]]])
+
+    // Nothing past the cut is a no-op; appends continue from the cut.
+    expect(assembler.truncate(3)).toBe('none')
+    assembler.append(input(at(SessionSeq(4), 'count/start', { id: 3 })))
+    assembler.flush()
+    expect([...testSnapshot(assembler)!.nodes.values()].map(value => value.data)).toEqual([1, 2, 1])
+  })
   it('resolves nonconsecutive Steps without searching the Turn timeline on each delta', () => {
     const index = new ConversationLocationIndex()
     const turnStart = at(SessionSeq(1), 'turn/start', { turn: 4 })

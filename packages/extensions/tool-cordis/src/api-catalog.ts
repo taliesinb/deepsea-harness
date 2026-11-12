@@ -305,6 +305,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the disposer that clears the factory slot. The exact Cordis effect disposer (single-shot): composite (generator) effects may yield it directly — exact identity nests the teardown in order.',
       },
       {
+        signature: 'reserveHistory(id: SessionId): () => void',
+        description: 'Exclude new Agent publication and input while an idle Session\'s history is replaced. The caller must retain this reservation through writer retirement and durable replacement.',
+        parameters: [{ name: 'id', description: 'Session whose history will change.' }],
+        returns: 'an idempotent release function.',
+        throws: ['when reserved already, or a live Agent has a turn or queued input.'],
+      },
+      {
+        signature: 'assertHistoryAvailable(id: SessionId): void',
+        description: 'Reject work targeting a Session under destructive history replacement.',
+        parameters: [{ name: 'id', description: 'Session receiving publication or input.' }],
+        throws: ['while its history is reserved.'],
+      },
+      {
         signature: 'async create(options: CreateAgentOptions): Promise<AgentHandle>',
         description: 'Create and publish a new agent through the registered factory. Distinct from register (which records an already-constructed agent): this constructs the agent and its session. Rejects if no factory is registered or creation/setup fails. The resolved AgentHandle lets the owner tear down exactly this agent.',
         parameters: [{ name: 'options', description: 'shared identity, optional live parent, session seed/metadata, and agent options.' }],
@@ -1198,6 +1211,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Persist one prompt image for a Session: read at most the smaller of the deployment\'s per-image and per-message byte limits, then validate, normalize, and store the image the way prompt admission does, so a later prompt cites it by receipt. Cancellation before storage begins stores nothing; a cancelled upload never receives a receipt, although an image whose storage already began stays in the content-addressed store.',
         parameters: [{ name: 'request', description: 'Session identity, ordered bytes, the declared media type that this deployment must accept, cancellation, and optional display name.' }],
         returns: 'the staged receipt and durable normalized image reference.',
+      },
+      {
+        signature: 'restage(agent: Agent, attachments: readonly StagedAttachment[]): FileUploadReceiptId[]',
+        description: 'Stage attachments that are already stored, under new receipts for the Agent\'s exact Session, as when an edited prompt returns to the composer. No bytes move: a prompt citing the receipt admits the same durable reference. Callers vouch for the references; they come from that Session\'s own history.',
+        parameters: [{ name: 'agent', description: 'receiving ordinary Agent.' }, { name: 'attachments', description: 'stored attachments in prompt order.' }],
+        returns: 'one new receipt per attachment, in order.',
       },
       {
         signature: 'resolve(agent: Agent, receiptId: FileUploadReceiptId): StagedAttachment | undefined',
@@ -2785,6 +2804,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'acknowledgement that the Agent accepted the prompt.',
       },
       {
+        signature: '@Remote(\'rewind\') async rewind(request: SessionRewindRequest): Promise<SessionRewindValue>',
+        description: 'Remove one historical human prompt and everything after it in the same Session. Rejects active turns and queued input; edit returns exact original content, replay immediately queues that content, and delete submits nothing. A successful response follows durable replacement and projection reconstruction. Files and external side effects are not rolled back.',
+        parameters: [{ name: 'request', description: 'Session identity, exact user-event sequence, and requested action.' }],
+        returns: 'original content and the unchanged Session identity.',
+      },
+      {
         signature: '@Remote(\'attachment\') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>',
         description: 'Read one image from the attachment store after gateway authorization.',
         parameters: [{ name: 'request', description: 'image reference and gateway permission scope; Session existence is not checked.' }],
@@ -2927,6 +2952,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'resolution once every write handle active at the call has flushed.',
         throws: ['{AggregateError} naming each session whose flush failed; the remaining handles still flush.'],
+      },
+      {
+        signature: 'replace?(request: SessionReplaceRequest): Promise<void>',
+        description: 'Destructively replace a cold Session\'s current log under exclusive write ownership. This explicit user-requested operation is the exception to append-only storage; migration generations remain untouched. A revision mismatch or writer refuses before mutation. Resolution promises durable replacement; failure after publication may have committed. Callers must discard resident Sessions and rebuild all projections from storage. Backends without atomic replacement leave this undefined.',
+        parameters: [{ name: 'request', description: 'identity, optimistic revision, and validated replacement events.' }],
+        returns: 'after the replacement is durable.',
       },
       {
         signature: 'abstract stat(id: SessionId, options?: SessionPersistenceStatOptions): Promise<SessionPersistenceSnapshot | undefined>',
@@ -4872,6 +4903,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'One Agent failed outside a durable turn position.',
     description: 'One Agent failed outside a durable turn position.',
     parameters: [{ name: 'sessionId', description: 'Agent and Session identity.' }, { name: 'message', description: 'user-safe failure chain.' }],
+  },
+  {
+    name: 'api-session/history-trimmed',
+    mode: 'emit',
+    signature: '\'api-session/history-trimmed\'(sessionId: SessionId, trim: SessionHistoryTrimmed): void',
+    summary: 'One Session\'s stored history was destructively replaced while no Agent was attached.',
+    description: 'One Session\'s stored history was destructively replaced while no Agent was attached. Event subscribers deliver it as a SessionHistoryTrim followed by `tail`.',
+    parameters: [{ name: 'sessionId', description: 'Session whose history changed.' }, { name: 'trim', description: 'last kept seq, the replaced log\'s events after it, and its projection baseline.' }],
   },
   {
     name: 'api-session/removed',
@@ -8367,7 +8406,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventFrame',
-    declaration: 'export type SessionEventFrame = {\n    readonly type: \'ready\';\n} | SessionEventEntry;',
+    declaration: 'export type SessionEventFrame = {\n    readonly type: \'ready\';\n} | SessionEventEntry | SessionHistoryTrim;',
   },
   {
     name: 'SessionEventMap',
@@ -8451,7 +8490,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionFollowFrame',
-    declaration: 'export type SessionFollowFrame = {\n    readonly type: \'snapshot\';\n    readonly header: SessionWireHeader;\n    readonly cursor: number;\n    readonly records: readonly SessionHistoryRecord[];\n    readonly hasMore: boolean;\n    readonly projections: SessionProjectionBaseline;\n    readonly assistantStream?: SessionAssistantStreamBaseline;\n} | SessionEventEntry | {\n    readonly type: \'assistant-stream\';\n    readonly frame: SessionAssistantStreamFrame;\n};',
+    declaration: 'export type SessionFollowFrame = {\n    readonly type: \'snapshot\';\n    readonly header: SessionWireHeader;\n    readonly cursor: number;\n    readonly records: readonly SessionHistoryRecord[];\n    readonly hasMore: boolean;\n    readonly projections: SessionProjectionBaseline;\n    readonly assistantStream?: SessionAssistantStreamBaseline;\n} | SessionEventEntry | SessionHistoryTrim | {\n    readonly type: \'assistant-stream\';\n    readonly frame: SessionAssistantStreamFrame;\n};',
   },
   {
     name: 'SessionFollowRequest',
@@ -8496,6 +8535,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionHistoryRecord',
     declaration: 'export type SessionHistoryRecord = SessionEventEntry;',
+  },
+  {
+    name: 'SessionHistoryTrim',
+    declaration: 'export interface SessionHistoryTrim {\n    readonly type: \'trimmed\';\n    readonly cursor: number;\n    readonly projections: SessionProjectionBaseline;\n}',
+  },
+  {
+    name: 'SessionHistoryTrimmed',
+    declaration: 'export interface SessionHistoryTrimmed {\n    readonly cursor: number;\n    readonly tail: readonly SessionEvent[];\n    readonly projections: SessionProjectionBaseline;\n}',
   },
   {
     name: 'SessionId',
@@ -8770,6 +8817,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionRenameValue {\n    readonly title: string;\n    readonly seq: number;\n}',
   },
   {
+    name: 'SessionReplaceRequest',
+    declaration: 'export interface SessionReplaceRequest {\n    readonly id: SessionId;\n    readonly expectedRevision: SessionPersistenceRevision;\n    readonly events: readonly SessionEvent[];\n}',
+  },
+  {
     name: 'SessionRequestId',
     declaration: 'export type SessionRequestId = Branded<\'session-request-id\'>;',
   },
@@ -8780,6 +8831,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionResultRange',
     declaration: 'export interface SessionResultRange {\n    from?: number;\n    to?: number;\n}',
+  },
+  {
+    name: 'SessionRewindAttachment',
+    declaration: 'export type SessionRewindAttachment = {\n    readonly type: \'image\';\n    readonly receiptId: Branded<\'file-upload-receipt-id\'>;\n    readonly image: ImageAttachmentRef;\n} | {\n    readonly type: \'file\';\n    readonly receiptId: Branded<\'file-upload-receipt-id\'>;\n    readonly file: FileAttachmentRef;\n};',
+  },
+  {
+    name: 'SessionRewindRequest',
+    declaration: 'export interface SessionRewindRequest {\n    readonly sessionId: SessionId;\n    readonly userEventSeq: SessionSeq;\n    readonly action: \'edit\' | \'replay\' | \'delete\';\n}',
+  },
+  {
+    name: 'SessionRewindValue',
+    declaration: 'export interface SessionRewindValue {\n    readonly sessionId: SessionId;\n    readonly action: \'edit\' | \'replay\' | \'delete\';\n    readonly content: readonly ContentBlock[];\n    readonly attachments: readonly SessionRewindAttachment[];\n    readonly replayed?: boolean;\n}',
   },
   {
     name: 'SessionSearchCursor',

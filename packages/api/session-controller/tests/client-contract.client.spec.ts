@@ -126,9 +126,20 @@ describe('Client Session contracts', () => {
     })
     expect(listener).toHaveBeenCalledTimes(3)
 
+    // A truncation withdraws only the entries after its cursor; one that withdraws nothing publishes nothing.
+    feed.truncate(1)
+    expect(feed.getSnapshot()).toEqual({
+      entries: [older, first],
+      hasMore: false,
+      revision: 4,
+      change: { kind: 'truncate', cursor: 1 },
+    })
+    feed.truncate(1)
+    expect(listener).toHaveBeenCalledTimes(4)
+
     dispose()
     feed.append(entry(SessionSeq(3)))
-    expect(listener).toHaveBeenCalledTimes(3)
+    expect(listener).toHaveBeenCalledTimes(4)
   })
 
   it('does not traverse the complete event window while appending', () => {

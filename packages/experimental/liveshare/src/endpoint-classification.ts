@@ -106,6 +106,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'session/search': 'owner-only', // owner searches across Sessions
   'session/selectModel': 'owner-only', // owner selects a Session model
   'session/updateQueue': 'owner-only', // owner edits queued input
+  'session/rewind': 'owner-only', // owner destructively rewinds Session history
   'session/workspacePathApplications': 'owner-only', // owner applies a Workspace path
   'credentials/describe': 'owner-only', // owner credentials; secrets never reach a reader
   'credentials/set': 'owner-only', // owner credentials; secrets never reach a reader

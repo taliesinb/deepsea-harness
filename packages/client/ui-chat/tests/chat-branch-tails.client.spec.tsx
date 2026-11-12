@@ -84,12 +84,15 @@ function MessageItem({ node, t: translate, referenceLabels, skillNames }: Messag
   const props: Partial<Omit<ChatNodeViewProps, 'node'>> & { node: ChatConversationViewNode } = {
     node: viewNode, t: translate, loadImage: unusedImageLoader, renderFactorySlot: renderUserFactory,
     openFile: vi.fn(), useChat: useDetachedChat,
+    // Rewind controls are covered by the Chat view spec; these arms keep the copy-only chrome.
+    useSession: selector => selector({ running: false, pendingSubmissions: [] } as never),
+    useAccess: () => false,
   }
   switch (node.kind) {
     case 'user':
-      return <UserMessageNodeView {...props as ChatNodeViewProps<'user'>} {...userSlots} />
+      return <UserMessageNodeView {...props as ChatNodeViewProps<'user'>} {...userSlots} onRewind={() => Promise.resolve()} needsConfirmation={() => true} />
     case 'steering':
-      return <UserMessageNodeView {...props as ChatNodeViewProps<'steering'>} renderSlotChain={() => null} />
+      return <UserMessageNodeView {...props as ChatNodeViewProps<'steering'>} renderSlotChain={() => null} onRewind={() => Promise.resolve()} needsConfirmation={() => true} />
     case 'context':
       return <ContextMessageNodeView {...props as ChatNodeViewProps<'context'>} />
     case 'compaction':

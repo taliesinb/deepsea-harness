@@ -1,5 +1,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
+import type { UserRewindInjected } from './rewind.ts'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { PropsRenderFactories, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UserTextFacts } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -178,7 +180,7 @@ const NO_MESSAGE_SOURCE: PropsRenderSlots<'conversation.chat.user.before'>['rend
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
   node, renderSlotChain, content, loadImage, renderFactorySlot, actions,
-  pending = false, echo = false, batchStart = false,
+  pending = false, echo = false, batchStart = false, rewindAvailable = false,
   referenceLabels, skillNames, previewAttachments, facts: inputFacts = EMPTY_TEXT_FACTS, interactive = false,
 }: {
   content: readonly unknown[]
@@ -189,6 +191,8 @@ function UserStyleBubble({
   node: DecoratedRow
   /** Seat renderer; rows that do not own the seat pass {@link NO_MESSAGE_SOURCE}. */
   renderSlotChain: PropsRenderSlots<'conversation.chat.user.before'>['renderSlotChain']
+  /** Make the row keyboard-focusable so idle prompt actions can be revealed. */
+  rewindAvailable?: boolean
   /** Whether this is the Host-authoritative pre-admission steering projection. */
   pending?: boolean
   /** Whether this is a local submission echo (invisible marker; the echo renders exactly like its durable replacement). */
@@ -219,6 +223,8 @@ function UserStyleBubble({
   return (
     <div
       className={css.userRow}
+      data-prompt-rewind={rewindAvailable || undefined}
+      tabIndex={rewindAvailable ? 0 : undefined}
       data-pending-steering={pending || undefined}
       data-submission-echo={echo || undefined}
       data-chat-steering-batch={batchStart ? 'start' : undefined}
@@ -330,18 +336,22 @@ export function PendingSubmissionBubble({ submission, loadImage, renderFactorySl
  * bubble without asking for it.
  */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderFactorySlot, loadImage, renderSlotChain, t,
-}: ChatNodeViewProps<'user' | 'steering'> & {
+  node, renderFactorySlot, loadImage, renderSlotChain, t, useSession, useAccess, onRewind, needsConfirmation,
+}: ChatNodeViewProps<'user' | 'steering'> & InjectFace<UserRewindInjected> & {
   /** Bound by the `user` keyed registration, the only entry that declares the seat. */
   renderSlotChain: PropsRenderSlots<'conversation.chat.user.before'>['renderSlotChain']
 }) {
   const data = node.data
+  const busy = useSession(snapshot => snapshot.running || snapshot.pendingSubmissions.length > 0)
+  const allowed = useAccess('session/rewind')
+  const rewindAvailable = !busy && allowed && data.messageId !== undefined
   return (
     <UserStyleBubble
       node={node}
       renderSlotChain={renderSlotChain}
       content={data.content}
       interactive
+      rewindAvailable={rewindAvailable}
       renderFactorySlot={renderFactorySlot}
       loadImage={loadImage}
       batchStart={node.kind === 'steering' && node.data.batchStart === true}
@@ -352,6 +362,8 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           text={text}
           time={data.time}
           clock="start"
+          onRewind={rewindAvailable ? action => onRewind(data.seq, action) : undefined}
+          rewindNeedsConfirmation={action => needsConfirmation(data.seq, action)}
           className={css.actions}
           t={t}
         />
