@@ -28,6 +28,17 @@
   font-weight: 500;
 }
 
+.heading[data-has-icon] {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
 .heading[data-stuck] {
   background: var(--dsw-alias-menu-group-header-fill);
 }

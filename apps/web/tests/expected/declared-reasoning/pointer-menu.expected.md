@@ -1,5 +1,7 @@
 - group "模型与推理等级":
   - searchbox "搜索模型…"
+  - toolbar "模型筛选":
+    - button "推理"
   - menu "模型":
     - group "DeepSeek":
       - text: DeepSeek

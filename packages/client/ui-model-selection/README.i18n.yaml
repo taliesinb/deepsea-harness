@@ -18,11 +18,14 @@
   en: 0e2230da6a2214a1
   zh: 0452e7556c9175f2
 /deepseek-ai-dsh-client-ui-model-selection/use-this-package/model-and-effort:
-  en: cead8d55a9508a8f
-  zh: d1ef63a880cbec55
+  en: c0b646d36a6066e1
+  zh: acf469c79b439aec
 /deepseek-ai-dsh-client-ui-model-selection/use-this-package/model-label-extensions:
   en: 23610fb9daf9918a
   zh: 9f63a97901be100c
+/deepseek-ai-dsh-client-ui-model-selection/use-this-package/recent-selections:
+  en: 8fdf4c52117a7cde
+  zh: 7825206d01a2a930
 /deepseek-ai-dsh-client-ui-model-selection/use-this-package/unroutable-sessions:
   en: 7f20428c747ff052
   zh: 975e6de728e02fa0
@@ -30,8 +33,8 @@
   en: 261bbf42296243af
   zh: 72779fb7b8fbc473
 /deepseek-ai-dsh-client-ui-model-selection/understand-the-implementation:
-  en: 14870a55b8f4d4b7
-  zh: f498b469a785271e
+  en: 28dd5ab09b8d7b46
+  zh: e978fe3dafcae32c
 /deepseek-ai-dsh-client-ui-model-selection/further-exploration:
   en: 14acd4692e923480
   zh: ff89aed852aa0da8
