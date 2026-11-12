@@ -422,6 +422,41 @@ it('keeps the macOS sidebar toggle in its top strip', () => {
   expect(shell.trackEntryClick).toHaveBeenCalledExactlyOnceWith({ menu_name: 'new_session', position: 'sidebar' })
 })
 
+it('takes the collapsed macOS column out of focus, pointer, and accessibility reach', () => {
+  document.documentElement.dataset.platform = 'darwin'
+  const h = mountShell()
+  const newSession = (): HTMLElement => screen.getByRole('button', { name: 'New session' })
+  expect(newSession().closest('[inert]')).toBeNull()
+  h.rerender({ collapsed: true, width: 0 })
+  expect(newSession().closest('[inert]')).not.toBeNull()
+  expect(screen.getByTestId('region').closest('[inert]')).not.toBeNull()
+  h.rerender({ collapsed: false, width: 300 })
+  expect(newSession().closest('[inert]')).toBeNull()
+})
+
+it.each([
+  ['the Web rail', false],
+  ['the Windows caption', true],
+] as const)('keeps the collapsed controls of %s reachable', (_, caption) => {
+  if (caption) document.documentElement.setAttribute('data-windows-titlebar', '')
+  try {
+    mountShell({ collapsed: true, width: caption ? 0 : 56 })
+    expect(screen.getByRole('button', { name: 'New session' }).closest('[inert]')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Open sidebar' }).closest('[inert]')).toBeNull()
+  } finally {
+    document.documentElement.removeAttribute('data-windows-titlebar')
+  }
+})
+
+it('moves focus from a collapsing macOS column to the header opener', () => {
+  document.documentElement.dataset.platform = 'darwin'
+  render(<button data-sidebar-opener>Open navigation</button>)
+  const h = mountShell()
+  screen.getByRole('button', { name: 'Collapse sidebar' }).focus()
+  h.rerender({ collapsed: true, width: 0 })
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Open navigation' }))
+})
+
 it('wires the shell.leading controls to the shared sidebar actions', () => {
   document.documentElement.dataset.platform = 'darwin'
   const toggleSidebar = vi.fn()
