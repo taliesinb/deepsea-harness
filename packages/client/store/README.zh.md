@@ -8,13 +8,21 @@ kind: "package-library"
 
 ## 概述
 
-供 Client 控制器与 renderer 适配器共用的不依赖 React 的 observable 和快照存储基础原语。本包负责同步与 animation-frame 发布、基于 Immer 的更新、浅比较和可选的浏览器持久化；React 钩子的构造仍属于 `@deepseek-ai/dsh-client-ui-renderer`。当 Client 状态必须在不依赖 React 的情况下发布稳定快照时，请使用它。
+供 Client 控制器与 renderer 适配器共用的不依赖 React 的 observable 和快照存储基础原语。本包负责同步与 animation-frame 发布、基于 Immer 的更新、浅比较和可选的浏览器持久化；React 钩子的构造仍属于 `@deepseek-ai/dsh-client-ui-renderer`。当 Client 状态必须在不依赖 React 的情况下发布稳定快照时，请使用它。本包还承载页面呈现模式，它让嵌入会话的持久化状态与其外层框架页面的分开。
 
 ## 目录
 
+- [使用本包](#use-this-package)
 - [模型体验](#model-experience)
 - [已知限制与暂缓事项](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
+
+-----
+
+<a id="use-this-package"></a>
+## 使用本包
+
+当页面 URL 选中一个嵌入会话（`?embed=<sessionId>`）时，Web 启动内核会在任何插件激活前调用 `setEmbedPresentation({ sessionId })`；`embedPresentation()` 把它报告给 shell 插件，并且在其设置期间，`persistenceKey(name)` 会给每个持久化存储名加上 `embed:<sessionId>:` 前缀。嵌入的 shell 与其外层框架页面同源，因而共享 `localStorage`，这个命名空间让它的选择、草稿与偏好与外层页面的分开；普通 shell 保持名称不变。
 
 -----
 
