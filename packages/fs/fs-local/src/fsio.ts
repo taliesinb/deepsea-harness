@@ -600,13 +600,16 @@ function writeIoError(path: string, error: unknown): unknown {
 
 /**
  * Atomically replace a file through a private, synced staging file in the same directory.
- * POSIX protects the staging directory and file with `0o700` and `0o600`. A new Windows file
- * inherits the destination directory's DACL; a replacement copies the existing target's DACL
+ * POSIX protects the staging directory and file with `0o700` and `0o600` while content is written.
+ * A new POSIX file is published with the mode `open(path, 'w')` gives it: the empty temp is created
+ * with `0o666`, so the kernel applies the process umask (or a default ACL) without the process-wide
+ * umask being read and rewritten, and that mode is restored just before publication. A new Windows
+ * file inherits the destination directory's DACL; a replacement copies the existing target's DACL
  * onto the empty temp before writing and preserves the target descriptor at publication.
  * Node write errors become FsError; permission refusals use FS_PERMISSION_DENIED and other I/O uses FS_IO_ERROR.
  * @param absolutePath - destination; missing parent directories are created.
  * @param content - the full UTF-8 text to write.
- * @param mode - POSIX mode to apply, or undefined to retain the new-file default.
+ * @param mode - POSIX mode to apply, or undefined for the new-file creation default.
  * @param signal - cancellation checked before final publication.
  * @param internals - Test hook for pinning temp names and observing the staged file.
  * @param options - `displayPath` names the target in diagnostics (defaults to `absolutePath`);
@@ -649,7 +652,9 @@ export async function writeFileAtomic(
     stagingCreated = true
     await chmod(stagingDir, 0o700)
 
-    handle = await open(tempPath, 'wx', 0o600)
+    const takesCreationMode = mode === undefined && platform !== 'win32'
+    handle = await open(tempPath, 'wx', takesCreationMode ? 0o666 : 0o600)
+    const publicationMode = takesCreationMode ? (await handle.stat()).mode & 0o777 : mode
     await handle.chmod(0o600)
     if (platform === 'win32' && existingDestination) {
       await copyFileDacl(absolutePath, tempPath)
@@ -657,7 +662,7 @@ export async function writeFileAtomic(
     await handle.writeFile(content, { encoding: 'utf8', ...signal ? { signal } : {} })
     await handle.sync()
     await internals.inspectTemp?.({ stagingDir, tempPath })
-    if (mode !== undefined) await handle.chmod(mode)
+    if (publicationMode !== undefined) await handle.chmod(publicationMode)
     await handle.close()
     handle = undefined
 
