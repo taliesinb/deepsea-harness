@@ -20,6 +20,27 @@
   font: 11px/18px var(--dsw-font-family);
 }
 
+/* A floating toolbar (a Markdown code card's): the language and the actions
+   sit at the card's top right, over its first line, instead of in a row of
+   their own. Its own fill hides an unwrapped first line that runs beneath it;
+   wrapped text flows around it (CodeBlock.module.css). `top` centres the 24px
+   actions on the first line of a card's 14px-padded body; the fill reaches
+   the card's right edge, so no scrolled text shows beside the actions. */
+.floating {
+  position: absolute;
+  top: 11px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 0 8px;
+  pointer-events: auto;
+  background: var(--dsl-code-block-background, var(--dsw-alias-markdown-code-block));
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-secondary);
+  font: 11px/18px var(--dsw-font-family);
+}
+
 .heading {
   display: flex;
   align-items: baseline;

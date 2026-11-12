@@ -169,6 +169,10 @@ const LANG_ALIASES = new Map<string, string>([
   ['zsh', 'shellscript'],
   ['json', 'json'],
   ['jsonc', 'json'],
+  // JSON Lines: one JSON value per line, which the JSON grammar colours line by line,
+  // as the shared file table already highlights `.jsonl` and `.ndjson` files.
+  ['jsonl', 'json'],
+  ['ndjson', 'json'],
   ['py', 'python'],
   ['python', 'python'],
   ['rb', 'ruby'],

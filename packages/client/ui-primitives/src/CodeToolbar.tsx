@@ -19,6 +19,12 @@ export interface CodeToolbarLabels {
 /** Display state and callbacks for a code card's toolbar. */
 interface CodeToolbarProps {
   lang?: string | undefined
+  /**
+   * Float at the card's top right instead of taking a row: the language as
+   * written (nothing when there is none, never `codeLabel`) beside the actions.
+   * The owner positions it and keeps its content clear of it.
+   */
+  floating?: boolean | undefined
   title?: string | undefined
   status?: string | undefined
   labels: CodeToolbarLabels
@@ -35,15 +41,20 @@ interface CodeToolbarProps {
  * @param props - Localized labels, current state, and card-owned actions.
  * @returns The shared code-card header.
  */
-export function CodeToolbar({ lang, title, status, labels, copyLabel, copiedLabel, copied, wrapped, onCopy, onWrap }: CodeToolbarProps) {
+export function CodeToolbar({
+  lang, floating = false, title, status, labels, copyLabel, copiedLabel, copied, wrapped, onCopy, onWrap,
+}: CodeToolbarProps) {
   const wrapLabel = wrapped ? labels.unwrapLabel : labels.wrapLabel
   const clipboardLabel = copied ? copiedLabel : copyLabel
+  const language = floating
+    ? (lang?.trim() === '' ? undefined : lang?.trim())
+    : (supportsHighlighting(lang) ? lang : labels.codeLabel)
   return (
-    <div className={css.header} data-code-block-banner>
-      <div className={css.heading}>
-        <span className={css.language}>{supportsHighlighting(lang) ? lang : labels.codeLabel}</span>
+    <div className={floating ? css.floating : css.header} data-code-block-banner data-code-toolbar-floating={floating || undefined}>
+      {(language !== undefined || title !== undefined) && <div className={css.heading}>
+        {language !== undefined && <span className={css.language}>{language}</span>}
         {title !== undefined && <span className={css.title} title={title}>{title}</span>}
-      </div>
+      </div>}
       <div className={css.actions}>
         {status !== undefined && <span className={css.status}>{status}</span>}
         {onWrap !== undefined && <Tooltip label={wrapLabel} side="top" portal>
